@@ -61,3 +61,11 @@ function closeModal(id) {
       }
     });
   };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    firebase.auth().onAuthStateChanged(async user => {
+      if (user) {
+        updateWishlistCount();  // ✅ Call here
+      }
+    });
+  });

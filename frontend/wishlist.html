@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wishlist</title>
+</head>
+<body>
+  <!-- </header> -->
+  <header class="navbar">
+    <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+      <a href="./profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
+    <!-- Main -->
+     <main>
+  <h2>Your Wishlist</h2>
+  <div id="wishlistItems"></div>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  const user = firebase.auth().currentUser;
+  if (!user) return;
+  const email = user.email;
+
+  const res = await fetch(`/wishlist?user_id=${email}`);
+  const items = await res.json();
+
+  const container = document.getElementById("wishlistItems");
+  container.innerHTML = items.map(item => `
+    <div class="wishlist-item">
+      <p>Product ID: ${item.product_id}</p>
+      <button onclick="toggleWishlist(${item.product_id})">Remove</button>
+    </div>
+  `).join("");
+});
+</script>
+
+</body>
+</html>

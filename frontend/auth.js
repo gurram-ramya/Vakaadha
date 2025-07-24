@@ -200,6 +200,7 @@ if (googleLoginBtn) {
           localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
           showUser(user.displayName);
           sendTokenToBackend(idToken);
+          updateWishlistCount();
         });
       })
       .catch((error) => {
@@ -224,6 +225,7 @@ if (form) {
 
     showUser(name);
     sendTokenToBackend(dummyToken);
+    updateWishlistCount();
   });
 }
 
