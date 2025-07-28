@@ -1,34 +1,3 @@
-// document.addEventListener("DOMContentLoaded", () => {
-//   fetch("http://127.0.0.1:5000/products")
-//     .then(res => res.json())
-//     .then(products => {
-//       const container = document.getElementById("product-list");
-//       container.innerHTML = "";
-
-//       products.forEach(product => {
-//         const card = document.createElement("div");
-//         card.className = "product-card";
-
-//         card.innerHTML = `
-//           <div class="product-image">
-//             <img src="${product.image_url}" alt="${product.name}" />
-//           </div>
-//           <div class="product-info">
-//             <h3>${product.name}</h3>
-//             <p>₹${product.price}</p>
-//             <div class="btn-group">
-//               <button class="btn-cart">Add to Cart</button>
-//               <button class="btn-buy">Buy Now</button>
-//             </div>
-//           </div>
-//         `;
-//         container.appendChild(card);
-//       });
-//     })
-//     .catch(err => {
-//       console.error("Failed to load products:", err);
-//     });
-// });
 
 
 document.addEventListener("DOMContentLoaded", () => {

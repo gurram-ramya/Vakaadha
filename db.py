@@ -30,30 +30,7 @@ def init_db():
         )
     ''')
 
-    # Products table
-    # cur.execute('''
-    #     CREATE TABLE IF NOT EXISTS products (
-    #         product_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         name TEXT,
-    #         description TEXT,
-    #         category TEXT,
-    #         price REAL,
-    #         image_url TEXT,
-    #         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    #     )
-    # ''')
 
-    # Inventory table
-    # cur.execute('''
-    #     CREATE TABLE IF NOT EXISTS inventory (
-    #         sku_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         product_id INTEGER,
-    #         size TEXT,
-    #         color TEXT,
-    #         quantity INTEGER,
-    #         FOREIGN KEY(product_id) REFERENCES products(product_id)
-    #     )
-    # ''')
     # Products table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS products (
