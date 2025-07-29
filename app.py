@@ -31,6 +31,9 @@
 from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
 import os
+from db import init_db
+init_db()  # Initialize the database
+
 
 # Initialize app
 app = Flask(__name__, static_folder='frontend', static_url_path='')
@@ -62,6 +65,7 @@ def debug_inventory():
     return jsonify(rows)
 
 
+
 # Register all blueprints
 from routes.auth_routes import auth_bp
 from routes.product_routes import product_bp
@@ -69,6 +73,8 @@ from routes.cart_routes import cart_bp
 from routes.order_routes import order_bp
 from routes.inventory_routes import inventory_bp
 from routes.featured_routes import featured_bp
+from routes.wishlist_routes import wishlist_bp
+
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(product_bp)
@@ -76,6 +82,7 @@ app.register_blueprint(cart_bp)
 app.register_blueprint(order_bp)
 app.register_blueprint(inventory_bp)
 app.register_blueprint(featured_bp)
+app.register_blueprint(wishlist_bp)
 
 # Run
 if __name__ == '__main__':

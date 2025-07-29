@@ -117,5 +117,17 @@ def init_db():
         )
     ''')
 
+    #wishlist table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS wishlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            product_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(user_id),
+            FOREIGN KEY(product_id) REFERENCES products(product_id)
+        )
+    ''')
+
     conn.commit()
     conn.close()

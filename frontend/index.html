@@ -23,7 +23,7 @@
     </nav>
   </header> -->
     <header class="navbar">
-      <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
+      <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
       <input type="checkbox" id="menu-toggle" />
       <label for="menu-toggle" class="menu-icon">&#9776;</label>
       <nav class="nav-links">
@@ -36,8 +36,10 @@
 
   <!-- HERO IMAGE -->
   <section class="hero-image-section" data-aos="zoom-in">
-    <img src="./Images/vakaadha.jpg" alt="Hero Image">
-    <!-- sparkle.css was removed -->
+    <video autoplay muted loop>
+      <source src="./Images/vakaadhavideo.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
   </section>
 
   <!-- FEATURED PRODUCTS -->
@@ -190,7 +192,7 @@
 
           container.innerHTML = products.map((p, idx) => `
             <div class="product-card" data-aos="${idx % 2 === 0 ? 'fade-left' : 'fade-right'}" data-aos-delay="${100 + idx * 100}">
-              <i class="fas fa-heart wishlist-icon"></i>
+              <i class="fas fa-heart wishlist-icon" onclick="handleWishlist(${p.sku_id})"></i>
               <i class="fas fa-share-alt share-icon"></i>
               <div class="product-image">
                 <img src="./Images/${p.image_name}" alt="${p.name}">
@@ -217,5 +219,74 @@
         });
     });
   </script>
+  <script>
+    async function handleWishlist(productId) {
+      const user = firebase.auth().currentUser;
+      if (!user) {
+        alert("Please log in first.");
+        return;
+      }
+
+      const email = user.email;
+
+      // Get current wishlist
+      const res = await fetch(`/wishlist?user_id=${email}`);
+      const items = await res.json();
+      const alreadyInWishlist = items.some(item => item.product_id == productId);
+
+      if (alreadyInWishlist) {
+        await fetch(`/wishlist?user_id=${email}&product_id=${productId}`, {
+          method: "DELETE"
+        });
+        alert("Removed from wishlist");
+      } else {
+        await fetch("/wishlist", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            user_id: email,
+            product_id: productId
+          })
+        });
+        alert("Added to wishlist");
+      }
+
+      updateWishlistCount(); // update count
+      // optional: window.location.href = "wishlist.html";
+    }
+  </script>
+
+  <!-- Firebase and auth setup scripts (should already be present) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="auth.js"></script>
+
+  <!-- Your wishlist count script -->
+  <script>
+    async function updateWishlistCount() {
+      const user = firebase.auth().currentUser;
+      if (!user) return;
+      const res = await fetch(`/wishlist?user_id=${user.email}`);
+      const data = await res.json();
+
+      const countSpan = document.getElementById("wishlistCount");
+      if (countSpan) {
+        countSpan.textContent = data.length;
+      }
+    }
+
+    // ✅ Auto-update wishlist count when user logs in
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        updateWishlistCount();
+      }
+    });
+  </script>
+
+  <!-- Optional: any other script like AOS or main site logic -->
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
