@@ -1,5 +1,14 @@
 
 // ✅ Firebase config
+// const firebaseConfig = {
+//   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
+//   authDomain: "vakaadha.firebaseapp.com",
+//   projectId: "vakaadha",
+//   storageBucket: "vakaadha.appspot.com",
+//   messagingSenderId: "395786980107",
+//   appId: "1:395786980107:web:6678e452707296df56b00e"
+// };
+
 const firebaseConfig = {
   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
   authDomain: "vakaadha.firebaseapp.com",
@@ -40,7 +49,10 @@ if (googleLoginBtn) {
           localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
           showUser(user.displayName);
           sendTokenToBackend(idToken);
-          updateWishlistCount();
+          if (typeof updateWishlistCount === "function") {
+            updateWishlistCount();
+          }
+
         });
       })
       .catch((error) => {
@@ -50,22 +62,75 @@ if (googleLoginBtn) {
   });
 }
 
-// ✅ Custom Login (for testing - not secure)
-const form = document.getElementById("custom-login-form");
-if (form) {
-  form.addEventListener("submit", (e) => {
+
+// ✅ Email/Password Login
+const loginForm = document.getElementById("email-login-form");
+if (loginForm) {
+  loginForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const name = document.getElementById("username").value;
-    const email = document.getElementById("email").value;
+    const email = document.getElementById("login-email").value;
+    const password = document.getElementById("login-password").value;
 
-    const dummyToken = "dummy-id-token-for-dev";
-    localStorage.setItem("loggedInUser", JSON.stringify({
-      name, email, idToken: dummyToken
-    }));
+    auth.signInWithEmailAndPassword(email, password)
+      .then((result) => {
+        const user = result.user;
+        return user.getIdToken().then((idToken) => {
+          const userInfo = {
+            name: user.displayName || "User",
+            email: user.email,
+            idToken: idToken
+          };
+          localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
+          showUser(userInfo.name);
+          sendTokenToBackend(idToken);
+          
+          if (typeof updateWishlistCount === "function") {
+            updateWishlistCount();
+          }
 
-    showUser(name);
-    sendTokenToBackend(dummyToken);
-    updateWishlistCount();
+        });
+      })
+      .catch((error) => {
+        console.error("Email login failed:", error.message);
+        alert("Login failed: " + error.message);
+      });
+  });
+}
+
+// ✅ Email/Password Registration
+const registerForm = document.getElementById("email-register-form");
+if (registerForm) {
+  registerForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = document.getElementById("register-email").value;
+    const password = document.getElementById("register-password").value;
+    const name = document.getElementById("register-name").value;
+
+    auth.createUserWithEmailAndPassword(email, password)
+      .then((result) => {
+        const user = result.user;
+        return user.updateProfile({ displayName: name }).then(() => {
+          return user.getIdToken().then((idToken) => {
+            const userInfo = {
+              name: name,
+              email: email,
+              idToken: idToken
+            };
+            localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
+            showUser(name);
+            sendTokenToBackend(idToken);
+
+            if (typeof updateWishlistCount === "function") {
+              updateWishlistCount();
+            }
+
+          });
+        });
+      })
+      .catch((error) => {
+        console.error("Registration failed:", error.message);
+        alert("Registration failed: " + error.message);
+      });
   });
 }
 

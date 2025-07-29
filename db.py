@@ -94,5 +94,18 @@ def init_db():
         )
     ''')
 
+    #wishlist table 
+
+    cur.execute('''
+
+        CREATE TABLE IF NOT EXISTS wishlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+
+    ''')
+
     conn.commit()
     conn.close()

@@ -1,14 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>wishlist</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wishlist - VAKAADHA</title>
+
+  <!-- CSS + Icons -->
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 </head>
-<body>
-  <!-- </header> -->
+<body style="background-color: #000; color: #fff; font-family: Arial, sans-serif;">
+
+  <!-- ✅ Header -->
   <header class="navbar">
-    <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
+    <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo" /></div>
     <input type="checkbox" id="menu-toggle" />
     <label for="menu-toggle" class="menu-icon">&#9776;</label>
     <nav class="nav-links">
@@ -18,30 +23,31 @@
       <a href="./profile.html"><i class="fas fa-user"></i></a>
     </nav>
   </header>
-    <!-- Main -->
-     <main>
-  <h2>Your Wishlist</h2>
-  <div id="wishlistItems"></div>
-</main>
 
-<script>
-document.addEventListener("DOMContentLoaded", async () => {
-  const user = firebase.auth().currentUser;
-  if (!user) return;
-  const email = user.email;
+  <!-- ✅ Main Content -->
+  <main style="padding: 30px;">
+    <h2 style="text-align: center;">Your Wishlist</h2>
+    <div id="wishlist-container" class="wishlist-grid" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center;"></div>
+  </main>
 
-  const res = await fetch(`/wishlist?user_id=${email}`);
-  const items = await res.json();
+  <!-- ✅ Firebase Auth SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 
-  const container = document.getElementById("wishlistItems");
-  container.innerHTML = items.map(item => `
-    <div class="wishlist-item">
-      <p>Product ID: ${item.product_id}</p>
-      <button onclick="toggleWishlist(${item.product_id})">Remove</button>
-    </div>
-  `).join("");
-});
-</script>
+  <!-- ✅ Firebase Config & Init (if not already included elsewhere) -->
+  <script src="firebase-config.js"></script> <!-- Replace with your actual config if external -->
 
+  <!-- ✅ Wishlist Logic -->
+  <script src="wishlist.js"></script>
+  <script>
+    firebase.auth().onAuthStateChanged((user) => {
+      if (user) {
+        updateWishlistCount();
+        loadWishlist();
+      } else {
+        document.getElementById("wishlist-container").innerHTML = "<p>Please log in to see your wishlist.</p>";
+      }
+    });
+  </script>
 </body>
 </html>
