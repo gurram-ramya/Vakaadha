@@ -1291,3 +1291,61 @@ footer {
   background-color: #212121;
   color: #fff;
 }
+
+
+/* Wishlist Styling*/
+.wishlist-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.wishlist-item {
+  background-color: #111;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px;
+  width: 220px;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.05);
+  transition: transform 0.2s ease;
+}
+
+.wishlist-item:hover {
+  transform: translateY(-5px);
+}
+
+.wishlist-item img {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.wishlist-item h3 {
+  margin: 10px 0 5px;
+  font-size: 18px;
+}
+
+.wishlist-item p {
+  margin: 0 0 10px;
+  color: #aaa;
+}
+
+.wishlist-item button {
+  margin: 5px 4px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  background-color: #2b6cb0;
+  color: white;
+}
+
+.wishlist-item button:last-child {
+  background-color: #e53e3e;
+}
+

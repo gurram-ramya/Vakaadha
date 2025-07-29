@@ -1,25 +1,26 @@
 # db.py
 import sqlite3
 import os
+from flask import g
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'database', 'vakaadha.db')
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
+DB_PATH = os.path.join(os.path.dirname(__file__), 'vakaadha.db')  # Adjusted if 'database/' was incorrect
 
 def get_db_connection():
-    conn = sqlite3.connect('vakaadha.db')
-    conn.row_factory = sqlite3.Row  # Enables dict-like access
-    return conn
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_PATH, timeout=10)  # Optional timeout to wait for locks
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+def close_db_connection(e=None):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def init_db():
-    conn = get_db_connection()
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Users table
+    # Create tables (same as you had before)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,31 +31,6 @@ def init_db():
         )
     ''')
 
-    # Products table
-    # cur.execute('''
-    #     CREATE TABLE IF NOT EXISTS products (
-    #         product_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         name TEXT,
-    #         description TEXT,
-    #         category TEXT,
-    #         price REAL,
-    #         image_url TEXT,
-    #         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    #     )
-    # ''')
-
-    # Inventory table
-    # cur.execute('''
-    #     CREATE TABLE IF NOT EXISTS inventory (
-    #         sku_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         product_id INTEGER,
-    #         size TEXT,
-    #         color TEXT,
-    #         quantity INTEGER,
-    #         FOREIGN KEY(product_id) REFERENCES products(product_id)
-    #     )
-    # ''')
-    # Products table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS products (
             product_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +42,6 @@ def init_db():
         )
     ''')
 
-    # Inventory table (updated)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS inventory (
             sku_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,13 +49,11 @@ def init_db():
             size TEXT,
             color TEXT,
             quantity INTEGER,
-            image_name TEXT, -- NEW
+            image_name TEXT,
             FOREIGN KEY(product_id) REFERENCES products(product_id)
         )
     ''')
-        
 
-    # Cart table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS cart (
             cart_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +65,6 @@ def init_db():
         )
     ''')
 
-    # Orders table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +76,6 @@ def init_db():
         )
     ''')
 
-    # Order Items table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS order_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +88,7 @@ def init_db():
         )
     ''')
 
+<<<<<<< HEAD
     #wishlist table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS wishlist (
@@ -126,6 +98,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(user_id),
             FOREIGN KEY(product_id) REFERENCES products(product_id)
+=======
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS wishlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+>>>>>>> e1085830f5da34fdb44a1513ad1a4e7afe1d2889
         )
     ''')
 
