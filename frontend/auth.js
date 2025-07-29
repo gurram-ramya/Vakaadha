@@ -48,7 +48,7 @@ if (googleLoginBtn) {
           };
           localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
           showUser(user.displayName);
-          sendTokenToBackend(idToken);
+          sendTokenToBackend(idToken, name);
           if (typeof updateWishlistCount === "function") {
             updateWishlistCount();
           }
@@ -82,7 +82,7 @@ if (loginForm) {
           };
           localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
           showUser(userInfo.name);
-          sendTokenToBackend(idToken);
+          sendTokenToBackend(idToken, name);
           
           if (typeof updateWishlistCount === "function") {
             updateWishlistCount();
@@ -118,7 +118,7 @@ if (registerForm) {
             };
             localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
             showUser(name);
-            sendTokenToBackend(idToken);
+            sendTokenToBackend(idToken, name);
 
             if (typeof updateWishlistCount === "function") {
               updateWishlistCount();
@@ -135,7 +135,10 @@ if (registerForm) {
 }
 
 // ✅ Backend login API token POST
-function sendTokenToBackend(idToken) {
+
+
+
+function sendTokenToBackend(idToken, name) {
   fetch('/login', {
     method: 'POST',
     headers: {
