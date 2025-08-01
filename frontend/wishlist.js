@@ -110,7 +110,7 @@ async function addToCartFromWishlist(productId) {
   const res = await fetch("/cart", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: email, product_id: productId, quantity: 1 })
+    body: JSON.stringify({ user_id: email, sku_id: productId, quantity: 1 })
   });
 
   if (res.ok) {

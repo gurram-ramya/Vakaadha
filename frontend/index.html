@@ -155,27 +155,42 @@
       if (current > 1) count.textContent = current - 1;
     }
 
+
+
     async function addToCart(skuId, btn) {
       const qty = parseInt(btn.closest(".product-info").querySelector(".qty-count").textContent);
-      const user = JSON.parse(localStorage.getItem("loggedInUser"));
-      if (!user || !user.idToken) return alert("Please log in to add items.");
+      const user = firebase.auth().currentUser;
+
+      if (!user) {
+        alert("Please log in to add items.");
+        return;
+      }
+
+      const payload = {
+        sku_id: parseInt(skuId),
+        quantity: qty,
+        user_id: user.email  // ✅ Fix: Include user_id here
+      };
+
+      console.log("📦 Payload to /cart:", payload);
 
       const res = await fetch("/cart", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + user.idToken
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify({ sku_id: parseInt(skuId), quantity: qty })
+        body: JSON.stringify(payload)
       });
 
-      if (res.ok) alert("Added to cart!");
-      else alert("Error adding to cart.");
+      if (res.ok) {
+        alert("✅ Added to cart!");
+      } else {
+        const err = await res.json();
+        console.error("❌ Add to cart failed:", err);
+        alert("Error adding to cart: " + (err.error || "Unknown"));
+      }
     }
 
-    function buyNow(skuId) {
-      alert("Buy Now clicked for SKU: " + skuId);
-    }
 
     document.addEventListener("DOMContentLoaded", () => {
       fetch("/featured-products")

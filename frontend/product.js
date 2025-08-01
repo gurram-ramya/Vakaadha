@@ -192,7 +192,7 @@ async function addToCart(productId) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        user_id: user.uid,
+        user_id: user.email,
         sku_id: sku_id,
         quantity: quantity
       })

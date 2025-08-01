@@ -125,8 +125,7 @@ function sendTokenToBackend(idToken, name) {
     .then(res => res.json())
     .then(data => console.log("✅ Backend login success:", data))
     stored.user_id = data.user.user_id;  // 🔁 Save internal ID
-    localStorage.setItem("loggedInUser", JSON.stringify(stored));
-
+    localStorage.setItem("loggedInUser", JSON.stringify(stored))
     .catch(err => console.error("❌ Backend login failed:", err));
 }
 
