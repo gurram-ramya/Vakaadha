@@ -46,6 +46,7 @@ def get_cart():
 @cart_bp.route('/cart', methods=['POST'])
 def add_to_cart():
     data = request.get_json()
+    print("🛒 Incoming cart payload:", data)
     required = ['user_id', 'sku_id', 'quantity']
     if not all(k in data for k in required):
         return jsonify({"error": "Missing fields"}), 400

@@ -1,12 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>wishlist</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wishlist - VAKAADHA</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 </head>
-<body>
-  <!-- </header> -->
+<body style="background-color: #000; color: #fff; font-family: Arial, sans-serif;">
+
+  <!-- Header -->
   <header class="navbar">
     <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
     <input type="checkbox" id="menu-toggle" />
@@ -18,28 +23,25 @@
       <a href="./profile.html"><i class="fas fa-user"></i></a>
     </nav>
   </header>
-    <!-- Main -->
-     <main>
-  <h2>Your Wishlist</h2>
-  <div id="wishlistItems"></div>
-</main>
 
-  <!-- ✅ Firebase Auth SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <!-- Main Wishlist -->
+  <main style="padding: 40px 20px; max-width: 900px; margin: auto;">
+    <h2 style="text-align: center;">Your Wishlist</h2>
+    <div id="wishlist-container" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center;"></div>
+  </main>
 
-  <!-- ✅ Firebase Config & Init (if not already included elsewhere) -->
-  <script src="firebase-config.js"></script> <!-- Replace with your actual config if external -->
-
-  <!-- ✅ Wishlist Logic -->
+  <!-- Firebase Config -->
+  <script src="auth.js"></script>
   <script src="wishlist.js"></script>
+
+  <!-- Load wishlist after auth -->
   <script>
     firebase.auth().onAuthStateChanged((user) => {
       if (user) {
         updateWishlistCount();
         loadWishlist();
       } else {
-        document.getElementById("wishlist-container").innerHTML = "<p>Please log in to see your wishlist.</p>";
+        document.getElementById("wishlist-container").innerHTML = "<p style='text-align:center;'>Please log in to see your wishlist.</p>";
       }
     });
   </script>

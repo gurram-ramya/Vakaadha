@@ -3,11 +3,11 @@ import sqlite3
 import os
 from flask import g
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'vakaadha.db')  # Adjusted if 'database/' was incorrect
+DB_PATH = os.path.join(os.path.dirname(__file__), 'vakaadha.db')
 
 def get_db_connection():
     if 'db' not in g:
-        g.db = sqlite3.connect(DB_PATH, timeout=10)  # Optional timeout to wait for locks
+        g.db = sqlite3.connect(DB_PATH, timeout=10)
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -20,7 +20,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    # Create tables (same as you had before)
+    # Users table still uses internal numeric ID
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,13 +54,13 @@ def init_db():
         )
     ''')
 
+    # ✅ Cart table: user_id is now TEXT (email)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS cart (
             cart_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id TEXT NOT NULL,
             sku_id INTEGER,
             quantity INTEGER,
-            FOREIGN KEY(user_id) REFERENCES users(user_id),
             FOREIGN KEY(sku_id) REFERENCES inventory(sku_id)
         )
     ''')
@@ -68,11 +68,10 @@ def init_db():
     cur.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
+            user_id TEXT NOT NULL,
             total_amount REAL,
             status TEXT,
-            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
+            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -88,24 +87,13 @@ def init_db():
         )
     ''')
 
-<<<<<<< HEAD
-    #wishlist table
+    # ✅ Wishlist table: user_id is now TEXT (email)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS wishlist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            product_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id),
-            FOREIGN KEY(product_id) REFERENCES products(product_id)
-=======
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS wishlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
             product_id INTEGER NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
->>>>>>> e1085830f5da34fdb44a1513ad1a4e7afe1d2889
         )
     ''')
 

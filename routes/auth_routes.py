@@ -22,16 +22,22 @@ auth_bp = Blueprint('auth', __name__)
 @auth_bp.route('/login', methods=['POST'])
 @require_auth
 def login():
-    firebase_user = g.user  # ✅ Get Firebase user info from g
+    firebase_user = g.user
     email = firebase_user.get('email', '')
     uid = firebase_user.get('uid')
 
-    # ✅ Get name from request body
     data = request.get_json()
     name = data.get('name', 'User')
 
+    # 🔁 Get or create user and internal user_id
     user = get_or_create_user(uid, name, email)
+
     return jsonify({
         "message": "Login successful",
-        "user": user
+        "user": {
+            "user_id": user['user_id'],  # ✅ This is the internal INT ID
+            "name": user['name'],
+            "email": user['email']
+        }
     })
+

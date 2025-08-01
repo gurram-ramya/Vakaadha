@@ -59,3 +59,27 @@ def update_quantity(sku_id):
     conn.close()
 
     return jsonify({"message": "Quantity updated"})
+
+# GET /sku
+@inventory_bp.route('/sku', methods=['GET'])
+def get_sku_id():
+    product_id = request.args.get('product_id')
+    size = request.args.get('size')
+    color = request.args.get('color')
+
+    if not product_id or not size or not color:
+        return jsonify({"error": "Missing required query parameters"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT sku_id FROM inventory
+        WHERE product_id=? AND size=? AND color=?
+    """, (product_id, size, color))
+    result = cursor.fetchone()
+    conn.close()
+
+    if result:
+        return jsonify({"sku_id": result[0]})
+    else:
+        return jsonify({"error": "SKU not found"}), 404
