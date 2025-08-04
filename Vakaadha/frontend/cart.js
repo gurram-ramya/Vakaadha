@@ -202,7 +202,7 @@ async function removeFromCart(productId) {
       body: JSON.stringify({ user_id: user.email, product_id: productId })
     });
 
-    
+
     if (res.ok) {
       alert("Removed from cart");
       loadCartItems();
@@ -227,6 +227,6 @@ async function updateCartCount() {
     const badge = document.getElementById("cartCount");
     if (badge) badge.textContent = totalQty;
   } catch (err) {
-    console.error("❌ Failed to update cart count:", err);
+    console.error("Failed to update cart count:", err);
   }
 }
