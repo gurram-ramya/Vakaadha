@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Checkout – VAKAADHA</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="navbar">
+    <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+      <a href="./profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
+
+  <main class="checkout-container">
+    <h2>Checkout</h2>
+
+    <!-- Stepper -->
+    <div class="stepper">
+      <div class="step active" data-step="address">1. Address</div>
+      <div class="step" data-step="payment">2. Payment</div>
+      <div class="step" data-step="confirmation">3. Confirmation</div>
+    </div>
+
+    <!-- Address Selection -->
+    <section id="addressSection">
+      <h3>Shipping Address</h3>
+      <div id="addressList"></div>
+      <button id="addAddressBtn">+ Add New Address</button>
+      <div id="addressFormContainer" style="display:none;"></div>
+      <br/>
+      <button id="continueToPayment">Continue to Payment</button>
+    </section>
+
+    <!-- Payment Section -->
+    <section id="paymentSection" style="display:none;">
+      <h3>Payment Method</h3>
+      <!-- <div id="paymentMethods"></div> -->
+       <div id="paymentMethods"></div>
+
+      <div id="orderSummaryContent"></div>
+      <br/>
+      <button id="backToAddress">← Back</button>
+      <button id="completePayment">Place Order</button>
+    </section>
+
+    <!-- Confirmation -->
+    <section id="confirmationSection" style="display:none;">
+      <h3>✅ Order Placed Successfully!</h3>
+      <div id="orderConfirmationDetails"></div>
+      <a href="orders.html">View My Orders</a>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2025 VAKAADHA. All rights reserved.</p>
+  </footer>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="auth.js"></script>
+
+  <!-- Checkout Logic -->
+  <script src="checkout.js"></script>
+</body>
+</html>
