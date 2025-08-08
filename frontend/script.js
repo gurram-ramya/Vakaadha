@@ -71,3 +71,56 @@ function closeModal(id) {
   });
 
 
+document.querySelectorAll('.add-to-cart-btn').forEach(button => {
+  button.addEventListener('click', async () => {
+    const user = firebase.auth().currentUser;
+    if (!user) {
+      alert('Please login first to add to cart.');
+      return;
+    }
+
+    const userId = user.email;
+    const productId = button.dataset.productId;
+    const productSize = button.dataset.productSize;
+
+    if (!productSize) {
+      alert("Please select a size before adding to cart.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://127.0.0.1:5000/cart', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          product_id: productId,
+          size: productSize
+        })
+      });
+
+      const result = await response.json();
+      alert(result.message || "Added to cart!");
+    } catch (err) {
+      console.error('Error adding to cart:', err);
+      alert("Something went wrong!");
+    }
+  });
+});
+
+// Wishlist message
+function showToast(message, color = "#00ffd5") {
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  toast.style.borderLeftColor = color;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 3000);
+}

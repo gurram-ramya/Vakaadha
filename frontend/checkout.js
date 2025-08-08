@@ -196,7 +196,8 @@ async function completePayment() {
       },
       body: JSON.stringify({
         address,
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        cart_items:products
       })
     });
 

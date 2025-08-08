@@ -1,5 +1,5 @@
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify,g
 import sqlite3
 from utils.auth import require_auth
 
@@ -9,13 +9,70 @@ def get_db_connection():
     return sqlite3.connect('vakaadha.db')
 
 # ✅ POST /orders
+# @order_bp.route('/orders', methods=['POST'])
+# @require_auth
+# def place_order():
+#     user_id = request.user['uid']
+#     data = request.get_json()
+#     address = data.get("address")
+#     payment_method = data.get("payment_method")
+
+#     if not user_id:
+#         return jsonify({"error": "Unauthorized"}), 401
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+
+#     # Get cart items
+#     cursor.execute('''
+#         SELECT cart.sku_id, cart.quantity, products.price
+#         FROM cart
+#         JOIN inventory ON cart.sku_id = inventory.sku_id
+#         JOIN products ON inventory.product_id = products.product_id
+#         WHERE cart.user_id = ?
+#     ''', (user_id,))
+#     cart_items = cursor.fetchall()
+
+#     if not cart_items:
+#         return jsonify({"error": "Cart is empty"}), 400
+
+#     total = sum(qty * price for _, qty, price in cart_items)
+
+#     # Insert into orders
+#     cursor.execute('''
+#         INSERT INTO orders (user_id, total_amount, status)
+#         VALUES (?, ?, ?)
+#     ''', (user_id, total, "PLACED"))
+#     order_id = cursor.lastrowid
+
+#     # Insert order items
+#     for sku_id, qty, price in cart_items:
+#         cursor.execute('''
+#             INSERT INTO order_items (order_id, sku_id, quantity, price)
+#             VALUES (?, ?, ?, ?)
+#         ''', (order_id, sku_id, qty, price))
+
+#     # Clear cart
+#     cursor.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
+#     conn.commit()
+#     conn.close()
+
+#     return jsonify({
+#         "message": "Order placed",
+#         "order_id": order_id,
+#         "total_amount": total
+#     })
+
 @order_bp.route('/orders', methods=['POST'])
 @require_auth
 def place_order():
-    user_id = request.user['uid']
+    from flask import g  # Import g for user context
+
+    user_id = g.user['uid']  # ✅ Use flask.g instead of request.user
     data = request.get_json()
     address = data.get("address")
     payment_method = data.get("payment_method")
+    cart_items = data.get("cart_items")  # Optional – from Buy Now
 
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
@@ -23,37 +80,48 @@ def place_order():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Get cart items
-    cursor.execute('''
-        SELECT cart.sku_id, cart.quantity, products.price
-        FROM cart
-        JOIN inventory ON cart.sku_id = inventory.sku_id
-        JOIN products ON inventory.product_id = products.product_id
-        WHERE cart.user_id = ?
-    ''', (user_id,))
-    cart_items = cursor.fetchall()
+    if cart_items:
+        # ✅ Buy Now Flow – directly using items from frontend
+        final_items = cart_items
+    else:
+        # 🛒 Add to Cart Flow – fetch from DB
+        cursor.execute('''
+            SELECT cart.sku_id, cart.quantity, products.price
+            FROM cart
+            JOIN inventory ON cart.sku_id = inventory.sku_id
+            JOIN products ON inventory.product_id = products.product_id
+            WHERE cart.user_id = ?
+        ''', (user_id,))
+        cart_items_db = cursor.fetchall()
 
-    if not cart_items:
-        return jsonify({"error": "Cart is empty"}), 400
+        if not cart_items_db:
+            return jsonify({"error": "Cart is empty"}), 400
 
-    total = sum(qty * price for _, qty, price in cart_items)
+        final_items = [
+            {"sku_id": sku_id, "qty": qty, "price": price}
+            for (sku_id, qty, price) in cart_items_db
+        ]
 
-    # Insert into orders
+    total = sum(item['qty'] * item['price'] for item in final_items)
+
+    # 🧾 Insert into orders
     cursor.execute('''
         INSERT INTO orders (user_id, total_amount, status)
         VALUES (?, ?, ?)
     ''', (user_id, total, "PLACED"))
     order_id = cursor.lastrowid
 
-    # Insert order items
-    for sku_id, qty, price in cart_items:
+    # 🧾 Insert order items
+    for item in final_items:
         cursor.execute('''
             INSERT INTO order_items (order_id, sku_id, quantity, price)
             VALUES (?, ?, ?, ?)
-        ''', (order_id, sku_id, qty, price))
+        ''', (order_id, item['sku_id'], item['qty'], item['price']))
 
-    # Clear cart
-    cursor.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
+    # 🧹 Clear cart only if it's a cart-based order
+    if not cart_items:
+        cursor.execute("DELETE FROM cart WHERE user_id=?", (user_id,))
+
     conn.commit()
     conn.close()
 
@@ -64,11 +132,12 @@ def place_order():
     })
 
 
+
 # ✅ GET /orders (list all orders for logged-in user)
 @order_bp.route('/orders', methods=['GET'])
 @require_auth
 def get_user_orders():
-    user_id = request.user['uid']
+    user_id = g.user['uid']
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -98,7 +167,7 @@ def get_user_orders():
 @order_bp.route('/orders/<int:order_id>', methods=['GET'])
 @require_auth
 def get_order_details(order_id):
-    user_id = request.user['uid']
+    user_id = g.user['uid']
     conn = get_db_connection()
     cursor = conn.cursor()
 
