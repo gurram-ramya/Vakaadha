@@ -1,14 +1,4 @@
-
 // ✅ Firebase config
-// const firebaseConfig = {
-//   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
-//   authDomain: "vakaadha.firebaseapp.com",
-//   projectId: "vakaadha",
-//   storageBucket: "vakaadha.appspot.com",
-//   messagingSenderId: "395786980107",
-//   appId: "1:395786980107:web:6678e452707296df56b00e"
-// };
-
 const firebaseConfig = {
   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
   authDomain: "vakaadha.firebaseapp.com",
@@ -32,6 +22,26 @@ window.onload = () => {
   }
 };
 
+firebase.auth().onAuthStateChanged(async user => {
+  if (user) {
+    const token = await user.getIdToken();
+    const userInfo = {
+      name: user.displayName || "User",
+      email: user.email,
+      idToken: token
+    };
+    localStorage.setItem("loggedInUser", JSON.stringify(userInfo));
+    showUser(userInfo.name);
+    updateWishlistCount?.();
+    updateCartCount?.();
+  } else {
+    localStorage.removeItem("loggedInUser");
+    document.getElementById("user-info").style.display = "none";
+    document.getElementById("login-section").style.display = "block";
+  }
+});
+
+
 // ✅ Google Sign-In
 const googleLoginBtn = document.getElementById("google-login");
 if (googleLoginBtn) {
@@ -52,7 +62,9 @@ if (googleLoginBtn) {
           if (typeof updateWishlistCount === "function") {
             updateWishlistCount();
           }
-
+          // window.location.href = "index.html"; // Redirect to home page after login
+        //window.location.reload(); // Reload the page to update UI
+        showToastAndRedirect("Login successful, redirecting...", "index.html");
         });
       })
       .catch((error) => {
@@ -87,7 +99,8 @@ if (loginForm) {
           if (typeof updateWishlistCount === "function") {
             updateWishlistCount();
           }
-
+          // window.location.href = "index.html"; // Redirect to home page after login
+          showToastAndRedirect("Login successful, redirecting...", "index.html");
         });
       })
       .catch((error) => {
@@ -123,7 +136,8 @@ if (registerForm) {
             if (typeof updateWishlistCount === "function") {
               updateWishlistCount();
             }
-
+            // window.location.href = "index.html"; // Redirect to home page after registration
+            showToastAndRedirect("Registration successful, redirecting...", "index.html");
           });
         });
       })
@@ -139,6 +153,8 @@ if (registerForm) {
 
 
 function sendTokenToBackend(idToken, name) {
+  //i am getting error here in the console
+  console.log("Sending token to backend:", idToken, name);
   fetch('/login', {
     method: 'POST',
     headers: {
@@ -172,4 +188,31 @@ function logout() {
     localStorage.removeItem("loggedInUser");
     location.reload();
   });
+}
+
+
+// ✅ Toast notification
+function showToastAndRedirect(message, redirectUrl) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = "show";
+  setTimeout(() => {
+    toast.className = toast.className.replace("show", "");
+    window.location.href = redirectUrl;
+  }, 2000); // 2 seconds delay
+}
+
+
+
+function toggleRegisterModal() {
+  const modal = document.getElementById("registerModal");
+  modal.style.display = modal.style.display === "block" ? "none" : "block";
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+  const modal = document.getElementById("registerModal");
+  if (event.target === modal) {
+    modal.style.display = "none";
+  }
 }

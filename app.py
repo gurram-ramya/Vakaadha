@@ -44,6 +44,7 @@ from routes.cart_routes import cart_bp
 from routes.order_routes import order_bp
 from routes.inventory_routes import inventory_bp
 from routes.featured_routes import featured_bp
+from routes.wishlist_routes import wishlist_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(product_bp)

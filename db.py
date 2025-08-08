@@ -57,6 +57,8 @@ def init_db():
     cur.execute('''
         CREATE TABLE IF NOT EXISTS cart (
             cart_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id VARCHAR(255),
+            size VARCHAR(50),
             user_id INTEGER,
             sku_id INTEGER,
             quantity INTEGER,
@@ -88,24 +90,15 @@ def init_db():
         )
     ''')
 
-<<<<<<< HEAD
-    #wishlist table
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS wishlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            product_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(user_id),
-            FOREIGN KEY(product_id) REFERENCES products(product_id)
-=======
+    # wishlist table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS wishlist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             product_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
->>>>>>> e1085830f5da34fdb44a1513ad1a4e7afe1d2889
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(user_id),
+            FOREIGN KEY(product_id) REFERENCES products(product_id)
         )
     ''')
 

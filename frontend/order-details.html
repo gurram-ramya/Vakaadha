@@ -5,21 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Order Details – VAKAADHA</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet" />
 </head>
 <body>
-  <header>
-    <div class="logo">VAKAADHA</div>
-    <nav>
-      <a href="index.html">Home</a>
-      <a href="collections.html">Collections</a>
-      <a href="cart.html">Cart</a>
-      <a href="orders.html">My Orders</a>
-    </nav>
-  </header>
+    <header class="navbar">
+      <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
+      <input type="checkbox" id="menu-toggle" />
+      <label for="menu-toggle" class="menu-icon">&#9776;</label>
+      <nav class="nav-links">
+        <a href="./index.html"><i class="fas fa-house"></i></a>
+        <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+        <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+        <a href="./profile.html"><i class="fas fa-user"></i></a>
+      </nav>
+    </header>
 
   <main>
     <h2 class="page-title">Order Details</h2>
-    <div id="orderDetails" class="order-details-container">
+    <div id="orderDetailsContainer" class="order-details-container">
       <p>Loading...</p>
     </div>
   </main>

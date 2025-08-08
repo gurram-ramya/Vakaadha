@@ -1,6 +1,3 @@
-
-
-
 document.addEventListener("DOMContentLoaded", async () => {
   const user = JSON.parse(localStorage.getItem("loggedInUser"));
   if (!user || !user.idToken) {

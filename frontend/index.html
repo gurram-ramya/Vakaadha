@@ -11,17 +11,6 @@
 </head>
 <body>
   <!-- HEADER -->
-  <!-- <header class="navbar" data-aos="fade-down">
-    <div class="logo"><img src="./Images/logo.jpg" alt="Logo"></div>
-    <input type="checkbox" id="menu-toggle" />
-    <label for="menu-toggle" class="menu-icon">&#9776;</label>
-    <nav class="nav-links">
-      <a href="index.html"><i class="fas fa-house"></i></a>
-      <a href="#"><i class="fas fa-heart"></i></a>
-      <a href="cart.html"><i class="fas fa-shopping-cart"></i></a>
-      <a href="profile.html"><i class="fas fa-user"></i></a>
-    </nav>
-  </header> -->
     <header class="navbar">
       <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
       <input type="checkbox" id="menu-toggle" />
@@ -154,11 +143,34 @@
       const current = parseInt(count.textContent);
       if (current > 1) count.textContent = current - 1;
     }
+    async function addToCart(btn) {
+      const qty = parseInt(
+        btn.closest(".product-info").querySelector(".qty-count").textContent
+      );
 
-    async function addToCart(skuId, btn) {
-      const qty = parseInt(btn.closest(".product-info").querySelector(".qty-count").textContent);
       const user = JSON.parse(localStorage.getItem("loggedInUser"));
-      if (!user || !user.idToken) return alert("Please log in to add items.");
+      if (!user || !user.idToken || !user.email) {
+        // alert("Please log in to add items to the cart.");
+        showToast("Please log in to add items to the cart", "#ff3b3b");
+        return;
+      }
+
+      const productId = btn.getAttribute("data-product-id");
+      const sizeSelect = btn.closest(".product-info").querySelector(".product-size");
+      const size = sizeSelect ? sizeSelect.value : "";
+
+      if (!productId || !size) {
+        // alert("Missing product ID or size.");
+        showToast("Missing product ID Or Size", "#ff3b3b");
+        return;
+      }
+
+      const payload = {
+        user_id: user.email,           // ⬅ Required by your backend
+        product_id: parseInt(productId),
+        quantity: qty,
+        size: size
+      };
 
       const res = await fetch("/cart", {
         method: "POST",
@@ -166,18 +178,29 @@
           "Content-Type": "application/json",
           "Authorization": "Bearer " + user.idToken
         },
-        body: JSON.stringify({ sku_id: parseInt(skuId), quantity: qty })
+        body: JSON.stringify(payload)
       });
 
-      if (res.ok) alert("Added to cart!");
-      else alert("Error adding to cart.");
+      const result = await res.json();
+      if (res.ok) {
+        showToast("Added to cart!");
+        updateCartCount();
+        updateCartCount(); // optional
+      } else {
+        // alert("Failed to add to cart: " + (result.error || "Unknown error"));
+        showToast("Failed to add to cart", "#ff3b3b");
+      }
     }
 
-    function buyNow(skuId) {
-      alert("Buy Now clicked for SKU: " + skuId);
-    }
+    document.addEventListener("DOMContentLoaded", async() => {
+      let userWishlist = [];
 
-    document.addEventListener("DOMContentLoaded", () => {
+      const user = firebase.auth().currentUser;
+      if (user) {
+        const res = await fetch(`/wishlist?user_id=${user.email}`);
+        userWishlist = await res.json();
+      }
+
       fetch("/featured-products")
         .then(res => {
           if (!res.ok) throw new Error("API error");
@@ -190,28 +213,40 @@
             return;
           }
 
-          container.innerHTML = products.map((p, idx) => `
-            <div class="product-card" data-aos="${idx % 2 === 0 ? 'fade-left' : 'fade-right'}" data-aos-delay="${100 + idx * 100}">
-              <i class="fas fa-heart wishlist-icon" onclick="handleWishlist(${p.sku_id})"></i>
-              <i class="fas fa-share-alt share-icon"></i>
-              <div class="product-image">
-                <img src="./Images/${p.image_name}" alt="${p.name}">
-              </div>
-              <div class="product-info">
-                <h3>${p.name}</h3>
-                <p>₹${p.price.toFixed(2)}</p>
-                <div class="quantity-selector">
-                  <button class="qty-btn" onclick="decrement(this)">−</button>
-                  <span class="qty-count">1</span>
-                  <button class="qty-btn" onclick="increment(this)">+</button>
+          container.innerHTML = products.map((p, idx) => {
+              const isWishlisted = userWishlist.some(item => item.product_id === p.sku_id);
+              return `
+                <div class="product-card" data-aos="${idx % 2 === 0 ? 'fade-left' : 'fade-right'}" data-aos-delay="${100 + idx * 100}">
+                  <i class="fas fa-heart wishlist-icon ${isWishlisted ? 'active' : ''}" onclick="handleWishlist(this, ${p.sku_id})"></i>
+                  <i class="fas fa-share-alt share-icon"></i>
+                  <div class="product-image">
+                    <img src="./Images/${p.image_name}" alt="${p.name}">
+                  </div>
+                  <div class="product-info">
+                    <h3>${p.name}</h3>
+                    <p>₹${p.price.toFixed(2)}</p>
+                    <div class="quantity-selector">
+                      <button class="qty-btn" onclick="decrement(this)">−</button>
+                      <span class="qty-count">1</span>
+                      <button class="qty-btn" onclick="increment(this)">+</button>
+                    </div>
+                    <div class="size-and-actions">
+                      <select class="product-size">
+                        <option value="">Select Size</option>
+                        <option value="S">S</option>
+                        <option value="M">M</option>
+                        <option value="L">L</option>
+                        <option value="XL">XL</option>
+                      </select>
+                      <div class="btn-group side-by-side">
+                        <button class="btn-cart add-to-cart-btn" data-product-id="${p.sku_id}" onclick="addToCart(this)">Add to Cart</button>
+                        <button class="btn-buy" onclick="buyNow('${p.sku_id}')">Buy Now</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="btn-group side-by-side">
-                  <button class="btn-cart" onclick="addToCart('${p.sku_id}', this)">Add to Cart</button>
-                  <button class="btn-buy" onclick="buyNow('${p.sku_id}')">Buy Now</button>
-                </div>
-              </div>
-            </div>
-          `).join("");
+              `;
+            }).join("");
         })
         .catch(err => {
           console.error("Product fetch error:", err);
@@ -220,49 +255,73 @@
     });
   </script>
   <script>
-    async function handleWishlist(productId) {
+    async function handleWishlist(icon,productId) {
       const user = firebase.auth().currentUser;
       if (!user) {
-        alert("Please log in first.");
+        // alert("Please log in first.");
+        showToast("Please log in first", "#ff3b3b");
         return;
       }
 
       const email = user.email;
 
       // Get current wishlist
-      const res = await fetch(`/wishlist?user_id=${email}`);
-      const items = await res.json();
-      const alreadyInWishlist = items.some(item => item.product_id == productId);
+      // const res = await fetch(`/wishlist?user_id=${email}`);
+      // const items = await res.json();
+      // const alreadyInWishlist = items.some(item => item.product_id == productId);
 
-      if (alreadyInWishlist) {
-        await fetch(`/wishlist?user_id=${email}&product_id=${productId}`, {
-          method: "DELETE"
-        });
-        alert("Removed from wishlist");
-      } else {
-        await fetch("/wishlist", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            user_id: email,
-            product_id: productId
-          })
-        });
-        alert("Added to wishlist");
+      // if (alreadyInWishlist) {
+      //   await fetch(`/wishlist?user_id=${email}&product_id=${productId}`, {
+      //     method: "DELETE"
+      //   });
+      //   // icon.classList.remove("active");
+      //   alert("Removed from wishlist");
+      // } else {
+      //   await fetch("/wishlist", {
+      //     method: "POST",
+      //     headers: {
+      //       "Content-Type": "application/json"
+      //     },
+      //     body: JSON.stringify({
+      //       user_id: email,
+      //       product_id: productId
+      //     })
+      //   });
+      //   icon.classList.add("active");
+      //   alert("Added to wishlist");
+      // }
+
+      // updateWishlistCount(); // update count
+      // window.location.href = "wishlist.html";
+      try {
+        const res = await fetch(`/wishlist?user_id=${email}`);
+        const items = await res.json();
+        const isInWishlist = items.some(item => item.product_id == productId);
+
+        if (isInWishlist) {
+          await fetch(`/wishlist?user_id=${email}&product_id=${productId}`, { method: "DELETE" });
+          icon.classList.remove("active");
+          // alert("Removed from wishlist");
+          showToast("Removed from wishlist", "#ff3b3b");
+        } else {
+          await fetch("/wishlist", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: email, product_id: productId })
+          });
+          icon.classList.add("active");
+          // alert("Added to wishlist");
+          showToast("Added to wishlist");
+        }
+
+        updateWishlistCount();
+      } catch (err) {
+        console.error("Wishlist error:", err);
+        // alert("Failed to update wishlist.");
+        showToast("Failed to update wishlist", "#ff3b3b");
       }
-
-      updateWishlistCount(); // update count
-      // optional: window.location.href = "wishlist.html";
     }
   </script>
-
-  <!-- Firebase and auth setup scripts (should already be present) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script src="auth.js"></script>
-
   <!-- Your wishlist count script -->
   <script>
     async function updateWishlistCount() {
@@ -284,9 +343,68 @@
       }
     });
   </script>
+  <script>
+    function buyNow(skuId) {
+    const user = JSON.parse(localStorage.getItem("loggedInUser"));
+    if (!user || !user.email) {
+      // alert("Please log in to continue.");
+      showToast("Please log in to continue", "#ff3b3b");
+      window.location.href = "profile.html";
+      return;
+    }
+
+    const card = document.querySelector(`.add-to-cart-btn[data-product-id="${skuId}"]`).closest(".product-card");
+    const name = card.querySelector("h3").textContent;
+    const price = parseFloat(card.querySelector("p").textContent.replace("₹", ""));
+    const img = card.querySelector("img").getAttribute("src").split("/").pop();
+    const qty = parseInt(card.querySelector(".qty-count").textContent);
+    const size = card.querySelector(".product-size").value;
+
+    if (!size) {
+      // alert("Please select a size before buying.");
+      showToast("Please select a size before", "#ff3b3b");
+      return;
+    }
+
+    const product = {
+      sku_id: parseInt(skuId),
+      name,
+      price,
+      qty,
+      size,
+      img
+    };
+
+    sessionStorage.setItem("checkoutProducts", JSON.stringify([product]));
+    window.location.href = "checkout.html";
+  }
+
+    function openModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (modal) {
+        modal.style.display = "block";
+      }
+    }
+
+    function closeModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (modal) {
+        modal.style.display = "none";
+      }
+    }
+
+    // Close modals when clicking outside
+    window.onclick = function(event) {
+      if (event.target.classList.contains("modal")) {
+        event.target.style.display = "none";
+      }
+    };
+
+  </script>
 
   <!-- Optional: any other script like AOS or main site logic -->
   <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-  <script src="script.js"></script>
+  <div id="toast-container"></div>
+
 </body>
 </html>

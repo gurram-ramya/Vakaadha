@@ -20,7 +20,7 @@ async function loadCart() {
       renderCartItems(data);
     })
     .catch(err => {
-      console.error("❌ Failed to fetch cart:", err);
+      // console.error("❌ Failed to fetch cart:", err);
       document.getElementById("cartItems").innerHTML = `<p style="color:red;">Could not load cart.</p>`;
     });
 }

@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>wishlist</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet" />
 </head>
 <body>
   <!-- </header> -->
   <header class="navbar">
-    <div class="logo"><img src="./Images/logo.jpeg.jpg" alt="VAKAADHA Logo"></div>
+    <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
     <input type="checkbox" id="menu-toggle" />
     <label for="menu-toggle" class="menu-icon">&#9776;</label>
     <nav class="nav-links">
@@ -20,16 +23,17 @@
   </header>
     <!-- Main -->
      <main>
-  <h2>Your Wishlist</h2>
-  <div id="wishlistItems"></div>
+  <h2 style="text-align: center;">Your Wishlist</h2>
+  <div id="wishlist-container"></div>
 </main>
 
   <!-- ✅ Firebase Auth SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+ <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="auth.js"></script>
 
   <!-- ✅ Firebase Config & Init (if not already included elsewhere) -->
-  <script src="firebase-config.js"></script> <!-- Replace with your actual config if external -->
+  <!-- <script src="firebase-config.js"></script> Replace with your actual config if external -->
 
   <!-- ✅ Wishlist Logic -->
   <script src="wishlist.js"></script>
