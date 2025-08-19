@@ -65,8 +65,8 @@ pnpm-debug.log*
 .vite/
 
 # --- Media & uploads (managed by app, not source) ---
-media/
-static/uploads/
+# media/
+# static/uploads/
 
 # --- Project-specific secrets & editor cruft ---
 firebase-adminsdk.json
