@@ -494,7 +494,7 @@ def main():
         with con:  # transactional
             exec_script(con, DDL_CORE)
 
-            # Additive column for public order tracking
+            # Additive column for public order tracking (must be before its index)
             add_column_if_missing(con, "orders", "order_no", "TEXT")
             create_index_if_missing(
                 con,
