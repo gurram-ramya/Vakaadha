@@ -1,0 +1,252 @@
+Vakaadha — Database Schema & Backend Status
+1) Overview
+
+Local-first ecommerce app (Flask + vanilla JS). SQLite is the only datastore; no cloud dependencies. Schema changes happen only via scripts/init_schema.py. App code obtains a per-request DB connection via db.py.
+
+Key guarantees
+
+Additive, backward-compatible migrations (no destructive changes).
+
+UTC timestamps via DATETIME DEFAULT (datetime('now')).
+
+Money in cents (INTEGER), no floats.
+
+Local media served from /media/.
+
+2) Paths & files
+
+scripts/init_schema.py — Creates/updates schema idempotently, seeds demo data, optionally sets up FTS5.
+
+db.py — Per-request SQLite connection helper for Flask (PRAGMAs, transactions, helpers).
+
+__init__.py (your app factory) — Calls init_db_for_app(app) and sets DATABASE_PATH.
+
+Recommended DB file location: repo root vakaadha.db (default). You can override with app.config["DATABASE_PATH"].
+
+3) What’s implemented (this update)
+Core (kept; extended with FKs & indexes)
+
+users, products, product_variants, inventory, carts, cart_items, orders, order_items, wishlist, addresses, product_images
+→ Added sensible FOREIGN KEY actions and indexes (e.g., product_variants(product_id, price_cents), color/size, orders by user/date).
+
+New features (schema-first)
+
+Rich Product Details
+
+product_details(product_id PK/FK, long_description, specs_json, care_html).
+
+Faceted Filters & Search
+
+attributes(name UNIQUE) + product_attributes(product_id, attribute_id, value, PK(...)).
+
+Indexes on (attribute_id, value) and product_id.
+
+Price/color/size indexes on product_variants.
+
+Product Reviews & Helpful Votes
+
+reviews (rating 1-5, title/body, helpful_count, status visible|hidden|pending, UNIQUE(product_id,user_id)).
+
+review_votes(review_id,user_id,vote ∈ {-1,1}) + triggers to keep helpful_count accurate.
+
+Size Guides
+
+size_guides(guide_id, category, product_id UNIQUE, title, html, updated_at) with a partial unique index enforcing one guide per category when product_id is NULL.
+
+Discounts/Vouchers
+
+vouchers(code UNIQUE, kind 'percent|fixed', value_cents rules, min_cart_cents, validity, usage caps, active)
+
+Scoping via voucher_products(voucher_id, product_id) and voucher_categories(voucher_id, category).
+
+Usage via voucher_redemptions(voucher_id, user_id, order_id, used_at) with uniqueness per order.
+
+Order Tracking
+
+shipments(order_id, carrier, tracking_no UNIQUE, status) + shipment_events(shipment_id, status, note, event_time).
+
+Optional public lookup: additive column orders.order_no TEXT + partial unique index (non-NULL only).
+
+Optional FTS5 (fast text search)
+
+products_fts virtual table over name, description, long_description with sync triggers on products and product_details.
+
+If FTS5 isn’t available, script logs a warning and continues; app falls back to LIKE.
+
+Seed data (for demo/testing)
+
+Demo user, 2 products, product details, attributes, 3 variants + inventory, one category size guide, a WELCOME10 voucher (10% apparel), a demo paid order (VA-10001), shipment + events, and a redemption record.
+
+4) Entity relationships (brief)
+
+users 1—* carts, orders, reviews, review_votes, voucher_redemptions, addresses
+
+products 1—* product_variants, product_images, reviews, product_attributes; 1—1 product_details; 0..1—1 size_guides (per-product)
+
+product_variants 1—1 inventory; — via order_items, cart_items
+
+attributes — product_attributes
+
+orders 1—* order_items, shipments, voucher_redemptions
+
+shipments 1—* shipment_events
+
+5) Migrations policy
+
+Idempotent creation with CREATE TABLE/INDEX IF NOT EXISTS.
+
+Additive columns guarded via PRAGMA table_info before ALTER TABLE ADD COLUMN.
+
+No destructive changes to existing core tables.
+
+6) Code snapshots (already provided/committed)
+scripts/init_schema.py
+
+Creates/updates all tables above.
+
+Adds orders.order_no if missing; creates partial unique index on it.
+
+Installs FTS5 table + triggers (inside try/except).
+
+Seeds demo data.
+
+Wraps execution in a transaction, sets PRAGMA foreign_keys = ON.
+
+db.py (per-request helper)
+
+Opens one SQLite connection per Flask request; PRAGMAs: foreign_keys=ON, journal_mode=WAL, synchronous=NORMAL, busy_timeout=5000.
+
+Helpers: query_one, query_all, query_scalar, exists, execute, executemany, transaction() context manager, pagination & Row→dict utilities.
+
+Optional search_products_text() uses FTS5 if present; otherwise LIKE fallback.
+
+__init__.py (app factory)
+
+Calls init_db_for_app(app) and sets DATABASE_PATH (default to repo root vakaadha.db).
+
+CORS, security headers, error handlers, blueprint registration unchanged.
+
+7) How to (re)initialize locally
+# From repo root
+python scripts/init_schema.py
+
+# Optional: inspect schema
+sqlite3 vakaadha.db ".schema products"
+sqlite3 vakaadha.db "PRAGMA foreign_key_check;"
+sqlite3 vakaadha.db "PRAGMA integrity_check;"
+
+8) Useful queries (copy/paste)
+Catalog filter (category + price)
+EXPLAIN QUERY PLAN
+SELECT p.product_id
+FROM products p
+JOIN product_variants v ON v.product_id = p.product_id
+WHERE p.category = 'apparel' AND v.price_cents BETWEEN 1500 AND 2500
+LIMIT 24 OFFSET 0;
+
+Facet filter (attribute)
+SELECT p.product_id, p.name
+FROM product_attributes pa
+JOIN attributes a ON a.attribute_id = pa.attribute_id
+JOIN products p ON p.product_id = pa.product_id
+WHERE a.name='material' AND pa.value='100% Cotton';
+
+Reviews summary
+SELECT product_id, AVG(rating) AS avg_rating, COUNT(*) AS review_count
+FROM reviews
+WHERE status='visible'
+GROUP BY product_id;
+
+Voucher applicability (category scope)
+SELECT v.voucher_id, v.code
+FROM vouchers v
+JOIN voucher_categories vc ON vc.voucher_id = v.voucher_id
+WHERE vc.category='apparel'
+  AND v.active=1
+  AND (v.starts_at IS NULL OR v.starts_at <= datetime('now'))
+  AND (v.ends_at   IS NULL OR v.ends_at   >= datetime('now'));
+
+Shipment timeline
+SELECT s.tracking_no, e.status, e.note, e.event_time
+FROM shipments s
+JOIN shipment_events e USING (shipment_id)
+WHERE s.tracking_no='TRACK123456US'
+ORDER BY e.event_time;
+
+FTS search (if enabled)
+SELECT rowid AS product_id, name
+FROM products_fts
+WHERE products_fts MATCH 'tee*'
+LIMIT 24;
+
+9) Indexes & performance (short)
+
+products(category), product_variants(product_id, price_cents), plus color/size indexes → catalog filtering & pagination.
+
+product_attributes(attribute_id, value) → fast facet lookups; product_attributes(product_id) → hydrate product facets.
+
+reviews(product_id, created_at) → paginated review loads.
+
+shipments(order_id) and shipment_events(shipment_id, event_time) → quick shipment timelines.
+
+voucher_redemptions(voucher_id, order_id) (unique) → prevents double-apply per order efficiently.
+
+Partial unique size_guides(category) WHERE product_id IS NULL → single category guide.
+
+10) Compatibility notes
+
+No core table drops/renames.
+
+New column: orders.order_no TEXT (nullable) to support public tracking by order number; uniqueness enforced only when not NULL.
+
+Existing routes continue to function; new routes can rely on added tables immediately.
+
+11) Testing checklist
+
+python scripts/init_schema.py → “✅ Schema initialized …”
+
+sqlite3 vakaadha.db "PRAGMA foreign_key_check;" → no rows.
+
+sqlite3 vakaadha.db "PRAGMA integrity_check;" → ok.
+
+Confirm seeds: SELECT name FROM products;
+
+Sample filters and FTS query (above).
+
+Insert a review + vote; verify helpful_count updates.
+
+Create a cart/order; apply WELCOME10; ensure a second redemption for the same order is blocked.
+
+Add a new shipment event; timeline ordering correct.
+
+Set an order_no and verify uniqueness on non-NULL values.
+
+Run your API endpoints to ensure reads/writes succeed under WAL.
+
+12) Future work (tracked)
+
+Media variants table (alt sizes, precomputed thumbnails) if needed.
+
+Review moderation hooks in admin routes (toggle status).
+
+Attribute dictionary management UI.
+
+Soft delete flags for content moderation (if required by UX).
+
+Idempotent data backfills for production migrations.
+
+13) Changelog (this drop)
+
+Added: product_details, attributes, product_attributes, reviews, review_votes (+ triggers), size_guides, vouchers, voucher_products, voucher_categories, voucher_redemptions, shipments, shipment_events.
+
+Added: column orders.order_no + partial unique index.
+
+Strengthened: FKs and indexes across core tables.
+
+Optional: FTS5 virtual table + sync triggers.
+
+Updated: db.py (PRAGMAs, helpers, FTS-aware search).
+
+__init__.py: ensure DATABASE_PATH is set and register teardown hook via init_db_for_app(app).
+
+End of document.
