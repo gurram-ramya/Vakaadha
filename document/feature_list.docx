@@ -1,0 +1,86 @@
+Full feature list (based on your plan & schema)
+Core (must-have)
+
+Catalog & Search
+
+Product listing (with filters: category, price, attributes, search).
+
+Pagination + facets (counts).
+
+Product detail (images, variants, details, review summary).
+
+Cart & Checkout
+
+Add/update/remove items.
+
+View cart with totals.
+
+Checkout flow: address + payment placeholders.
+
+Create orders.
+
+Orders
+
+Order list (for logged-in user).
+
+Order detail (items, status, totals).
+
+Shipment timeline (if shipped).
+
+Wishlist
+
+Add/remove products.
+
+View wishlist.
+
+Authentication
+
+Dev-mode bearer tokens.
+
+Users & admin roles.
+
+Extended features (you defined in schema)
+
+Product Reviews
+
+Submit review (one per product per user).
+
+View reviews (with pagination).
+
+Helpful votes.
+
+Product Details (rich content)
+
+Long description, specs, care instructions.
+
+Filters & Search Enhancements
+
+Attribute filters (color, size).
+
+FTS-backed text search (optional).
+
+Size Guide
+
+Category-level and product-level.
+
+Modal UI.
+
+Discounts & Vouchers
+
+Apply/remove voucher in cart.
+
+Validate eligibility & usage limits.
+
+Discount totals in checkout.
+
+Order Tracking
+
+Public tracking page via order_no + email.
+
+Private shipments per order for user.
+
+Admin Tools
+
+CRUD for products, variants, images, attributes, size guides, vouchers.
+
+Restricted by is_admin.

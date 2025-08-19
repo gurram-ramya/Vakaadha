@@ -299,11 +299,12 @@ CREATE TABLE IF NOT EXISTS shipment_events (
 CREATE INDEX IF NOT EXISTS idx_shipment_events_shipment_time ON shipment_events(shipment_id, event_time);
 """
 
+# ---- FTS5 with proper contentless "delete" operations ----
 DDL_FTS = """
--- Optional FTS5 (guarded in Python)
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts
 USING fts5(name, description, long_description, content='');
 
+-- Products
 CREATE TRIGGER IF NOT EXISTS trg_products_ai_fts AFTER INSERT ON products BEGIN
   INSERT INTO products_fts(rowid, name, description, long_description)
   VALUES (NEW.product_id, NEW.name, NEW.description,
@@ -311,33 +312,32 @@ CREATE TRIGGER IF NOT EXISTS trg_products_ai_fts AFTER INSERT ON products BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_products_au_fts AFTER UPDATE ON products BEGIN
-  DELETE FROM products_fts WHERE rowid = OLD.product_id;
+  INSERT INTO products_fts(products_fts, rowid) VALUES('delete', OLD.product_id);
   INSERT INTO products_fts(rowid, name, description, long_description)
-  SELECT NEW.product_id, NEW.name, NEW.description, COALESCE(pd.long_description,'')
-  FROM product_details pd WHERE pd.product_id = NEW.product_id
-  UNION ALL
-  SELECT NEW.product_id, NEW.name, NEW.description, ''
-  WHERE NOT EXISTS(SELECT 1 FROM product_details WHERE product_id = NEW.product_id);
+  VALUES (NEW.product_id, NEW.name, NEW.description,
+          COALESCE((SELECT long_description FROM product_details WHERE product_id = NEW.product_id), ''));
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_products_ad_fts AFTER DELETE ON products BEGIN
-  DELETE FROM products_fts WHERE rowid = OLD.product_id;
+  INSERT INTO products_fts(products_fts, rowid) VALUES('delete', OLD.product_id);
 END;
 
-CREATE TRIGGER IF NOT EXISTS trg_prod_details_aiu_fts AFTER INSERT ON product_details BEGIN
-  DELETE FROM products_fts WHERE rowid = NEW.product_id;
+-- Product details (insert/update)
+CREATE TRIGGER IF NOT EXISTS trg_prod_details_ai_fts AFTER INSERT ON product_details BEGIN
+  INSERT INTO products_fts(products_fts, rowid) VALUES('delete', NEW.product_id);
   INSERT INTO products_fts(rowid, name, description, long_description)
   SELECT p.product_id, p.name, p.description, COALESCE(NEW.long_description,'')
   FROM products p WHERE p.product_id = NEW.product_id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS trg_prod_details_upd_fts AFTER UPDATE ON product_details BEGIN
-  DELETE FROM products_fts WHERE rowid = NEW.product_id;
+CREATE TRIGGER IF NOT EXISTS trg_prod_details_au_fts AFTER UPDATE ON product_details BEGIN
+  INSERT INTO products_fts(products_fts, rowid) VALUES('delete', NEW.product_id);
   INSERT INTO products_fts(rowid, name, description, long_description)
   SELECT p.product_id, p.name, p.description, COALESCE(NEW.long_description,'')
   FROM products p WHERE p.product_id = NEW.product_id;
 END;
 
+-- Backfill only once
 INSERT INTO products_fts(rowid, name, description, long_description)
 SELECT p.product_id, p.name, p.description, COALESCE(pd.long_description,'')
 FROM products p
@@ -468,14 +468,22 @@ WHERE v.code='WELCOME10'
   AND NOT EXISTS (SELECT 1 FROM voucher_redemptions vr WHERE vr.voucher_id=v.voucher_id AND vr.order_id=o.order_id);
 """
 
-def add_column_if_missing(con: sqlite3.Connection, table: str, column: str, coldef_sql: str):
-    cur = con.execute(f"PRAGMA table_info({table})")
-    cols = {r[1] for r in cur.fetchall()}
+# ---------- helpers ----------
+
+def get_columns(con: sqlite3.Connection, table: str) -> set[str]:
+    cur = con.execute(f'PRAGMA table_info("{table}")')
+    return {row[1] for row in cur.fetchall()}
+
+def add_column_if_missing(con: sqlite3.Connection, table: str, column: str, coltype_sql: str):
+    cols = get_columns(con, table)
     if column not in cols:
-        con.execute(f"ALTER TABLE {table} ADD COLUMN {coldef_sql}")
+        con.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {coltype_sql}')
 
 def index_exists(con: sqlite3.Connection, name: str) -> bool:
-    row = con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (name,)).fetchone()
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+        (name,)
+    ).fetchone()
     return row is not None
 
 def create_index_if_missing(con: sqlite3.Connection, name: str, sql: str):
@@ -494,8 +502,18 @@ def main():
         with con:  # transactional
             exec_script(con, DDL_CORE)
 
-            # Additive column for public order tracking (must be before its index)
+            # Repair bad prior attempt where a column literally named "TEXT" exists
+            cols = get_columns(con, "orders")
+            if "order_no" not in cols and "TEXT" in cols:
+                try:
+                    con.execute('ALTER TABLE "orders" RENAME COLUMN "TEXT" TO "order_no"')
+                except sqlite3.OperationalError as e:
+                    print(f'⚠️  Could not rename mistaken column TEXT → order_no: {e}')
+
+            # Additive column for public order tracking (correct)
             add_column_if_missing(con, "orders", "order_no", "TEXT")
+
+            # Partial-unique index on non-NULL order_no
             create_index_if_missing(
                 con,
                 "idx_orders_order_no",
