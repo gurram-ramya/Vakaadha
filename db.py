@@ -1,101 +1,176 @@
-# db.py
-import sqlite3
+
+# New version
+
+"""
+SQLite connection helper for Flask (per-request).
+
+Features:
+- One connection per request (stored in flask.g)
+- Proper teardown, PRAGMAs, WAL for better local concurrency
+- Dict-like rows via sqlite3.Row
+- Convenience helpers (query_one, query_all, execute, etc.)
+- transaction() context manager for atomic operations
+- Pagination utilities
+"""
+
 import os
-from flask import g
+import sqlite3
+from contextlib import contextmanager
+from typing import Any, Iterable, Optional, Sequence
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'vakaadha.db')
+from flask import current_app, g
 
-def get_db_connection():
-    if 'db' not in g:
-        g.db = sqlite3.connect(DB_PATH, timeout=10)
-        g.db.row_factory = sqlite3.Row
+
+# --------- Low-level: open a new connection ---------
+
+def _connect(db_path: str) -> sqlite3.Connection:
+    """
+    Open a new SQLite connection with sane defaults for a web app.
+    """
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    con = sqlite3.connect(
+        db_path,
+        detect_types=sqlite3.PARSE_DECLTYPES,
+        check_same_thread=True  # safe: one connection per request
+    )
+    con.row_factory = sqlite3.Row
+
+    # Apply recommended PRAGMAs (per-connection)
+    pragmas = [
+        ("PRAGMA foreign_keys = ON;", ()),
+        ("PRAGMA journal_mode = WAL;", ()),
+        ("PRAGMA synchronous = NORMAL;", ()),
+        ("PRAGMA busy_timeout = 5000;", ()),  # wait up to 5s on locks
+    ]
+    for stmt, params in pragmas:
+        con.execute(stmt, params)
+
+    return con
+
+
+# --------- Flask integration hooks ---------
+
+def get_db_connection() -> sqlite3.Connection:
+    """
+    Get the per-request connection (create if missing).
+    Usage: con = get_db_connection(); cur = con.cursor(); ...
+    """
+    if "db" not in g:
+        db_path = current_app.config.get("DATABASE_PATH", "vakaadha.db")
+        g.db = _connect(db_path)
     return g.db
 
-def close_db_connection(e=None):
-    db = g.pop('db', None)
-    if db is not None:
-        db.close()
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+def close_db_connection(_: Optional[BaseException] = None) -> None:
+    """
+    Close and remove the per-request connection if present.
+    Flask calls this on teardown_appcontext automatically.
+    """
+    con: Optional[sqlite3.Connection] = g.pop("db", None)
+    if con is not None:
+        try:
+            con.close()
+        except Exception:
+            pass  # never mask teardown exceptions
 
-    # Users table still uses internal numeric ID
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            email TEXT UNIQUE,
-            is_admin BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS products (
-            product_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            category TEXT,
-            price REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+def init_db_for_app(app) -> None:
+    """
+    Register teardown hook and ensure DB directory exists.
+    Call this once from your app factory.
+    """
+    db_path = app.config.get("DATABASE_PATH", "vakaadha.db")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    app.teardown_appcontext(close_db_connection)
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS inventory (
-            sku_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER,
-            size TEXT,
-            color TEXT,
-            quantity INTEGER,
-            image_name TEXT,
-            FOREIGN KEY(product_id) REFERENCES products(product_id)
-        )
-    ''')
 
-    # ✅ Cart table: user_id is now TEXT (email)
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS cart (
-            cart_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            sku_id INTEGER,
-            quantity INTEGER,
-            FOREIGN KEY(sku_id) REFERENCES inventory(sku_id)
-        )
-    ''')
+# --------- Convenience helpers ---------
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            total_amount REAL,
-            status TEXT,
-            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+def query_one(sql: str, params: Sequence[Any] | None = None) -> Optional[sqlite3.Row]:
+    """
+    Execute a SELECT that should return at most one row.
+    Returns sqlite3.Row or None.
+    """
+    con = get_db_connection()
+    cur = con.execute(sql, params or [])
+    return cur.fetchone()
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS order_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,
-            sku_id INTEGER,
-            quantity INTEGER,
-            price REAL,
-            FOREIGN KEY(order_id) REFERENCES orders(order_id),
-            FOREIGN KEY(sku_id) REFERENCES inventory(sku_id)
-        )
-    ''')
 
-    # ✅ Wishlist table: user_id is now TEXT (email)
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS wishlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            product_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+def query_all(sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.Row]:
+    """
+    Execute a SELECT and return all rows as a list of sqlite3.Row.
+    """
+    con = get_db_connection()
+    cur = con.execute(sql, params or [])
+    return cur.fetchall()
 
-    conn.commit()
-    conn.close()
+
+def execute(sql: str, params: Sequence[Any] | None = None) -> int:
+    """
+    Execute an INSERT/UPDATE/DELETE and COMMIT immediately.
+    Returns lastrowid for INSERTs when available, else rowcount.
+    """
+    con = get_db_connection()
+    cur = con.execute(sql, params or [])
+    last_id = cur.lastrowid
+    con.commit()
+    return last_id if last_id else cur.rowcount
+
+
+def executemany(sql: str, seq_of_params: Iterable[Sequence[Any]]) -> int:
+    """
+    Execute many INSERT/UPDATE/DELETE statements and COMMIT.
+    Returns total rowcount.
+    """
+    con = get_db_connection()
+    cur = con.executemany(sql, seq_of_params)
+    con.commit()
+    return cur.rowcount
+
+
+@contextmanager
+def transaction():
+    """
+    Transaction context manager for atomic flows.
+    Usage:
+        with transaction() as con:
+            con.execute(...)
+            con.execute(...)
+    On exception: ROLLBACK; else: COMMIT.
+    """
+    con = get_db_connection()
+    try:
+        con.execute("BEGIN")
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+
+
+# --------- Utilities ---------
+
+def paginate(page: int, page_size: int) -> tuple[int, int]:
+    """
+    Compute offset/limit from page/page_size (1-based page).
+    Returns (limit, offset).
+    """
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(page_size or 24), 200))  # cap page_size
+    offset = (page - 1) * page_size
+    return page_size, offset
+
+
+def to_dict(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
+    """
+    Convert sqlite3.Row to a plain dict.
+    """
+    return {k: row[k] for k in row.keys()} if row else None
+
+
+def to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
+    """
+    Convert an iterable of sqlite3.Row to a list of dicts.
+    """
+    return [{k: r[k] for k in r.keys()} for r in rows]
