@@ -1,6 +1,6 @@
 
 # New version
-
+# db.py
 """
 SQLite connection helper for Flask (per-request).
 
@@ -8,10 +8,13 @@ Features:
 - One connection per request (stored in flask.g)
 - Proper teardown, PRAGMAs, WAL for better local concurrency
 - Dict-like rows via sqlite3.Row
-- Convenience helpers (query_one, query_all, execute, etc.)
+- Convenience helpers (query_one, query_all, query_scalar, exists, execute, executemany)
 - transaction() context manager for atomic operations
 - Pagination utilities
+- Optional FTS5-aware product text search with LIKE fallback
 """
+
+from __future__ import annotations
 
 import os
 import sqlite3
@@ -27,12 +30,12 @@ def _connect(db_path: str) -> sqlite3.Connection:
     """
     Open a new SQLite connection with sane defaults for a web app.
     """
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
 
     con = sqlite3.connect(
         db_path,
         detect_types=sqlite3.PARSE_DECLTYPES,
-        check_same_thread=True  # safe: one connection per request
+        check_same_thread=True,  # one connection per request
     )
     con.row_factory = sqlite3.Row
 
@@ -42,9 +45,14 @@ def _connect(db_path: str) -> sqlite3.Connection:
         ("PRAGMA journal_mode = WAL;", ()),
         ("PRAGMA synchronous = NORMAL;", ()),
         ("PRAGMA busy_timeout = 5000;", ()),  # wait up to 5s on locks
+        ("PRAGMA temp_store = MEMORY;", ()),
     ]
     for stmt, params in pragmas:
-        con.execute(stmt, params)
+        try:
+            con.execute(stmt, params)
+        except sqlite3.Error:
+            # Do not crash if a PRAGMA isn't supported in the environment
+            pass
 
     return con
 
@@ -72,7 +80,8 @@ def close_db_connection(_: Optional[BaseException] = None) -> None:
         try:
             con.close()
         except Exception:
-            pass  # never mask teardown exceptions
+            # Never raise during teardown
+            pass
 
 
 def init_db_for_app(app) -> None:
@@ -81,7 +90,7 @@ def init_db_for_app(app) -> None:
     Call this once from your app factory.
     """
     db_path = app.config.get("DATABASE_PATH", "vakaadha.db")
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     app.teardown_appcontext(close_db_connection)
 
 
@@ -104,6 +113,24 @@ def query_all(sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.Row
     con = get_db_connection()
     cur = con.execute(sql, params or [])
     return cur.fetchall()
+
+
+def query_scalar(sql: str, params: Sequence[Any] | None = None) -> Any:
+    """
+    Execute a SELECT and return the first column of the first row, or None.
+    """
+    row = query_one(sql, params)
+    if row is None:
+        return None
+    # sqlite3.Row supports index access
+    return row[0]
+
+
+def exists(sql: str, params: Sequence[Any] | None = None) -> bool:
+    """
+    Return True if the given SELECT returns at least one row.
+    """
+    return query_one(sql, params) is not None
 
 
 def execute(sql: str, params: Sequence[Any] | None = None) -> int:
@@ -174,3 +201,53 @@ def to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
     Convert an iterable of sqlite3.Row to a list of dicts.
     """
     return [{k: r[k] for k in r.keys()} for r in rows]
+
+
+# --------- Optional: FTS5-aware product text search ---------
+
+def _fts_available(con: Optional[sqlite3.Connection] = None) -> bool:
+    """
+    Check whether the products_fts virtual table exists.
+    """
+    con = con or get_db_connection()
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='products_fts' AND (type='table' OR sql LIKE 'CREATE VIRTUAL TABLE%')"
+    ).fetchone()
+    return row is not None
+
+
+def search_products_text(
+    q: str, limit: int = 24, offset: int = 0
+) -> list[sqlite3.Row]:
+    """
+    Full-text search over products; prefers FTS5 if available,
+    otherwise falls back to LIKE on name/description/long_description.
+
+    Returns rows with at least: product_id, name, description.
+    """
+    con = get_db_connection()
+    limit = max(1, min(int(limit or 24), 200))
+    offset = max(0, int(offset or 0))
+
+    if _fts_available(con):
+        # Use FTS5; order by bm25() if available (typical in FTS5 builds)
+        # rowid of products_fts is products.product_id
+        sql = """
+        SELECT p.product_id, p.name, p.description, p.category
+        FROM products_fts f
+        JOIN products p ON p.product_id = f.rowid
+        WHERE f MATCH ?
+        ORDER BY bm25(f)
+        LIMIT ? OFFSET ?;
+        """
+        return query_all(sql, (q, limit, offset))
+    else:
+        like = f"%{q}%"
+        sql = """
+        SELECT p.product_id, p.name, p.description, p.category
+        FROM products p
+        LEFT JOIN product_details pd ON pd.product_id = p.product_id
+        WHERE p.name LIKE ? OR IFNULL(p.description,'') LIKE ? OR IFNULL(pd.long_description,'') LIKE ?
+        LIMIT ? OFFSET ?;
+        """
+        return query_all(sql, (like, like, like, limit, offset))
