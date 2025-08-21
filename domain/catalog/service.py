@@ -20,7 +20,6 @@ def _in_clause(column: str, values: Sequence[Any]) -> Tuple[str, List[Any]]:
     return f"{column} IN ({ph})", list(values)
 
 def _order_role_case(alias: str = "pi.role") -> str:
-    # main → gallery → thumb → others
     return f"CASE {alias} WHEN 'main' THEN 0 WHEN 'gallery' THEN 1 WHEN 'thumb' THEN 2 ELSE 3 END"
 
 def _normalize_search_q(q: Optional[str]) -> Optional[str]:
@@ -41,23 +40,9 @@ def list_products(
     max_price: Optional[int] = None,
     sort: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Returns:
-      {
-        "items": [ { productId, name, category, minPriceCents, maxPriceCents, image, colors, sizes } ... ],
-        "pagination": { "page", "pageSize", "total", "totalPages" },
-        "facets": {
-            "categories": [ {"value": "apparel", "count": 2}, ... ],
-            "attributes": { "color": [ {"value":"black","count":2}, ... ],
-                            "size":  [ {"value":"m","count":3}, ... ] },
-            "price": {"min": 999, "max": 3999}
-        }
-      }
-    """
     con = get_db_connection()
     cur = con.cursor()
 
-    # Schema / feature detection (safe on any schema)
     has_products_active = _has_column(con, "products", "active")
     has_variants_active = _has_column(con, "product_variants", "active")
     fts_available = _table_exists(con, "products_fts")
@@ -65,14 +50,12 @@ def list_products(
     attrs = attrs or {}
     search_q = _normalize_search_q(search)
 
-    # ---- product-level filters (category, active, search) ----
+    # ---- product-level filters ----
     where_products: List[str] = []
     params_products: List[Any] = []
-
     if category:
         where_products.append("p.category = ?")
         params_products.append(category)
-
     if has_products_active:
         where_products.append("p.active = 1")
 
@@ -80,7 +63,6 @@ def list_products(
     join_search = ""
     if search_q:
         if fts_available:
-            # FTS5 (rank via bm25)
             search_cte = """
             , search_products AS (
                 SELECT rowid AS product_id, bm25(products_fts) AS rank
@@ -91,17 +73,15 @@ def list_products(
             join_search = "JOIN search_products sp ON sp.product_id = p.product_id"
             params_products = [search_q] + params_products
         else:
-            # LIKE fallback over name/description/long_description
             where_products.append(
                 "(p.name LIKE ? OR IFNULL(p.description,'') LIKE ? OR IFNULL(pd.long_description,'') LIKE ?)"
             )
             like = f"%{search_q}%"
             params_products += [like, like, like]
 
-    # ---- variant-level filters (active, color, size, price) ----
+    # ---- variant-level filters ----
     where_variants: List[str] = []
     params_variants: List[Any] = []
-
     if has_variants_active:
         where_variants.append("v.active = 1")
     if isinstance(min_price, int):
@@ -110,7 +90,6 @@ def list_products(
     if isinstance(max_price, int):
         where_variants.append("v.price_cents <= ?")
         params_variants.append(max_price)
-
     if "color" in attrs and attrs["color"]:
         clause, vals = _in_clause("LOWER(v.color)", [v.lower() for v in attrs["color"]])
         where_variants.append(clause)
@@ -120,7 +99,6 @@ def list_products(
         where_variants.append(clause)
         params_variants.extend(vals)
 
-    # ---- CTEs ----
     cte = f"""
     WITH
     products_base AS (
@@ -147,13 +125,13 @@ def list_products(
     )
     """
 
-    # Total count
+    # total
     cur.execute(cte + " SELECT COUNT(*) FROM product_agg;", tuple(params_products + params_variants))
     total = cur.fetchone()[0]
     total_pages = (total + page_size - 1) // page_size if page_size else 1
     offset = (page - 1) * page_size
 
-    # Sort
+    # order
     sort = (sort or "").lower()
     if sort == "price_asc":
         order_by = "ORDER BY product_agg.min_price_cents ASC, product_agg.product_id ASC"
@@ -166,13 +144,12 @@ def list_products(
     elif sort == "newest":
         order_by = "ORDER BY product_agg.created_at DESC"
     else:
-        # If searching with FTS, use rank; else newest
         if search_q and fts_available:
             order_by = "ORDER BY (SELECT sp.rank FROM search_products sp WHERE sp.product_id = product_agg.product_id) ASC"
         else:
             order_by = "ORDER BY product_agg.created_at DESC"
 
-    # Page
+    # page
     sql_page = cte + f"""
         SELECT product_agg.product_id, product_agg.name, product_agg.category,
                product_agg.min_price_cents, product_agg.max_price_cents
@@ -184,13 +161,12 @@ def list_products(
     rows = cur.fetchall()
     product_ids = [r[0] for r in rows]
 
-    # Images (primary per product), colors & sizes (from filtered variants)
+    # primary image, colors, sizes
     images_by_product: Dict[int, Optional[Dict[str, Any]]] = {}
     colors_by_product: Dict[int, List[str]] = {}
     sizes_by_product: Dict[int, List[str]] = {}
 
     if product_ids:
-        # Primary image per product (main → gallery → thumb)
         order_case = _order_role_case("pi.role")
         ph = ",".join(["?"] * len(product_ids))
         cur.execute(f"""
@@ -201,14 +177,8 @@ def list_products(
         """, product_ids)
         for pid, role, storage_key, w, h, alt in cur.fetchall():
             if pid not in images_by_product:
-                images_by_product[pid] = {
-                    "role": role,
-                    "url": f"/media/{storage_key}",
-                    "width": w, "height": h,
-                    "alt": alt,
-                }
+                images_by_product[pid] = {"role": role, "url": f"/media/{storage_key}", "width": w, "height": h, "alt": alt}
 
-        # Available colors/sizes (already filtered set)
         cur.execute(f"""
             {cte}
             SELECT fv.product_id,
@@ -230,27 +200,36 @@ def list_products(
 
     items = []
     for pid, name, category, min_p, max_p in rows:
+        primary = images_by_product.get(pid)
+        # ---- compatibility aliases for current frontend stubs ----
         items.append({
             "productId": pid,
+            "product_id": pid,                              # alias
             "name": name,
             "category": category,
             "minPriceCents": min_p,
             "maxPriceCents": max_p,
-            "image": images_by_product.get(pid),
+            "price": (min_p / 100.0) if isinstance(min_p, int) else None,  # alias (rupees)
+            "image": primary,
+            "image_url": primary["url"] if primary else None,              # alias
             "colors": colors_by_product.get(pid, []),
             "sizes": sizes_by_product.get(pid, []),
         })
 
     facets = _compute_facets(cur, cte, params_products, params_variants)
 
+    # include both nested and flattened pagination keys
     return {
         "items": items,
         "pagination": {"page": page, "pageSize": page_size, "total": total, "totalPages": total_pages},
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "totalPages": total_pages,
         "facets": facets,
     }
 
 def _compute_facets(cur: sqlite3.Cursor, cte_sql: str, params_products: List[Any], params_variants: List[Any]) -> Dict[str, Any]:
-    # Categories facet
     cur.execute(cte_sql + """
         SELECT pa.category, COUNT(*) AS cnt
         FROM product_agg pa
@@ -259,7 +238,6 @@ def _compute_facets(cur: sqlite3.Cursor, cte_sql: str, params_products: List[Any
     """, tuple(params_products + params_variants))
     categories = [{"value": r[0], "count": r[1]} for r in cur.fetchall() if r[0] is not None]
 
-    # Color facet
     cur.execute(cte_sql + """
         SELECT LOWER(fv.color) AS color, COUNT(*) AS cnt
         FROM filtered_variants fv
@@ -269,7 +247,6 @@ def _compute_facets(cur: sqlite3.Cursor, cte_sql: str, params_products: List[Any
     """, tuple(params_products + params_variants))
     colors = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
 
-    # Size facet
     cur.execute(cte_sql + """
         SELECT LOWER(fv.size) AS size, COUNT(*) AS cnt
         FROM filtered_variants fv
@@ -279,7 +256,6 @@ def _compute_facets(cur: sqlite3.Cursor, cte_sql: str, params_products: List[Any
     """, tuple(params_products + params_variants))
     sizes = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
 
-    # Price bounds
     cur.execute(cte_sql + """
         SELECT MIN(fv.price_cents), MAX(fv.price_cents)
         FROM filtered_variants fv;
@@ -287,17 +263,13 @@ def _compute_facets(cur: sqlite3.Cursor, cte_sql: str, params_products: List[Any
     r = cur.fetchone()
     price_facet = {"min": r[0], "max": r[1]} if r and r[0] is not None else {"min": None, "max": None}
 
-    return {
-        "categories": categories,
-        "attributes": {"color": colors, "size": sizes},
-        "price": price_facet,
-    }
+    return {"categories": categories, "attributes": {"color": colors, "size": sizes}, "price": price_facet}
 
 def get_product(product_id: int) -> Optional[Dict[str, Any]]:
     con = get_db_connection()
     cur = con.cursor()
 
-    # Product
+    # base product
     cur.execute("""
         SELECT p.product_id, p.name, p.description, p.category, p.created_at
         FROM products p
@@ -307,27 +279,9 @@ def get_product(product_id: int) -> Optional[Dict[str, Any]]:
     row = cur.fetchone()
     if not row:
         return None
-
     pid, name, description, category, created_at = row
 
-    # Variants (active if column exists)
-    has_variants_active = _has_column(con, "product_variants", "active")
-    where_v = "WHERE v.product_id = ?"
-    params_v: List[Any] = [pid]
-    if has_variants_active:
-        where_v += " AND v.active = 1"
-    cur.execute(f"""
-        SELECT v.variant_id, v.sku, v.color, v.size, v.price_cents
-        FROM product_variants v
-        {where_v}
-        ORDER BY v.price_cents ASC, v.variant_id ASC
-    """, params_v)
-    variants = [
-        {"variantId": r[0], "sku": r[1], "color": r[2], "size": r[3], "priceCents": r[4]}
-        for r in cur.fetchall()
-    ]
-
-    # Images (main → gallery → thumb)
+    # images
     order_case = _order_role_case("pi.role")
     cur.execute(f"""
         SELECT pi.role, pi.storage_key, pi.width, pi.height, pi.alt_text
@@ -339,71 +293,128 @@ def get_product(product_id: int) -> Optional[Dict[str, Any]]:
         {"role": r[0], "url": f"/media/{r[1]}", "width": r[2], "height": r[3], "alt": r[4]}
         for r in cur.fetchall()
     ]
-    # Fallback to deprecated products.image_url
     if not images:
-        cur.execute("SELECT image_url FROM products WHERE product_id = ?", (pid,))
-        r = cur.fetchone()
-        if r and r[0]:
-            images = [{"role": "main", "url": r[0], "width": None, "height": None, "alt": name}]
+        # legacy fallback
+        if _has_column(con, "products", "image_url"):
+            cur.execute("SELECT image_url FROM products WHERE product_id = ?", (pid,))
+            r = cur.fetchone()
+            if r and r[0]:
+                images = [{"role": "main", "url": r[0], "width": None, "height": None, "alt": name}]
 
-    # Details (JSON parsed)
-    cur.execute("""
-        SELECT long_description, specs_json, care_html
-        FROM product_details
-        WHERE product_id = ?
-        LIMIT 1
-    """, (pid,))
-    dr = cur.fetchone()
+    # variants (optional in legacy DB)
+    has_variants_active = _has_column(con, "product_variants", "active")
+    variants_where = "WHERE v.product_id = ?"
+    params_v: List[Any] = [pid]
+    if _table_exists(con, "product_variants"):
+        if has_variants_active:
+            variants_where += " AND v.active = 1"
+        cur.execute(f"""
+            SELECT v.variant_id, v.sku, v.color, v.size, v.price_cents
+            FROM product_variants v
+            {variants_where}
+            ORDER BY v.price_cents ASC, v.variant_id ASC
+        """, params_v)
+        variants = [
+            {"variantId": r[0], "sku": r[1], "color": r[2], "size": r[3], "priceCents": r[4]}
+            for r in cur.fetchall()
+        ]
+    else:
+        variants = []  # legacy DB had no variants/prices per SKU
+
+    # details (optional)
     details = None
-    if dr:
-        long_desc, specs_json, care_html = dr
-        specs = None
-        if specs_json:
-            try:
-                specs = json.loads(specs_json)
-            except Exception:
-                specs = None
-        details = {"longDescription": long_desc, "specs": specs, "careHtml": care_html}
+    if _table_exists(con, "product_details"):
+        cur.execute("""
+            SELECT long_description, specs_json, care_html
+            FROM product_details
+            WHERE product_id = ?
+            LIMIT 1
+        """, (pid,))
+        dr = cur.fetchone()
+        if dr:
+            long_desc, specs_json, care_html = dr
+            specs = None
+            if specs_json:
+                try:
+                    specs = json.loads(specs_json)
+                except Exception:
+                    specs = None
+            details = {"longDescription": long_desc, "specs": specs, "careHtml": care_html}
 
-    # Generic attributes (optional)
-    cur.execute("""
-        SELECT a.name, pa.value
-        FROM product_attributes pa
-        JOIN attributes a ON a.attribute_id = pa.attribute_id
-        WHERE pa.product_id = ?
-    """, (pid,))
-    attributes = {name: value for (name, value) in cur.fetchall()}
+    # generic attributes (optional)
+    attributes = {}
+    if _table_exists(con, "product_attributes") and _table_exists(con, "attributes"):
+        cur.execute("""
+            SELECT a.name, pa.value
+            FROM product_attributes pa
+            JOIN attributes a ON a.attribute_id = pa.attribute_id
+            WHERE pa.product_id = ?
+        """, (pid,))
+        attributes = {name: value for (name, value) in cur.fetchall()}
 
-    # Review summary (visible only)
-    cur.execute("""
-        SELECT COUNT(*), AVG(rating)
-        FROM reviews
-        WHERE product_id = ? AND status = 'visible'
-    """, (pid,))
-    r = cur.fetchone()
-    review_count = int(r[0]) if r and r[0] is not None else 0
-    avg_rating = float(r[1]) if r and r[1] is not None else None
+    # reviews (visible only)
+    reviews = {"count": 0, "average": None, "distribution": {}}
+    if _table_exists(con, "reviews"):
+        cur.execute("""
+            SELECT COUNT(*), AVG(rating)
+            FROM reviews
+            WHERE product_id = ? AND status = 'visible'
+        """, (pid,))
+        r = cur.fetchone()
+        if r:
+            reviews["count"] = int(r[0]) if r[0] is not None else 0
+            reviews["average"] = float(r[1]) if r[1] is not None else None
+        cur.execute("""
+            SELECT rating, COUNT(*)
+            FROM reviews
+            WHERE product_id = ? AND status = 'visible'
+            GROUP BY rating
+        """, (pid,))
+        reviews["distribution"] = {int(rt): int(cnt) for (rt, cnt) in cur.fetchall()}
 
-    cur.execute("""
-        SELECT rating, COUNT(*) FROM reviews
-        WHERE product_id = ? AND status = 'visible'
-        GROUP BY rating
-    """, (pid,))
-    dist = {int(rt): int(cnt) for (rt, cnt) in cur.fetchall()}
+    # ---- compatibility: inventory & price & flat aliases ----
+    inventory: List[Dict[str, Any]] = []
+    if _table_exists(con, "inventory"):
+        cur.execute("""
+            SELECT sku_id, size, color, quantity
+            FROM inventory
+            WHERE product_id = ?
+            ORDER BY size, color
+        """, (pid,))
+        inventory = [{"sku_id": r[0], "size": r[1], "color": r[2], "quantity": r[3]} for r in cur.fetchall()]
+    elif variants:
+        # no inventory table; expose variants as inventory-lite (quantity unknown)
+        inventory = [{"sku_id": v["variantId"], "size": v["size"], "color": v["color"], "quantity": None} for v in variants]
+
+    # price (rupees, float) alias:
+    price_rupees: Optional[float] = None
+    if _has_column(con, "products", "price"):
+        cur.execute("SELECT price FROM products WHERE product_id = ?", (pid,))
+        r = cur.fetchone()
+        if r and r[0] is not None:
+            price_rupees = float(r[0])
+    elif variants:
+        try:
+            price_rupees = min(v["priceCents"] for v in variants) / 100.0
+        except Exception:
+            price_rupees = None
+
+    image_url = images[0]["url"] if images else None
 
     return {
         "productId": pid,
+        "product_id": pid,            # alias for frontend stub
         "name": name,
         "description": description,
         "category": category,
         "createdAt": created_at,
         "images": images,
+        "image_url": image_url,       # alias for frontend stub
         "variants": variants,
+        "inventory": inventory,       # alias for frontend stub (preferred if table exists)
         "details": details,
         "attributes": attributes,
-        "reviews": {
-            "count": review_count,
-            "average": avg_rating,
-            "distribution": dist,
-        },
+        "reviews": reviews,
+        "reviewSummary": reviews,     # alias for frontend stub
+        "price": price_rupees,        # alias (rupees)
     }
