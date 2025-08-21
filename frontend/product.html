@@ -5,24 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Product Details – VAKAADHA</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script> -->
+  <!-- Font Awesome (your header uses FA icons) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
 <body>
 
-    <header class="navbar">
-      <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
-      <input type="checkbox" id="menu-toggle" />
-      <label for="menu-toggle" class="menu-icon">&#9776;</label>
-      <nav class="nav-links">
-        <a href="./index.html"><i class="fas fa-house"></i></a>
-        <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
-        <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
-        <a href="./profile.html"><i class="fas fa-user"></i></a>
-      </nav>
-    </header>
+  <header class="navbar">
+    <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+      <a href="./profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
 
   <main>
+    <!-- PDP mounts here -->
     <div id="productDetails" class="product-detail-container">
       <p>Loading product...</p>
     </div>
@@ -32,10 +33,12 @@
     <p>© 2025 VAKAADHA. All rights reserved.</p>
   </footer>
 
-
+  <!-- (Optional) auth libs, if you use them elsewhere -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="./auth.js"></script>
-  <script src="product-detail.js"></script> <!-- New JS file for detail view -->
+
+  <!-- PDP logic -->
+  <script src="product-detail.js" defer></script>
 </body>
 </html>
