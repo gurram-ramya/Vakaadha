@@ -341,3 +341,6 @@
 
   document.addEventListener("DOMContentLoaded", () => { wireUI(); load(); });
 })();
+
+
+/* this code provide the list of the collecgtions in the inventory. This code is partially designed. I have added placed holders. Will complete the code once all features added */
