@@ -73,6 +73,8 @@ firebase-adminsdk.json
 .vscode/
 .idea/
 *.iml
+pdp.json
+
 
 # --- SQLiteStudio / local artifacts currently in repo ---
 vakaadha.sqbpro
