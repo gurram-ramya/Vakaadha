@@ -97,13 +97,20 @@ CREATE INDEX IF NOT EXISTS idx_cart_items_variant ON cart_items(variant_id);
 
 -- orders
 CREATE TABLE IF NOT EXISTS orders (
-  order_id      INTEGER PRIMARY KEY,
-  user_id       INTEGER NOT NULL,
-  status        TEXT NOT NULL CHECK (status IN ('placed','paid','shipped','cancelled','refunded')),
-  total_cents   INTEGER NOT NULL DEFAULT 0,
-  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE ON UPDATE CASCADE
+  order_id          INTEGER PRIMARY KEY,
+  user_id           INTEGER NOT NULL,
+  status            TEXT NOT NULL CHECK (status IN ('placed','paid','shipped','cancelled','refunded')),
+  total_cents       INTEGER NOT NULL DEFAULT 0,
+  discount_cents    INTEGER NOT NULL DEFAULT 0,
+  shipping_cents    INTEGER NOT NULL DEFAULT 0,
+  final_total_cents INTEGER,
+  payment_method    TEXT,                              -- COD, CARD, UPI
+  payment_status    TEXT DEFAULT 'pending',            -- success, failed, pending
+  shipping_address_id INTEGER,                         -- link to addresses
+  created_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at        DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY(shipping_address_id) REFERENCES addresses(address_id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user_created ON orders(user_id, created_at);
 
@@ -135,12 +142,14 @@ CREATE TABLE IF NOT EXISTS addresses (
   address_id    INTEGER PRIMARY KEY,
   user_id       INTEGER NOT NULL,
   type          TEXT NOT NULL CHECK (type IN ('billing','shipping')),
+  label         TEXT,                                  -- Home, Office, etc.
   line1         TEXT NOT NULL,
   line2         TEXT,
   city          TEXT NOT NULL,
   state         TEXT,
   zip           TEXT,
   country       TEXT NOT NULL,
+  is_default    INTEGER NOT NULL DEFAULT 0,            -- 1 = default, 0 = not
   FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -537,6 +546,18 @@ def main():
 
             # Additive column for public order tracking (correct)
             add_column_if_missing(con, "orders", "order_no", "TEXT")
+
+            # ---- Address extra columns ----
+            add_column_if_missing(con, "addresses", "label", "TEXT")
+            add_column_if_missing(con, "addresses", "is_default", "INTEGER NOT NULL DEFAULT 0")
+
+            # ---- Orders extra columns ----
+            add_column_if_missing(con, "orders", "discount_cents", "INTEGER NOT NULL DEFAULT 0")
+            add_column_if_missing(con, "orders", "shipping_cents", "INTEGER NOT NULL DEFAULT 0")
+            add_column_if_missing(con, "orders", "final_total_cents", "INTEGER")
+            add_column_if_missing(con, "orders", "payment_method", "TEXT")
+            add_column_if_missing(con, "orders", "payment_status", "TEXT DEFAULT 'pending'")
+            add_column_if_missing(con, "orders", "shipping_address_id", "INTEGER REFERENCES addresses(address_id)")
 
             # Partial-unique index on non-NULL order_no
             create_index_if_missing(

@@ -1,226 +1,306 @@
+// checkout.js — Amazon/Flipkart style, wired to backend
 
+// --- Helpers ---
+function fmtINR(cents) {
+  return (cents / 100).toFixed(2);
+}
+function $(sel) {
+  return document.querySelector(sel);
+}
+function show(el) {
+  el.style.display = "";
+}
+function hide(el) {
+  el.style.display = "none";
+}
+
+// Keep references to sections
+const addressSection = document.getElementById("addressSection");
+const paymentSection = document.getElementById("paymentSection");
+const confirmationSection = document.getElementById("confirmationSection");
+
+// Stepper helpers
+function setStep(active) {
+  document.querySelectorAll(".stepper .step").forEach((node) => {
+    if (node.dataset.step === active) node.classList.add("active");
+    else node.classList.remove("active");
+  });
+}
+
+// --- Auth bootstrap ---
 document.addEventListener("DOMContentLoaded", () => {
-  firebase.auth().onAuthStateChanged(async user => {
+  firebase.auth().onAuthStateChanged(async (user) => {
     if (!user) {
       alert("Please log in to proceed with checkout.");
-      return window.location.href = "profile.html";
+      window.location.href = "profile.html";
+      return;
     }
 
     const token = await user.getIdToken();
-    localStorage.setItem("loggedInUser", JSON.stringify({ email: user.email, idToken: token }));
+    localStorage.setItem(
+      "loggedInUser",
+      JSON.stringify({ email: user.email, idToken: token })
+    );
 
-    loadAddresses();
+    // Wire buttons
     document.getElementById("addAddressBtn").onclick = showAddressForm;
     document.getElementById("continueToPayment").onclick = proceedToPayment;
     document.getElementById("completePayment").onclick = completePayment;
     document.getElementById("backToAddress").onclick = backToAddress;
+
+    // Load data
+    await loadAddresses();
+    await loadOrderSummary(); // Preload summary so Payment step is instant
   });
 });
 
-function loadAddresses() {
+// --- Addresses (backend) ---
+async function loadAddresses() {
   const user = JSON.parse(localStorage.getItem("loggedInUser"));
-  const key = `user_${user.email}_addresses`;
-  const addresses = JSON.parse(localStorage.getItem(key)) || [];
-
   const list = document.getElementById("addressList");
-  const btn = document.getElementById("continueToPayment");
+  const contBtn = document.getElementById("continueToPayment");
 
-  if (addresses.length === 0) {
-    list.innerHTML = '<p>No saved addresses. Please add one.</p>';
-    btn.disabled = true;
-    return;
+  try {
+    const res = await fetch("/users/me/addresses", {
+      headers: { Authorization: `Bearer ${user.idToken}` },
+    });
+    if (!res.ok) throw new Error("Failed to load addresses");
+    const addresses = await res.json();
+
+    if (!addresses || addresses.length === 0) {
+      list.innerHTML = '<p>No saved addresses. Please add one.</p>';
+      contBtn.disabled = true;
+      return;
+    }
+
+    // Render as radio list
+    list.innerHTML = addresses
+      .map(
+        (addr) => `
+      <div class="address-option">
+        <input type="radio" name="selectedAddress" value="${addr.address_id}">
+        <label>
+          <strong>${addr.full_name}</strong> (${addr.phone})<br/>
+          ${addr.line1}${addr.line2 ? ", " + addr.line2 : ""}<br/>
+          ${addr.city}${addr.state ? ", " + addr.state : ""} - ${addr.zip}<br/>
+          ${addr.country}
+        </label>
+      </div>
+    `
+      )
+      .join("");
+
+    contBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    list.innerHTML = "<p>Could not load addresses.</p>";
+    contBtn.disabled = true;
   }
-
-  list.innerHTML = addresses.map((addr, i) => `
-    <div class="address-option">
-      <input type="radio" name="selectedAddress" value="${i}" ${addr.isDefault ? 'checked' : ''}>
-      <label>
-        <strong>${addr.name}</strong><br/>
-        ${addr.address}, ${addr.city}, ${addr.state} - ${addr.pincode}<br/>
-        Mobile: ${addr.mobile}
-      </label>
-    </div>
-  `).join("");
-
-  btn.disabled = false;
 }
 
 function showAddressForm() {
-  const form = document.getElementById("addressFormContainer");
-  form.style.display = "block";
-  form.innerHTML = `
+  const formWrap = document.getElementById("addressFormContainer");
+  show(formWrap);
+
+  formWrap.innerHTML = `
     <form id="addressForm">
-      <input name="name" placeholder="Full Name" required><br/>
-      <input name="mobile" placeholder="Mobile" required><br/>
-      <input name="pincode" placeholder="PIN Code" required><br/>
-      <input name="address" placeholder="Address" required><br/>
+      <input name="full_name" placeholder="Full Name" required><br/>
+      <input name="phone" placeholder="Mobile Number" required><br/>
+      <input name="line1" placeholder="Address Line 1" required><br/>
+      <input name="line2" placeholder="Address Line 2"><br/>
       <input name="city" placeholder="City" required><br/>
-      <input name="state" placeholder="State" required><br/>
+      <input name="state" placeholder="State"><br/>
+      <input name="zip" placeholder="PIN Code" required><br/>
+      <input name="country" placeholder="Country" value="India"><br/>
       <button type="submit">Save</button>
-      <button type="button" onclick="document.getElementById('addressFormContainer').style.display='none'">Cancel</button>
+      <button type="button" id="cancelAddr">Cancel</button>
     </form>
   `;
 
-  document.getElementById("addressForm").onsubmit = e => {
+  document.getElementById("cancelAddr").onclick = () => hide(formWrap);
+
+  document.getElementById("addressForm").onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const newAddress = {
-      name: fd.get("name"),
-      mobile: fd.get("mobile"),
-      pincode: fd.get("pincode"),
-      address: fd.get("address"),
+    const user = JSON.parse(localStorage.getItem("loggedInUser"));
+
+    const payload = {
+      full_name: fd.get("full_name"),
+      phone: fd.get("phone"),
+      type: "shipping",
+      line1: fd.get("line1"),
+      line2: fd.get("line2"),
       city: fd.get("city"),
       state: fd.get("state"),
-      isDefault: false
+      zip: fd.get("zip"),
+      country: fd.get("country") || "India",
     };
 
-    const user = JSON.parse(localStorage.getItem("loggedInUser"));
-    const key = `user_${user.email}_addresses`;
-    const addresses = JSON.parse(localStorage.getItem(key)) || [];
-
-    if (addresses.length === 0) newAddress.isDefault = true;
-
-    addresses.push(newAddress);
-    localStorage.setItem(key, JSON.stringify(addresses));
-    loadAddresses();
-    document.getElementById("addressFormContainer").style.display = "none";
+    try {
+      const res = await fetch("/users/me/addresses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.idToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Failed to save address");
+      }
+      await loadAddresses();
+      hide(formWrap);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not save address");
+    }
   };
 }
 
-function proceedToPayment() {
-  const selected = document.querySelector('input[name="selectedAddress"]:checked');
-  if (!selected) return alert("Select a shipping address.");
-
+// --- Order Summary (from backend cart) ---
+async function loadOrderSummary() {
   const user = JSON.parse(localStorage.getItem("loggedInUser"));
-  const key = `user_${user.email}_addresses`;
-  const addresses = JSON.parse(localStorage.getItem(key));
-  const address = addresses[selected.value];
+  const container = document.getElementById("orderSummaryContent");
 
-  sessionStorage.setItem("selectedAddress", JSON.stringify(address));
+  try {
+    const res = await fetch("/users/me/cart", {
+      headers: { Authorization: `Bearer ${user.idToken}` },
+    });
+    if (!res.ok) throw new Error("Failed to load cart");
+    const cart = await res.json();
 
-  document.getElementById("addressSection").style.display = "none";
-  document.getElementById("paymentSection").style.display = "block";
+    if (!cart.items || cart.items.length === 0) {
+      container.innerHTML = "<p>Your cart is empty.</p>";
+      return;
+    }
 
-  document.querySelector('.step[data-step="address"]').classList.remove("active");
-  document.querySelector('.step[data-step="payment"]').classList.add("active");
+    let totalCents = 0;
+    const html = cart.items
+      .map((item) => {
+        const line = (item.price_cents || 0) * (item.quantity || 1);
+        totalCents += line;
+        return `
+        <div class="product-summary">
+          <img src="${item.image_url}" alt="${item.name}" />
+          <div>
+            <h4>${item.name}</h4>
+            <p>${[item.color, item.size].filter(Boolean).join(" • ") || ""}</p>
+            <p>Qty: ${item.quantity}</p>
+            <p>Line Total: ₹${fmtINR(line)}</p>
+          </div>
+        </div>
+      `;
+      })
+      .join("");
 
-  loadOrderSummary();
+    container.innerHTML =
+      html + `<div class="summary-total"><strong>Total: ₹${fmtINR(totalCents)}</strong></div>`;
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = "<p>Could not load order summary.</p>";
+  }
+}
+
+// --- Payment Methods (simple radio cards) ---
+function loadPaymentMethods() {
+  const container = document.getElementById("paymentMethods");
+  container.innerHTML = `
+    <div class="payment-option selected">
+      <input type="radio" name="paymentMethod" id="upi" value="UPI" checked />
+      <label for="upi">
+        <div><strong>UPI</strong></div>
+        <div class="payment-description">Pay via PhonePe, GPay, or BHIM</div>
+      </label>
+      <div class="payment-icon"><i class="fas fa-mobile-alt"></i></div>
+    </div>
+
+    <div class="payment-option">
+      <input type="radio" name="paymentMethod" id="cod" value="COD" />
+      <label for="cod">
+        <div><strong>Cash on Delivery</strong></div>
+        <div class="payment-description">Pay with cash once you receive your order</div>
+      </label>
+      <div class="payment-icon"><i class="fas fa-money-bill-wave"></i></div>
+    </div>
+    
+    <div class="payment-option">
+      <input type="radio" name="paymentMethod" id="card" value="CARD" />
+      <label for="card">
+        <div><strong>Card Payment</strong></div>
+        <div class="payment-description">Pay securely using your credit or debit card</div>
+      </label>
+      <div class="payment-icon"><i class="fas fa-credit-card"></i></div>
+    </div>
+  `;
+}
+
+// --- Step navigation ---
+function proceedToPayment() {
+  const chosen = document.querySelector('input[name="selectedAddress"]:checked');
+  if (!chosen) {
+    alert("Select a shipping address.");
+    return;
+  }
+  hide(addressSection);
+  show(paymentSection);
+  setStep("payment");
   loadPaymentMethods();
 }
 
-function loadOrderSummary() {
-  const cartProducts = JSON.parse(sessionStorage.getItem("checkoutProducts")) || [];
-  const container = document.getElementById("orderSummaryContent");
-
-  if (cartProducts.length === 0) return container.innerHTML = "<p>Your cart is empty.</p>";
-
-  let total = 0;
-  container.innerHTML = cartProducts.map(p => {
-    const lineTotal = p.price * p.qty;
-    total += lineTotal;
-    return `
-      <div class="product-summary">
-        <img src="./Images/${p.img}" alt="${p.name}" />
-        <div>
-          <h4>${p.name}</h4>
-          <p>Size: ${p.size}</p>
-          <p>Qty: ${p.qty}</p>
-          <p>Total: ₹${lineTotal.toFixed(2)}</p>
-        </div>
-      </div>
-    `;
-  }).join("") + `<div class="summary-total"><strong>Total: ₹${total.toFixed(2)}</strong></div>`;
-}
-
-function loadPaymentMethods() {
-  const container = document.getElementById("paymentMethods");
-  // container.innerHTML = `
-  //   <label><input type="radio" name="paymentMethod" value="cod" checked> Cash on Delivery</label><br/>
-  //   <label><input type="radio" name="paymentMethod" value="upi"> UPI</label><br/>
-  //   <label><input type="radio" name="paymentMethod" value="card"> Card</label>
-  // `;
-  container.innerHTML = `<div class="payment-option selected">
-            <input type="radio" name="paymentMethod" id="upi" value="UPI" checked />
-            <label for="upi">
-              <div><strong>UPI</strong></div>
-              <div class="payment-description">Pay via PhonePe, GPay, or BHIM</div>
-            </label>
-            <div class="payment-icon"><i class="fas fa-mobile-alt"></i></div>
-          </div>
-
-          <div class="payment-option">
-            <input type="radio" name="paymentMethod" id="cod" value="COD" />
-            <label for="cod">
-              <div><strong>Cash on Delivery</strong></div>
-              <div class="payment-description">Pay with cash once you receive your order</div>
-            </label>
-            <div class="payment-icon"><i class="fas fa-money-bill-wave"></i></div>
-          </div>
-          
-          <div class="payment-option">
-            <input type="radio" name="paymentMethod" id="card" value="CARD" />
-            <label for="card">
-              <div><strong>Card Payment</strong></div>
-              <div class="payment-description">Pay securely using your credit or debit card</div>
-            </label>
-            <div class="payment-icon"><i class="fas fa-credit-card"></i></div>
-          </div>
-        `;
-
-}
-
 function backToAddress() {
-  document.getElementById("paymentSection").style.display = "none";
-  document.getElementById("addressSection").style.display = "block";
-
-  document.querySelector('.step[data-step="payment"]').classList.remove("active");
-  document.querySelector('.step[data-step="address"]').classList.add("active");
+  hide(paymentSection);
+  show(addressSection);
+  setStep("address");
 }
 
+// --- Place Order ---
 async function completePayment() {
   const user = JSON.parse(localStorage.getItem("loggedInUser"));
   const token = user?.idToken;
-  const address = JSON.parse(sessionStorage.getItem("selectedAddress"));
-  const products = JSON.parse(sessionStorage.getItem("checkoutProducts")) || [];
 
-  const paymentMethod = document.querySelector('input[name="paymentMethod"]:checked').value;
+  const selected = document.querySelector('input[name="selectedAddress"]:checked');
+  if (!selected) {
+    alert("Select a shipping address.");
+    return;
+  }
+  const addressId = parseInt(selected.value, 10);
 
-  if (!products.length) return alert("No items to order.");
+  const paymentMethod =
+    (document.querySelector('input[name="paymentMethod"]:checked') || {}).value || "UPI";
 
   try {
-    const res = await fetch("/orders", {
+    const res = await fetch("/users/me/orders/checkout", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        address,
+        address_id: addressId,
         payment_method: paymentMethod,
-        cart_items:products
-      })
+      }),
     });
 
     const result = await res.json();
 
-    if (res.ok) {
-      document.getElementById("paymentSection").style.display = "none";
-      document.getElementById("confirmationSection").style.display = "block";
-
-      document.querySelector('.step[data-step="payment"]').classList.remove("active");
-      document.querySelector('.step[data-step="confirmation"]').classList.add("active");
-
-      document.getElementById("orderConfirmationDetails").innerHTML = `
-        <p>Order ID: <strong>#${result.order_id}</strong></p>
-        <p>Total Paid: ₹<strong>${result.total_amount.toFixed(2)}</strong></p>
-        <p>Payment Mode: ${paymentMethod.toUpperCase()}</p>
-      `;
-
-      sessionStorage.clear();
-      localStorage.removeItem("cart");
-    } else {
+    if (!res.ok) {
       alert(result.error || "Order failed.");
+      return;
     }
+
+    // Success UI
+    hide(paymentSection);
+    show(confirmationSection);
+    setStep("confirmation");
+
+    document.getElementById("orderConfirmationDetails").innerHTML = `
+      <p>Order ID: <strong>#${result.order_id}</strong></p>
+      <p>Total Paid: ₹<strong>${fmtINR(result.total_cents)}</strong></p>
+      <p>Payment Mode: ${String(result.payment_method || paymentMethod).toUpperCase()}</p>
+    `;
+
+    // Optional: you may also want to refresh header cart count via some global fn
   } catch (err) {
     console.error("Order error:", err);
     alert("Something went wrong.");

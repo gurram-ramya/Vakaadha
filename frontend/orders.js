@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   try {
-    const res = await fetch("/orders", {
+    const res = await fetch("/users/me/orders", {
       headers: {
         Authorization: `Bearer ${user.idToken}`
       }
@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         <p>Date: ${new Date(order.order_date).toLocaleDateString()}</p>
         <p>Status: ${order.status}</p>
         <p>Total: ₹${order.total_amount.toFixed(2)}</p>
-        <a href="order-details.html?id=${order.order_id}">View Details →</a>
+        <p>Payment: ${order.payment_method || "N/A"}</p>
       </div>
     `).join("");
   } catch (err) {

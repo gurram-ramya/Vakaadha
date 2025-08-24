@@ -39,3 +39,109 @@ Populates profile form (name, email, dob, gender, avatar).
 Allows user to update profile → PUT /users/me.
 
 Allows user to update extended profile (dob, gender, avatar) → PUT /users/me/profile.
+
+
+
+
+UPdate for the 24/8
+
+What we should do next (detailed plan)
+1) Orders detail & history (frontend + backend)
+
+Backend
+
+GET /users/me/orders/:id → order header (date, status, totals, payment method, address), items with current snapshots (variant, price at purchase).
+
+Frontend
+
+order-details.html + order-details.js:
+
+Show items, delivery address, payment method, status progress (Placed → Paid → Shipped → Delivered).
+
+“Track shipment” link if available.
+
+2) Payment status simulation (MVP)
+
+Extend orders.checkout to set payment_status:
+
+For UPI/CARD: set payment_status='success' (MVP simulation).
+
+For COD: set payment_status='pending'.
+
+Include payment_status in responses & UI badges.
+
+3) Address edit/delete (full CRUD)
+
+Backend
+
+PUT /users/me/addresses/:id and DELETE /users/me/addresses/:id (with ownership checks).
+
+Frontend
+
+Address card with “Edit” & “Delete”.
+
+Update checkout.js to refresh after edit/delete.
+
+Allow setting default address (optional column exists if you added it).
+
+4) Cart badges + global header sync
+
+A small header script to pull counts:
+
+GET /users/me/cart to show item count in the cart badge.
+
+GET /users/me/wishlist to show wishlist count.
+
+Ensure every page header keeps counts in sync after actions.
+
+5) Orders admin tools (optional but useful)
+
+Backend Admin
+
+GET /admin/orders?status= (list/filter).
+
+PUT /admin/orders/:id/status to move order to paid, shipped, delivered, etc.
+
+Frontend Admin
+
+Simple admin/orders.html: filter, update status.
+
+Provides the backbone for operational control (flipkart/amazon-style backoffice).
+
+6) Vouchers / discounts (phase 2)
+
+Backend
+
+POST /users/me/cart/apply-voucher (validate date range, usage limits, product/category eligibility).
+
+Update totals on checkout (discount_cents, final_total_cents).
+
+Frontend
+
+cart.js: voucher input UI, feedback.
+
+7) Returns / cancellations (phase 2)
+
+Backend
+
+POST /users/me/orders/:id/cancel (if allowed).
+
+POST /users/me/orders/:id/return (RMA flow).
+
+Frontend
+
+Buttons on order-details.html with conditions and status updates.
+
+8) Performance & search (future)
+
+Product listing + FTS search endpoints (you already have FTS5 prepared).
+
+Faceted filters using product_attributes.
+
+9) Security & validation polish
+
+Ownership checks everywhere (user_id scoping).
+
+Input sanitation & minimum field validation.
+
+Rate limiting (later).

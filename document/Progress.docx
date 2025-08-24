@@ -52,3 +52,99 @@ Wire backend routes for wishlist and cart (routes/users.py + routes/cart.py).
 Then proceed to Orders → Order history & tracking.
 
 After that: Admin flows (product management, inventory).
+
+
+Progress for 23/8 
+
+Progress so far (in detail)
+Database & Schema
+
+Users: Upgraded to support email, phone, firebase_uid, password_hash, role, status, timestamps.
+
+Addresses: Finalized for production use (Amazon-style multi-address):
+
+Columns include full_name, phone, type (billing/shipping), line1/line2, city, state, zip, country, created_at.
+
+Orders: Extended for checkout:
+
+Added payment_method, payment_status, shipping_address_id, plus optional totals (discount_cents, shipping_cents, final_total_cents) and kept total_cents.
+
+Carts, Cart Items, Inventory, Products/Variants, Images, Attributes, Reviews, Vouchers, Shipments: Left intact and functioning.
+
+Init script (scripts/init_schema.py)
+
+DDL updated with new columns in addresses and orders.
+
+Safe migrations added (idempotent add_column_if_missing calls).
+
+FTS and seed logic intact.
+
+Auth / Users
+
+Using Firebase in dev-mode: utils/auth.py (kept minimal and compatible).
+
+Frontend auth.js stores current Firebase ID token in localStorage for API calls.
+
+Users Service (backend)
+
+(From earlier steps) planned and implemented the users service shape:
+
+/login, /me, /users/me (profile), /users/me/addresses (CRUD subset), plus admin endpoints plan.
+
+In this cart/checkout sprint we implemented GET /users/me/addresses and POST /users/me/addresses (backend + FE).
+
+Wishlist
+
+Clean, logged-in-only wishlist flow (Amazon-like behavior).
+
+Frontend refactor done (auth-gated, consistent API usage).
+
+Cart
+
+domain/cart/service.py and routes/cart.py created/refined (you asked to centralize logic in service instead of cart_model.py).
+
+API supports:
+
+Get cart, add item, update quantity, remove item, clear cart.
+
+Frontend cart.html + cart.js reworked:
+
+Auth-gated cart.
+
+Uses backend cart endpoints.
+
+Totals rendered; buttons for qty +/- and remove.
+
+Checkout & Orders
+
+Backend
+
+domain/orders/service.py: checkout(user_id, address_id, payment_method) creates order from active cart, decrements inventory, ties shipping address & payment method, computes totals, converts cart to converted.
+
+routes/orders.py:
+
+POST /users/me/orders/checkout to place order.
+
+GET /users/me/orders to list past orders.
+
+Addresses (backend)
+
+domain/addresses/service.py: list_addresses, add_address.
+
+routes/addresses.py: GET /users/me/addresses, POST /users/me/addresses.
+
+Frontend
+
+checkout.html: kept structure/IDs, improved layout & UX (checkout.css) while preserving your header/footer.
+
+checkout.js: fully refactored to use backend:
+
+Loads addresses from /users/me/addresses.
+
+Adds address via POST /users/me/addresses.
+
+Loads order summary from /users/me/cart (not from session/local fake data).
+
+Places order via POST /users/me/orders/checkout.
+
+orders.html + orders.js: Lists user orders from /users/me/orders.

@@ -1,21 +1,40 @@
-# minimal code for the place holder
+# routes/cart.py
+from flask import Blueprint, request, jsonify, g
+from utils.auth import require_auth
+from domain.cart import service as cart_service
 
-from flask import Blueprint, jsonify, request, g, abort
-from domain.cart import service as cart
-from utils.auth import require_auth  # your decorator
+bp = Blueprint("cart", __name__, url_prefix="/users/me/cart")
 
-bp = Blueprint("cart", __name__)
-
-@bp.get("/cart")
+@bp.route("", methods=["GET"])
 @require_auth
 def get_cart():
-    return jsonify(cart.list_cart_items(g.user["user_id"])), 200
+    cart = cart_service.get_cart_with_items(g.user["user_id"])
+    return jsonify(cart)
 
-@bp.post("/cart/items")
+@bp.route("", methods=["POST"])
 @require_auth
-def add_cart_item():
-    data = request.get_json(force=True) or {}
-    variant_id = int(data.get("variant_id", 0))
-    qty = int(data.get("quantity", 0))
-    if variant_id <= 0 or qty <= 0: abort(400, description="invalid payload")
-    return jsonify(cart.add_item(g.user["user_id"], variant_id, qty)), 200
+def add_item():
+    data = request.json
+    variant_id = data.get("variant_id")
+    quantity = data.get("quantity", 1)
+    if not variant_id:
+        return jsonify({"error": "variant_id required"}), 400
+    cart = cart_service.add_item(g.user["user_id"], variant_id, quantity)
+    return jsonify(cart)
+
+@bp.route("/<int:item_id>", methods=["PUT"])
+@require_auth
+def update_item(item_id):
+    data = request.json
+    quantity = data.get("quantity")
+    if quantity is None:
+        return jsonify({"error": "quantity required"}), 400
+    cart = cart_service.update_item(g.user["user_id"], item_id, quantity)
+    return jsonify(cart)
+
+@bp.route("/<int:item_id>", methods=["DELETE"])
+@require_auth
+def remove_item(item_id):
+    cart = cart_service.remove_item(g.user["user_id"], item_id)
+    return jsonify(cart)
+
