@@ -10,15 +10,32 @@ PRAGMA foreign_keys = ON;
 
 -- ===== Existing core (kept) + pragmatic indexes =====
 
--- users
+
+
+-- users (authentication + identity)
 CREATE TABLE IF NOT EXISTS users (
-  user_id       INTEGER PRIMARY KEY,
-  email         TEXT NOT NULL UNIQUE,
-  firebase_uid  TEXT UNIQUE,
+  user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  email         TEXT UNIQUE,
+  phone         TEXT UNIQUE,
+  firebase_uid  TEXT UNIQUE,            -- optional if using Firebase
+  password_hash TEXT,                   -- nullable if using external auth
   name          TEXT,
-  is_admin      INTEGER NOT NULL DEFAULT 0, -- 0=false, 1=true
+  role          TEXT NOT NULL DEFAULT 'customer',  -- customer, admin, seller, etc.
+  status        TEXT NOT NULL DEFAULT 'active',    -- active, blocked, deleted
+  last_login    DATETIME,
   created_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 );
+
+-- user_profiles (optional, for extended info)
+CREATE TABLE IF NOT EXISTS user_profiles (
+  profile_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL,
+  dob           DATE,
+  gender        TEXT,
+  avatar_url    TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
 
 -- products
 CREATE TABLE IF NOT EXISTS products (
@@ -346,10 +363,18 @@ WHERE NOT EXISTS (SELECT 1 FROM products_fts LIMIT 1);
 """
 
 SEED_SQL = """
--- Demo user
-INSERT INTO users(email, name, is_admin)
-SELECT 'demo@local', 'Demo User', 0
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE email='demo@local');
+
+
+-- Demo customer
+INSERT INTO users(email, name, role, status)
+SELECT 'demo@vakaadha.com', 'Demo User', 'customer', 'active'
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE email='demo@vakaadha.com');
+
+-- Demo admin
+INSERT INTO users(email, name, role, status)
+SELECT 'admin@vakaadha.com', 'Admin User', 'admin', 'active'
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE email='admin@vakaadha.com');
+
 
 -- Products
 INSERT INTO products(name, description, category, image_url)
@@ -435,7 +460,7 @@ INSERT INTO orders(user_id, status, total_cents, created_at, updated_at, order_n
 SELECT u.user_id, 'paid',
        (SELECT price_cents FROM product_variants WHERE sku='TEE-CLSC-BLK-S'),
        datetime('now','-1 day'), datetime('now','-1 day'), 'VA-10001'
-FROM users u WHERE u.email='demo@local'
+FROM users u WHERE u.email='demo@vakaadha.com'
   AND NOT EXISTS (SELECT 1 FROM orders WHERE order_no='VA-10001');
 
 INSERT INTO order_items(order_id, variant_id, quantity, unit_price_cents)

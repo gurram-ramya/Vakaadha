@@ -1,0 +1,18 @@
+For evertime when the new databse is created i need to add the UID for the demo user and admin credentials
+
+Email = demo@local
+Password = demo123 
+
+For the admin user:
+
+Email = admin@local
+Password = admin123
+
+use the following SQL code to update the database manually.
+UPDATE users
+SET firebase_uid = 'g6fo07uffmgujuBqHUmytPx0Nvl1'
+WHERE email = 'admin@vakaadha.com';
+
+UPDATE users
+SET firebase_uid = 'Aw5ULMn0nFhntiKOjKE9FttzMOG2'
+WHERE email = 'demo@vakaadha.com';
