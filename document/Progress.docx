@@ -1,0 +1,54 @@
+Progress So Far
+Database
+
+✅ Rebuilt users table (email, phone, Firebase UID, role, status, etc.).
+
+✅ Added user_profiles for extended info (dob, gender, avatar).
+
+✅ Wishlist table exists and linked to users/products.
+
+✅ Schema initialized and seeded with demo users (demo@local, admin@local).
+
+Backend
+
+✅ utils/auth.py — Firebase-based token auth (require_auth).
+
+✅ domain/users/service.py — implemented user CRUD, profile, addresses.
+
+✅ routes/users.py — implemented:
+
+/login, /me
+
+/users/me (update profile)
+
+/users/me/addresses (CRUD)
+
+/users/me/wishlist (planned, we’ll wire with frontend next).
+
+⚠️ Cart routes pending (next step).
+
+Frontend
+
+✅ api/client.js — central API client with token handling.
+
+✅ auth.js — cleaned up login/logout/signup (Firebase + token storage).
+
+✅ profile.html + profile.css + profile.js — cleaned, modular, Amazon-style profile page.
+
+✅ wishlist.html + wishlist.css + wishlist.js — completely rewritten:
+
+Guest vs logged-in handling.
+
+Secure API usage (users/me/wishlist).
+
+Product cards with “Move to Cart” + “Remove.”
+
+🔹 Next Steps
+
+Finish Cart (cart.html + cart.js + cart.css).
+
+Wire backend routes for wishlist and cart (routes/users.py + routes/cart.py).
+
+Then proceed to Orders → Order history & tracking.
+
+After that: Admin flows (product management, inventory).

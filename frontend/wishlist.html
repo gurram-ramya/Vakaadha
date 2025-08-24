@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Wishlist - VAKAADHA</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="wishlist.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 </head>
-<body style="background-color: #000; color: #fff; font-family: Arial, sans-serif;">
+<body>
 
   <!-- Header -->
   <header class="navbar">
@@ -25,25 +26,21 @@
   </header>
 
   <!-- Main Wishlist -->
-  <main style="padding: 40px 20px; max-width: 900px; margin: auto;">
-    <h2 style="text-align: center;">Your Wishlist</h2>
-    <div id="wishlist-container" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center;"></div>
+  <main class="wishlist-container">
+    <h2>Your Wishlist</h2>
+
+    <!-- Guest prompt -->
+    <div id="wishlist-guest" style="display:none; text-align:center;">
+      <p>Please <a href="profile.html">log in</a> to see your wishlist.</p>
+    </div>
+
+    <!-- Wishlist grid -->
+    <div id="wishlist-items" class="wishlist-grid"></div>
   </main>
 
-  <!-- Firebase Config -->
+  <!-- JS -->
+  <script type="module" src="api/client.js"></script>
   <script src="auth.js"></script>
-  <script src="wishlist.js"></script>
-
-  <!-- Load wishlist after auth -->
-  <script>
-    firebase.auth().onAuthStateChanged((user) => {
-      if (user) {
-        updateWishlistCount();
-        loadWishlist();
-      } else {
-        document.getElementById("wishlist-container").innerHTML = "<p style='text-align:center;'>Please log in to see your wishlist.</p>";
-      }
-    });
-  </script>
+  <script type="module" src="wishlist.js"></script>
 </body>
 </html>
