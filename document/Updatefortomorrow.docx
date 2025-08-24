@@ -1,0 +1,41 @@
+Why Do We Need client.js?
+
+In Amazon/Flipkart-style apps:
+
+All API requests must:
+
+Use the same base URL.
+
+Attach Authorization header (Bearer <idToken>).
+
+Handle 401 (unauthorized) globally (auto-logout).
+
+Handle errors consistently.
+
+Instead of repeating this in every JS file, we create one API client wrapper.
+
+🔹 Where It Will Be Used
+
+Every other frontend script (profile.js, wishlist.js, cart.js, etc.) should import and call apiClient.get(), apiClient.post(), etc., instead of writing fetch() manually.
+
+Example:
+
+// profile.js
+import { apiClient } from "./api/client.js";
+
+apiClient.get("users/me").then(user => {
+  document.getElementById("name").value = user.name;
+});
+
+
+🔹 Plan for profile.js
+
+We’ll build a clean script that:
+
+On page load → fetches /users/me via apiClient.
+
+Populates profile form (name, email, dob, gender, avatar).
+
+Allows user to update profile → PUT /users/me.
+
+Allows user to update extended profile (dob, gender, avatar) → PUT /users/me/profile.

@@ -5,110 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Profile - VAKAADHA</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="profile.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-
-  <style>
-    #toast {
-      visibility: hidden;
-      min-width: 250px;
-      background-color: #28a745;
-      color: #fff;
-      text-align: center;
-      border-radius: 8px;
-      padding: 16px;
-      position: fixed;
-      right: 20px;
-      bottom: 20px;
-      z-index: 9999;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      font-size: 16px;
-      opacity: 0;
-      transition: opacity 0.5s ease-in-out, visibility 0.5s;
-    }
-
-    #toast.show {
-      visibility: visible;
-      opacity: 1;
-    }
-
-    /* Modal Styles */
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 1000;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      overflow: auto;
-      background-color: rgba(0,0,0,0.7);
-    }
-
-    .modal-content {
-      background-color: #1a1a1a;
-      margin: 10% auto;
-      padding: 30px;
-      border: 1px solid #888;
-      width: 90%;
-      max-width: 400px;
-      color: white;
-      border-radius: 10px;
-      position: relative;
-    }
-
-    .modal-content input {
-      background-color: #333;
-      color: white;
-    }
-
-    .modal-content .close {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      color: white;
-      font-size: 28px;
-      cursor: pointer;
-    }
-
-  </style>
 </head>
-<body style="background-color: #000; color: #fff; font-family: Arial, sans-serif;">
+<body>
 
   <!-- Header -->
-      <header class="navbar">
-      <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
-      <input type="checkbox" id="menu-toggle" />
-      <label for="menu-toggle" class="menu-icon">&#9776;</label>
-      <nav class="nav-links">
-        <a href="./index.html"><i class="fas fa-house"></i></a>
-        <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
-        <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
-        <a href="./profile.html"><i class="fas fa-user"></i></a>
-      </nav>
-    </header>
+  <header class="navbar">
+    <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+      <a href="./profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
 
   <!-- Main -->
   <main class="profile-container">
-    <!-- Shown when logged in -->
-    <div id="user-info">
-      <h2>Welcome, <span id="display-name"></span></h2>
-      <button onclick="logout()">Logout</button>
-    </div>
 
-    <!-- Login form -->
-    <div id="login-section">
-      <h2 style="text-align: center;">Login / Sign Up</h2>
+    <!-- Login / Signup Section -->
+    <section id="login-section">
+      <h2>Login / Sign Up</h2>
 
-       <!-- Email Login -->
-      <!-- <form id="custom-login-form" style="display: flex; flex-direction: column; gap: 10px;">
-        <input type="text" id="username" placeholder="Enter your name" required style="padding: 10px; border-radius: 5px; border: none;" />
-        <input type="email" id="email" placeholder="Enter your email" required style="padding: 10px; border-radius: 5px; border: none;" />
-        <button type="submit" style="padding: 10px; background-color: #2b6cb0; color: white; border: none; border-radius: 5px;">Login</button>
-      </form> -->
+      <!-- Email Login -->
       <form id="email-login-form">
-        <h3 style="text-align: center;">Login with Email</h3>
+        <h3>Login with Email</h3>
         <input type="email" id="login-email" placeholder="Email" required/>
         <input type="password" id="login-password" placeholder="Password" required/>
         <button type="submit">Login</button>
@@ -118,37 +44,55 @@
 
       <!-- Google Sign-In -->
       <button id="google-login">
-        <i class="fab fa-google"></i> &nbsp;&nbsp;&nbsp;Continue with Google
+        <i class="fab fa-google"></i> Continue with Google
       </button>
 
-
       <!-- Email Registration -->
-
       <div id="registerModal" class="modal">
         <div class="modal-content">
           <span class="close" onclick="toggleRegisterModal()">&times;</span>
-          <h3 style="text-align: center;">Register</h3>
-          <form id="email-register-form">
-            <input type="text" id="register-name" placeholder="Full Name" required/>
-            <input type="email" id="register-email" placeholder="Email" required/>
-            <input type="password" id="register-password" placeholder="Password" required/>
+          <h3>Register</h3>
+          <form id="email-signup-form">
+            <input type="email" id="signup-email" placeholder="Email" required/>
+            <input type="password" id="signup-password" placeholder="Password" required/>
             <button type="submit">Register</button>
           </form>
         </div>
       </div>
-      <!-- Trigger Button -->
-      <p style="text-align: center;">Don’t have an account? 
+      <p>Don’t have an account? 
         <a href="#" onclick="toggleRegisterModal()" style="color: #0af;">Register here</a>
       </p>
-    </div>
+    </section>
+
+    <!-- Profile Section (shown only when logged in) -->
+    <section id="profile-section" style="display:none;">
+      <h2>Your Profile</h2>
+      <form id="profile-form">
+        <label>Name: <input type="text" id="profile-name"></label>
+        <label>Email: <input type="email" id="profile-email"></label>
+        <label>Date of Birth: <input type="date" id="profile-dob"></label>
+        <label>Gender:
+          <select id="profile-gender">
+            <option value="">--Select--</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>Avatar URL: <input type="text" id="profile-avatar"></label>
+        <button id="profile-save" type="submit">Save</button>
+      </form>
+      <button id="logout">Logout</button>
+    </section>
+
   </main>
 
-
-  <!-- Auth Integration -->
-  <script src="auth.js"></script>
-  <script src="wishlist.js"></script>
-  
+  <!-- Toast -->
   <div id="toast">Login successful, redirecting...</div>
+
+  <!-- JS -->
+  <script type="module" src="api/client.js"></script>
+  <script src="auth.js"></script>
+  <script type="module" src="profile.js"></script>
 </body>
 </html>
-
