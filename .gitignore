@@ -40,7 +40,6 @@ instance/
 *.pid
 
 # --- Databases (SQLite/WAL/SHM) ---
-*.db
 *.db-*
 *.sqlite
 *.sqlite3
