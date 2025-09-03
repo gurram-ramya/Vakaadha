@@ -24,6 +24,18 @@ from typing import Any, Iterable, Optional, Sequence
 from flask import current_app, g
 
 
+# Backwards-compatible alias expected by service.py files
+def get_db():
+    return get_db_connection()
+
+# def close_db_connection(e=None):
+#     """Close the database connection if it exists."""
+#     db = g.pop("db", None)
+#     if db is not None:
+#         db.close()
+
+
+
 # --------- Low-level: open a new connection ---------
 
 def _connect(db_path: str) -> sqlite3.Connection:

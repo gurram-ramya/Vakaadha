@@ -4,12 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Profile - VAKAADHA</title>
+
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="profile.css" />
+  <!-- Font Awesome (allowed by updated CSP) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <!-- Firebase (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script>
+    // TODO: put your real Firebase project values here
+    const firebaseConfig = {
+      apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA", authDomain: "vakaadha.firebaseapp.com", projectId: "vakaadha", storageBucket: "vakaadha.appspot.com", messagingSenderId: "395786980107", appId: "1:395786980107:web:6678e452707296df56b00e"
+    };
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+  </script>
 </head>
+
+
 <body>
 
   <!-- Header -->
