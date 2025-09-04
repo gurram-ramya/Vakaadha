@@ -55,6 +55,8 @@
         <button type="submit">Login</button>
       </form>
 
+      <p id="loginMsg"></p>
+
       <hr/>
 
       <!-- Google Sign-In -->
@@ -62,24 +64,29 @@
         <i class="fab fa-google"></i> Continue with Google
       </button>
 
-      <!-- Email Registration -->
-      <div id="registerModal" class="modal">
-        <div class="modal-content">
-          <span class="close" onclick="toggleRegisterModal()">&times;</span>
-          <h3>Register</h3>
-          <form id="email-signup-form">
-            <input type="email" id="signup-email" placeholder="Email" required/>
-            <input type="password" id="signup-password" placeholder="Password" required/>
-            <button type="submit">Register</button>
-          </form>
-        </div>
-      </div>
       <p>Don’t have an account? 
-        <a href="#" onclick="toggleRegisterModal()" style="color: #0af;">Register here</a>
+        <a href="#" id="openRegister" style="color:#0af;">Register here</a>
       </p>
     </section>
 
+      <!-- Email Registration -->
+    <div id="registerModal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <span id="closeRegister" class="close">&times;</span>
+        <h3>Create Account</h3>
+        <form id="email-signup-form">
+          <input type="email" id="signup-email" placeholder="Email" required/>
+          <input type="text" id="signup-name" placeholder="Full Name" required/>
+          <input type="password" id="signup-password" placeholder="Password (min 6 chars)" required minlength="6"/>
+          <input type="password" id="signup-password-confirm" placeholder="Confirm Password" required minlength="6"/>
+          <button type="submit">Register</button>
+        </form>
+        <p id="signupMsg"></p>
+      </div>
+    </div>
+
     <!-- Profile Section (shown only when logged in) -->
+     <!--
     <section id="profile-section" style="display:none;">
       <h2>Your Profile</h2>
       <form id="profile-form">
@@ -99,6 +106,7 @@
       </form>
       <button id="logout">Logout</button>
     </section>
+    -->
 
   </main>
 

@@ -14,9 +14,8 @@ PRAGMA foreign_keys = ON;
 
 -- users (authentication + identity)
 CREATE TABLE IF NOT EXISTS users (
-  user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
   email         TEXT UNIQUE,
-  phone         TEXT UNIQUE,
   firebase_uid  TEXT UNIQUE,            -- optional if using Firebase
   password_hash TEXT,                   -- nullable if using external auth
   name          TEXT,
@@ -28,12 +27,12 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- user_profiles (optional, for extended info)
 CREATE TABLE IF NOT EXISTS user_profiles (
-  profile_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER NOT NULL,
-  dob           DATE,
-  gender        TEXT,
-  avatar_url    TEXT,
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL,
+  dob          DATE,
+  gender       TEXT,
+  avatar_url   TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 

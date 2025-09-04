@@ -36,11 +36,14 @@
   };
 
   // Provide the toggle function your HTML calls (safe if modal missing)
+  // explicitly attach to window
   window.toggleRegisterModal = function toggleRegisterModal() {
-    if (!els.registerModal) return;
-    const visible = els.registerModal.style.display === "block";
-    els.registerModal.style.display = visible ? "none" : "block";
+    const modal = document.getElementById("registerModal");
+    if (!modal) return;
+    const visible = modal.style.display === "block";
+    modal.style.display = visible ? "none" : "block";
   };
+
 
   // ===== UI helpers =====
   function show(section) {
@@ -253,65 +256,109 @@
   }
 
   // ===== Auth handlers =====
-  async function afterAuthSuccess(user, api, silent = false) {
-    const idToken = await api.getIdToken(user);
-    saveAuth({ email: user.email || "", idToken });
-    await ensureLocalUser(idToken);
-    try {
-      const data = await fetchProfile(idToken);
-      renderProfile(data);
-      show("profile");
-      if (!silent) showToast("Logged in successfully.");
-      // Optional redirect to home to avoid showing edit UI
-      if (REDIRECT_AFTER_LOGIN) window.location.href = REDIRECT_AFTER_LOGIN;
-    } catch (err) {
-      show("login");
-      showToast(err.message || "Could not load your profile.", true);
+async function afterAuthSuccess(user, api, silent = false) {
+  const idToken = await api.getIdToken(user);
+
+  // Save full user info to localStorage
+  localStorage.setItem("loggedInUser", JSON.stringify({
+    uid: user.uid,
+    email: user.email || "",
+    name: user.displayName || "",
+    idToken
+  }));
+
+  // Ensure user exists in backend DB
+  await ensureLocalUser(idToken);
+
+  try {
+    // Load extra profile info (dob, gender, etc.)
+    const data = await fetchProfile(idToken);
+
+    // Merge backend profile name if Firebase didn't have it
+    if (data?.name && !user.displayName) {
+      const stored = JSON.parse(localStorage.getItem("loggedInUser"));
+      stored.name = data.name;
+      localStorage.setItem("loggedInUser", JSON.stringify(stored));
     }
+
+    if (!silent) showToast("Logged in successfully.");
+
+    // Always redirect home (Amazon-style)
+    window.location.href = REDIRECT_AFTER_LOGIN;
+
+  } catch (err) {
+    clearAuth();
+    show("login");
+    showToast(err.message || "Could not load your profile.", true);
   }
+}
 
-  async function handleEmailLogin(e, api) {
-    e.preventDefault();
-    const email = (e.target.querySelector("#login-email")?.value || "").trim();
-    const password = e.target.querySelector("#login-password")?.value || "";
 
-    const validation = validateLogin({ email, password });
-    if (validation) return showToast(validation, true);
+async function handleEmailLogin(e, api) {
+  e.preventDefault();
+  const email = (e.target.querySelector("#login-email")?.value || "").trim();
+  const password = e.target.querySelector("#login-password")?.value || "";
 
-    try {
-      setButtonLoading(els.loginForm, true);
-      const cred = await api.signInWithEmailAndPassword(email, password);
-      if (!cred?.user) throw new Error("Login failed.");
-      await afterAuthSuccess(cred.user, api);
-    } catch (err) {
-      showToast(mapFirebaseError(err.code) || err.message || "Login failed.", true);
-    } finally {
-      setButtonLoading(els.loginForm, false);
+  const validation = validateLogin({ email, password });
+  if (validation) return showToast(validation, true);
+
+  try {
+    setButtonLoading(els.loginForm, true);
+    const cred = await api.signInWithEmailAndPassword(email, password);
+    if (!cred?.user) throw new Error("Login failed.");
+
+    if (!cred.user.emailVerified) {
+      showToast("Please verify your email before logging in.", true, 4000);
+      await api.signOut();
+      return;
     }
+
+    await afterAuthSuccess(cred.user, api);
+  } catch (err) {
+    showToast(mapFirebaseError(err.code) || err.message || "Login failed.", true);
+  } finally {
+    setButtonLoading(els.loginForm, false);
   }
+}
 
-  async function handleEmailSignup(e, api) {
-    e.preventDefault();
-    const email = (e.target.querySelector("#signup-email")?.value || "").trim();
-    const password = e.target.querySelector("#signup-password")?.value || "";
 
-    const validation =
-      !emailRegex.test(email) ? "Please enter a valid email." : password.length < 6 ? "Password must be at least 6 characters." : null;
-    if (validation) return showToast(validation, true);
+async function handleEmailSignup(e, api) {
+  e.preventDefault();
+  const email = (e.target.querySelector("#signup-email")?.value || "").trim();
+  const name = (e.target.querySelector("#signup-name")?.value || "").trim();
+  const password = e.target.querySelector("#signup-password")?.value || "";
+  const confirm = e.target.querySelector("#signup-password-confirm")?.value || "";
 
-    try {
-      setButtonLoading(els.signupForm, true);
-      const cred = await api.createUserWithEmailAndPassword(email, password);
-      if (!cred?.user) throw new Error("Signup failed.");
-      // Close modal if present
-      if (els.registerModal) els.registerModal.style.display = "none";
-      await afterAuthSuccess(cred.user, api);
-    } catch (err) {
-      showToast(mapFirebaseError(err.code) || err.message || "Signup failed.", true);
-    } finally {
-      setButtonLoading(els.signupForm, false);
-    }
+  let validation = null;
+  if (!emailRegex.test(email)) validation = "Please enter a valid email.";
+  else if (!name) validation = "Please enter your full name.";
+  else if (password.length < 6) validation = "Password must be at least 6 characters.";
+  else if (password !== confirm) validation = "Passwords do not match.";
+
+  if (validation) return showToast(validation, true);
+
+  try {
+    setButtonLoading(els.signupForm, true);
+    const cred = await api.createUserWithEmailAndPassword(email, password);
+    if (!cred?.user) throw new Error("Signup failed.");
+
+    // Set displayName
+    await cred.user.updateProfile({ displayName: name });
+
+    // Send email verification
+    await cred.user.sendEmailVerification();
+
+    // Close modal if present
+    if (els.registerModal) els.registerModal.style.display = "none";
+
+    showToast("Account created! Please verify your email before logging in.", false, 4000);
+  } catch (err) {
+    showToast(mapFirebaseError(err.code) || err.message || "Signup failed.", true);
+  } finally {
+    setButtonLoading(els.signupForm, false);
   }
+}
+
 
   async function handleGoogleLogin(api) {
     try {

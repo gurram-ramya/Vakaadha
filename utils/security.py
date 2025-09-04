@@ -13,18 +13,12 @@ def install_security_headers(app):
         # Relaxed CSP for local dev. Tighten for prod (remove 'unsafe-inline', use nonces/hashes, or self-host).
         csp = [
             "default-src 'self' data: blob:",
-            # Firebase SDK (gstatic), Google APIs loader for provider popups, (optional) GTM
             "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com",
-            # Styles: local + CDNs you’re using
             "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
-            # Fonts (google/cdnjs) + data: for inline SVG/WOFF2
             "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
-            # Images (allow Google profile photos)
-            "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com",
-            # XHR/fetch (Firebase Auth endpoints + Google APIs when needed)
-            "connect-src 'self' https://www.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://apis.google.com https://accounts.google.com",
-            # Popups/iframes used by Google sign-in
-            "frame-src 'self' https://accounts.google.com https://*.google.com",
+            "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com https://www.google.com",
+            "connect-src 'self' https://www.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://apis.google.com https://accounts.google.com https://www.google.com",
+            "frame-src 'self' https://accounts.google.com https://*.google.com https://vakaadha.firebaseapp.com https://*.googleusercontent.com",
             "media-src 'self' blob:",
         ]
         resp.headers["Content-Security-Policy"] = "; ".join(csp)
