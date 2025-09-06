@@ -1,121 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Profile - VAKAADHA</title>
+  <title>Account • VAKAADHA</title>
 
-  <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="profile.css" />
-  <!-- Font Awesome (allowed by updated CSP) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="stylesheet" href="profile.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 
-  <!-- Firebase (compat) -->
+  <!-- Firebase SDK (compat) — load once -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <script>
-    // TODO: put your real Firebase project values here
-    const firebaseConfig = {
-      apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA", authDomain: "vakaadha.firebaseapp.com", projectId: "vakaadha", storageBucket: "vakaadha.appspot.com", messagingSenderId: "395786980107", appId: "1:395786980107:web:6678e452707296df56b00e"
-    };
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
-    }
-  </script>
+
+  <style>
+    .hidden{display:none!important}
+    .linkish{background:none;border:0;color:#0a58ca;cursor:pointer;padding:0}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}
+    .row{display:flex;gap:8px;align-items:center}
+    .danger{background:#b00020;color:#fff}
+    .btn-google{display:inline-flex;gap:8px;align-items:center}
+    #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 12px;border-radius:8px;opacity:0;visibility:hidden;transition:.2s}
+  </style>
 </head>
-
-
 <body>
-
-  <!-- Header -->
   <header class="navbar">
-    <div class="logo"><img src="./Images/logo.jpeg (1).jpg" alt="VAKAADHA Logo"></div>
-    <input type="checkbox" id="menu-toggle" />
-    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <a class="logo" href="index.html">VAKAADHA</a>
     <nav class="nav-links">
-      <a href="./index.html"><i class="fas fa-house"></i></a>
-      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
-      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
-      <a href="./profile.html"><i class="fas fa-user"></i></a>
+      <a href="index.html"><i class="fas fa-house"></i></a>
+      <a href="wishlist.html"><i class="fas fa-heart"></i></a>
+      <a href="cart.html"><i class="fas fa-shopping-cart"></i></a>
+      <a href="profile.html" class="active"><i class="fas fa-user"></i></a>
     </nav>
   </header>
 
-  <!-- Main -->
   <main class="profile-container">
-
-    <!-- Login / Signup Section -->
-    <section id="login-section">
+    <!-- AUTH -->
+    <section id="auth-section">
       <h2>Login / Sign Up</h2>
 
-      <!-- Email Login -->
-      <form id="email-login-form">
-        <h3>Login with Email</h3>
+      <form id="login-form" class="card" autocomplete="on">
+        <h3>Email Login</h3>
         <input type="email" id="login-email" placeholder="Email" required/>
         <input type="password" id="login-password" placeholder="Password" required/>
-        <button type="submit">Login</button>
+        <button type="submit" id="login-submit">Login</button>
       </form>
 
-      <p id="loginMsg"></p>
+      <div class="or" style="text-align:center;opacity:.7;margin:8px 0;">or</div>
 
-      <hr/>
-
-      <!-- Google Sign-In -->
-      <button id="google-login">
+      <button id="google-btn" class="btn-google" type="button" aria-label="Continue with Google">
         <i class="fab fa-google"></i> Continue with Google
       </button>
 
-      <p>Don’t have an account? 
-        <a href="#" id="openRegister" style="color:#0af;">Register here</a>
-      </p>
+      <div style="margin-top:12px;">
+        <button id="open-signup" class="linkish" type="button">Create a new account</button>
+      </div>
+
+      <form id="signup-form" class="card hidden" autocomplete="off">
+        <h3>Create Account</h3>
+        <input type="text" id="signup-name" placeholder="Full name" required/>
+        <input type="email" id="signup-email" placeholder="Email" required/>
+        <input type="password" id="signup-password" placeholder="Password (min 6)" minlength="6" required/>
+        <input type="password" id="signup-password-confirm" placeholder="Confirm password" minlength="6" required/>
+        <div class="row" style="margin-top:8px;">
+          <button type="submit" id="signup-submit">Sign Up</button>
+          <button type="button" id="cancel-signup" class="linkish">Cancel</button>
+        </div>
+      </form>
     </section>
 
-      <!-- Email Registration -->
-    <div id="registerModal" class="modal" style="display:none;">
-      <div class="modal-content">
-        <span id="closeRegister" class="close">&times;</span>
-        <h3>Create Account</h3>
-        <form id="email-signup-form">
-          <input type="email" id="signup-email" placeholder="Email" required/>
-          <input type="text" id="signup-name" placeholder="Full Name" required/>
-          <input type="password" id="signup-password" placeholder="Password (min 6 chars)" required minlength="6"/>
-          <input type="password" id="signup-password-confirm" placeholder="Confirm Password" required minlength="6"/>
-          <button type="submit">Register</button>
-        </form>
-        <p id="signupMsg"></p>
-      </div>
-    </div>
-
-    <!-- Profile Section (shown only when logged in) -->
-     <!--
-    <section id="profile-section" style="display:none;">
+    <!-- PROFILE -->
+    <section id="profile-section" class="hidden">
       <h2>Your Profile</h2>
-      <form id="profile-form">
-        <label>Name: <input type="text" id="profile-name"></label>
-        <label>Email: <input type="email" id="profile-email"></label>
-        <label>Date of Birth: <input type="date" id="profile-dob"></label>
-        <label>Gender:
+
+      <div id="verify-banner" class="card hidden">
+        <p>Please verify your email to access checkout and orders.</p>
+        <div class="row">
+          <button id="resend-verification" type="button">Resend verification email</button>
+          <button id="refresh-verification" class="linkish" type="button">I’ve verified — Refresh</button>
+        </div>
+      </div>
+
+      <form id="profile-form" class="card">
+        <label>Name <input type="text" id="profile-name"/></label>
+        <label>Email <input type="email" id="profile-email" readonly/></label>
+        <label>Date of Birth <input type="date" id="profile-dob"/></label>
+        <label>Gender
           <select id="profile-gender">
-            <option value="">--Select--</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
+            <option value="">-- Select --</option>
+            <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
           </select>
         </label>
-        <label>Avatar URL: <input type="text" id="profile-avatar"></label>
-        <button id="profile-save" type="submit">Save</button>
+        <label>Avatar URL <input type="text" id="profile-avatar"/></label>
+        <button type="submit" id="profile-save">Save</button>
       </form>
-      <button id="logout">Logout</button>
-    </section>
-    -->
 
+      <button id="logout" class="danger" type="button">Logout</button>
+    </section>
   </main>
 
-  <!-- Toast -->
-  <div id="toast">Login successful, redirecting...</div>
+  <div id="toast">OK</div>
 
-  <!-- JS -->
+  <!-- Only these two scripts -->
   <script type="module" src="api/client.js"></script>
-  <script src="auth.js"></script>
   <script type="module" src="profile.js"></script>
 </body>
 </html>

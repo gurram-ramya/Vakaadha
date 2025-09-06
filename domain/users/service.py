@@ -1,212 +1,160 @@
 # domain/users/service.py
-# domain/users/service.py
-"""
-Business logic + DB access for Users.
-
-Schema:
-
-CREATE TABLE IF NOT EXISTS users (
-  id            INTEGER PRIMARY KEY,
-  firebase_uid  TEXT UNIQUE NOT NULL,
-  email         TEXT UNIQUE,
-  password_hash TEXT,
-  role          TEXT DEFAULT 'customer',
-  status        TEXT DEFAULT 'active',
-  last_login    DATETIME,
-  created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_profiles (
-  id           INTEGER PRIMARY KEY,
-  user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
-  name         TEXT,
-  dob          TEXT,
-  gender       TEXT,
-  avatar_url   TEXT,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-"""
-
-
 from __future__ import annotations
 from typing import Optional, Dict, Any
-import sqlite3
 
-from db import get_db_connection, to_dict
+from db import get_db
 
-
-# ---- Row helpers ----
-def _to_dict(row: sqlite3.Row | None) -> Optional[Dict[str, Any]]:
-    return to_dict(row) if row is not None else None
+DEFAULT_ROLE = "user"   # enforce role = 'user' for new users
+DEFAULT_STATUS = "active"
 
 
-# ---- Core getters ----
-def get_user_by_firebase_uid(uid: str) -> Optional[Dict[str, Any]]:
-    db = get_db_connection()
-    row = db.execute("SELECT * FROM users WHERE firebase_uid = ?", (uid,)).fetchone()
-    return _to_dict(row)
+def _row_to_dict(row) -> Dict[str, Any]:
+    if row is None:
+        return {}
+    # sqlite3.Row is mapping-like
+    d = dict(row)
+    # Provide both keys during transition so callers using either will work
+    if "id" in d and "user_id" not in d:
+        d["user_id"] = d["id"]
+    return d
 
 
-def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
-    db = get_db_connection()
-    row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    return _to_dict(row)
+def ensure_user(
+    *,
+    firebase_uid: str,
+    email: Optional[str],
+    name: Optional[str],
+    avatar_url: Optional[str],
+    update_last_login: bool = True,
+) -> Dict[str, Any]:
+    """
+    Idempotent: create or update a local user row for the given Firebase UID.
+    - Always creates a user with role='user' if not present.
+    - If Firebase supplies a name/picture, we update those (but never overwrite with empty).
+    - Ensures a user_profiles row exists for the user.
+    - Optionally updates last_login timestamp.
+    Returns the user row as dict (includes both 'id' and 'user_id').
+    """
+    con = get_db()
+    cur = con.execute(
+        "SELECT * FROM users WHERE firebase_uid = ?",
+        (firebase_uid,)
+    )
+    row = cur.fetchone()
+
+    if row:
+        user = dict(row)
+        updates = []
+        params = []
+
+        # Normalize role if missing/empty
+        if not user.get("role"):
+            updates.append("role = ?")
+            params.append(DEFAULT_ROLE)
+
+        # Email may change (e.g., provider linked) — update if provided and different
+        if email and email != user.get("email"):
+            updates.append("email = ?")
+            params.append(email)
+
+        # Name & avatar: update if Firebase gives a non-empty string and it's different
+        if name and name.strip() and name.strip() != (user.get("name") or "").strip():
+            updates.append("name = ?")
+            params.append(name.strip())
+
+        if avatar_url and avatar_url.strip():
+            # Optional: add avatar_url column if you keep it in users; or store in profile
+            # If you store it in profile, handle it below in profile ensuring.
+            pass  # no-op unless you add users.avatar_url
+
+        if update_last_login:
+            updates.append("last_login = datetime('now')")
+
+        if updates:
+            params.append(firebase_uid)
+            con.execute(f"UPDATE users SET {', '.join(updates)} WHERE firebase_uid = ?", params)
+
+        user_id = user["id"]
+    else:
+        # Insert new user
+        con.execute(
+            """
+            INSERT INTO users (email, firebase_uid, password_hash, name, role, status, last_login)
+            VALUES (?, ?, NULL, ?, ?, ?, datetime('now'))
+            """,
+            (email, firebase_uid, (name or (email.split("@")[0] if email else None)), DEFAULT_ROLE, DEFAULT_STATUS)
+        )
+        user_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    # Ensure profile exists (minimal)
+    con.execute(
+        """
+        INSERT INTO user_profiles (user_id)
+        SELECT ? WHERE NOT EXISTS (SELECT 1 FROM user_profiles WHERE user_id = ?)
+        """,
+        (user_id, user_id)
+    )
+    con.commit()
+
+    # Return the fresh row
+    row = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _row_to_dict(row)
+
+
+def get_user_by_firebase_uid(firebase_uid: str) -> Dict[str, Any]:
+    con = get_db()
+    row = con.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,)).fetchone()
+    return _row_to_dict(row)
 
 
 def get_user_with_profile(user_id: int) -> Dict[str, Any]:
-    """
-    Returns merged user + profile fields.
-    """
-    db = get_db_connection()
-    row = db.execute(
+    con = get_db()
+    row = con.execute(
         """
         SELECT
-          u.id          AS user_id,
-          u.firebase_uid,
-          u.email,
-          u.role,
-          u.status,
-          u.last_login,
-          u.created_at,
-          p.name        AS profile_name,
-          p.dob         AS profile_dob,
-          p.gender      AS profile_gender,
-          p.avatar_url  AS profile_avatar_url,
-          p.updated_at  AS profile_updated_at
+          u.id, u.email, u.firebase_uid, u.name, u.role, u.status, u.last_login, u.created_at,
+          p.dob    AS profile_dob,
+          p.gender AS profile_gender,
+          p.avatar_url AS profile_avatar_url
         FROM users u
         LEFT JOIN user_profiles p ON p.user_id = u.id
         WHERE u.id = ?
         """,
-        (user_id,),
+        (user_id,)
     ).fetchone()
-    return _to_dict(row) or {}
+    return _row_to_dict(row)
 
 
-# ---- Upsert / ensure ----
-def ensure_user(
-    firebase_uid,
-    email=None,
-    name=None,
-    avatar_url=None,
-    role="customer",
-    status="active",
-    update_last_login=False,
-):
+def update_profile(user_id: int, *, name: Optional[str], dob: Optional[str], gender: Optional[str], avatar_url: Optional[str]) -> Dict[str, Any]:
     """
-    Ensure a user exists in the DB, creating or updating as needed.
-    If a row exists with the same email but no firebase_uid, link it.
+    Update user name (if provided) and profile fields.
+    Returns merged user + profile dict.
     """
-    conn = get_db()
-    cur = conn.cursor()
+    con = get_db()
 
-    # 1. Try find by firebase_uid
-    cur.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
-    user = cur.fetchone()
+    # Update name if provided (trim + non-empty)
+    if name is not None:
+        nm = name.strip()
+        con.execute("UPDATE users SET name = ? WHERE id = ?", (nm if nm else None, user_id))
 
-    if not user and email:
-        # 2. Try find by email
-        cur.execute("SELECT * FROM users WHERE email = ?", (email,))
-        user = cur.fetchone()
-        if user:
-            # attach firebase_uid to existing user
-            cur.execute(
-                "UPDATE users SET firebase_uid = ?, last_login = CURRENT_TIMESTAMP WHERE email = ?",
-                (firebase_uid, email),
-            )
-            conn.commit()
-
-    if user:
-        if update_last_login:
-            cur.execute(
-                "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE firebase_uid = ?",
-                (firebase_uid,),
-            )
-            conn.commit()
-    else:
-        # 3. Insert new user
-        cur.execute(
-            """
-            INSERT INTO users (firebase_uid, email, name, role, status, last_login, created_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """,
-            (firebase_uid, email, name, role, status),
-        )
-        conn.commit()
-
-    # 4. Get user_id
-    cur.execute("SELECT id FROM users WHERE firebase_uid = ?", (firebase_uid,))
-    user_row = cur.fetchone()
-    if not user_row:
-        return None
-    user_id = user_row["id"]
-
-    # 5. Ensure profile exists
-    cur.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
-    profile = cur.fetchone()
-    if not profile:
-        cur.execute(
-            "INSERT INTO user_profiles (user_id, name, avatar_url) VALUES (?, ?, ?)",
-            (user_id, name, avatar_url),
-        )
-        conn.commit()
-
-    return get_user_with_profile(user_id)
-
-# ---- Profile update ----
-_ALLOWED_PROFILE_FIELDS = {"name", "dob", "gender", "avatar_url"}
-
-def update_profile(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Updates user_profiles fields from allowed set and touches updated_at.
-    """
-    fields = []
-    params: list[Any] = []
-    for k in _ALLOWED_PROFILE_FIELDS:
-        if k in data:
-            fields.append(f"{k} = ?")
-            params.append(data[k])
-
-    if not fields:
-        return get_user_with_profile(user_id)
-
-    params.append(user_id)
-    db = get_db_connection()
-    db.execute(
-        f"""
-        UPDATE user_profiles
-        SET {', '.join(fields)}, updated_at = datetime('now')
-        WHERE user_id = ?
-        """,
-        tuple(params),
+    # Ensure profile exists, then update selective fields
+    con.execute(
+        "INSERT INTO user_profiles (user_id) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM user_profiles WHERE user_id = ?)",
+        (user_id, user_id)
     )
-    db.commit()
-    return get_user_with_profile(user_id)
 
-
-# ---- Role / status (optional admin helpers) ----
-def set_role_status(user_id: int, role: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
-    db = get_db_connection()
     updates = []
-    params: list[Any] = []
-    if role is not None:
-        updates.append("role = ?")
-        params.append(role)
-    if status is not None:
-        updates.append("status = ?")
-        params.append(status)
-    if not updates:
-        return get_user_with_profile(user_id)
-    params.append(user_id)
-    db.execute(
-        f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
-        tuple(params),
-    )
-    db.commit()
+    params = []
+    if dob is not None:
+        updates.append("dob = ?"); params.append(dob if dob else None)
+    if gender is not None:
+        updates.append("gender = ?"); params.append(gender if gender else None)
+    if avatar_url is not None:
+        updates.append("avatar_url = ?"); params.append(avatar_url if avatar_url else None)
+
+    if updates:
+        params.extend([user_id])
+        con.execute(f"UPDATE user_profiles SET {', '.join(updates)} WHERE user_id = ?", params)
+
+    con.commit()
     return get_user_with_profile(user_id)
-
-
-def delete_user(user_id: int) -> None:
-    db = get_db_connection()
-    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    db.commit()

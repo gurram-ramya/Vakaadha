@@ -8,6 +8,7 @@ from utils.errors import install_error_handlers
 from utils.security import install_security_headers
 from db import init_db_for_app
 
+
 def create_app(config_object=DevConfig):
     # Serve everything from the frontend/ directory at the root URL space.
     app = Flask(__name__, static_folder="frontend", static_url_path="")

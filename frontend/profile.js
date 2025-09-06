@@ -1,443 +1,361 @@
 // frontend/profile.js
+import { apiRequest, getAuth, setAuth, clearAuth } from "./api/client.js";
 
-(() => {
-  // ===== Config =====
-  const STORAGE_KEY = "auth"; // stores {"email":"...","idToken":"..."}
-  const USERS_ME_ENDPOINT = "/users/me";
-  const USERS_SIGNUP_ENDPOINT = "/signup"; // silent local-user ensure
-  const REDIRECT_AFTER_LOGIN = "index.html"; // change to "profile.html" if you prefer staying
-
-  // ===== DOM =====
-  const $ = (sel) => document.querySelector(sel);
-
-  const els = {
-    // Sections
-    loginSection: $("#login-section"),
-    profileSection: $("#profile-section"),
-
-    // Forms / controls (IDs from your HTML)
-    loginForm: $("#email-login-form"),
-    signupForm: $("#email-signup-form"),
-    googleBtn: $("#google-login"),
-    logoutBtn: $("#logout"),
-
-    // Profile fields (read-only display or editable form; we just fill them)
-    profileName: $("#profile-name"),
-    profileEmail: $("#profile-email"),
-    profileDob: $("#profile-dob"),
-    profileGender: $("#profile-gender"),
-    profileAvatar: $("#profile-avatar"),
-
-    // Modal (optional)
-    registerModal: $("#registerModal"),
-
-    // Toast
-    toast: $("#toast"),
-  };
-
-  // Provide the toggle function your HTML calls (safe if modal missing)
-  // explicitly attach to window
-  window.toggleRegisterModal = function toggleRegisterModal() {
-    const modal = document.getElementById("registerModal");
-    if (!modal) return;
-    const visible = modal.style.display === "block";
-    modal.style.display = visible ? "none" : "block";
-  };
+/* ---------------- Firebase init (moved from HTML) ---------------- */
+// NOTE: keeping config client-side is standard for Firebase. We’re just
+// moving it out of the HTML so it’s not inline-visible in the DOM.
+const firebaseConfig = {
+  apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
+  authDomain: "vakaadha.firebaseapp.com",
+  projectId: "vakaadha",
+  storageBucket: "vakaadha.appspot.com",
+  messagingSenderId: "395786980107",
+  appId: "1:395786980107:web:6678e452707296df56b00e",
+};
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const auth = () => firebase.auth();
+// Persist login across reloads/tabs
+auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e)=>{
+  console.warn("Could not set LOCAL persistence:", e);
+});
 
 
-  // ===== UI helpers =====
-  function show(section) {
-    const map = {
-      login: els.loginSection,
-      profile: els.profileSection,
-    };
-    Object.values(map).forEach((el) => el && (el.style.display = "none"));
-    if (map[section]) map[section].style.display = "";
-  }
+/* ---------------- DOM refs & small helpers ---------------- */
+const $ = (s) => document.querySelector(s);
 
-  function setText(el, text) {
-    if (el) el.value !== undefined ? (el.value = text ?? "") : (el.textContent = text ?? "");
-  }
+const els = {
+  authSection: $("#auth-section"),
+  profileSection: $("#profile-section"),
 
-  function showToast(msg, isError = false, ms = 2500) {
-    if (!els.toast) {
-      // Fallback
-      if (isError) console.error(msg);
-      else console.log(msg);
-      return;
-    }
-    els.toast.textContent = msg;
-    els.toast.style.background = isError ? "#b00020" : "#333";
-    els.toast.style.color = "#fff";
-    els.toast.style.opacity = "1";
-    els.toast.style.visibility = "visible";
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => {
-      els.toast.style.opacity = "0";
-      els.toast.style.visibility = "hidden";
-    }, ms);
-  }
+  // login
+  loginForm: $("#login-form"),
+  loginEmail: $("#login-email"),
+  loginPassword: $("#login-password"),
+  loginSubmit: $("#login-submit"),
 
-  function setButtonLoading(formOrBtnEl, isLoading) {
-    if (!formOrBtnEl) return;
-    if (formOrBtnEl.tagName === "FORM") {
-      const btn = formOrBtnEl.querySelector('[type="submit"]');
-      if (!btn) return;
-      btn.disabled = !!isLoading;
-      if (isLoading) {
-        btn.dataset._label = btn.textContent;
-        btn.textContent = "Please wait…";
-      } else if (btn.dataset._label) {
-        btn.textContent = btn.dataset._label;
-        delete btn.dataset._label;
-      }
-    } else if (formOrBtnEl.tagName === "BUTTON") {
-      const btn = formOrBtnEl;
-      btn.disabled = !!isLoading;
-      if (isLoading) {
-        btn.dataset._label = btn.textContent;
-        btn.textContent = "Please wait…";
-      } else if (btn.dataset._label) {
-        btn.textContent = btn.dataset._label;
-        delete btn.dataset._label;
-      }
-    }
-  }
+  // google
+  googleBtn: $("#google-btn"),
 
-  // ===== Storage =====
-  function saveAuth({ email, idToken }) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ email, idToken }));
-  }
-  function loadAuth() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  }
-  function clearAuth() {
-    localStorage.removeItem(STORAGE_KEY);
-  }
+  // signup
+  openSignup: $("#open-signup"),
+  signupForm: $("#signup-form"),
+  signupName: $("#signup-name"),
+  signupEmail: $("#signup-email"),
+  signupPassword: $("#signup-password"),
+  signupPasswordConfirm: $("#signup-password-confirm"),
+  signupSubmit: $("#signup-submit"),
+  cancelSignup: $("#cancel-signup"),
 
-  // ===== Firebase adapter (compat first, modular fallback) =====
-  function getFirebaseAuthAPI() {
-    const hasCompat = typeof window !== "undefined" && window.firebase && typeof window.firebase.auth === "function";
-    if (hasCompat) {
-      const auth = firebase.auth();
-      return {
-        auth,
-        createUserWithEmailAndPassword: (email, password) => auth.createUserWithEmailAndPassword(email, password),
-        signInWithEmailAndPassword: (email, password) => auth.signInWithEmailAndPassword(email, password),
-        signInWithGooglePopup: async () => {
-          const provider = new firebase.auth.GoogleAuthProvider();
-          try {
-            return await auth.signInWithPopup(provider);
-          } catch (err) {
-            // Fallback for popup blockers
-            if (err && (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user")) {
-              await auth.signInWithRedirect(provider);
-              // When redirect completes, onAuthStateChanged will fire.
-              return null;
-            }
-            throw err;
-          }
-        },
-        signOut: () => auth.signOut(),
-        onAuthStateChanged: (cb) => auth.onAuthStateChanged(cb),
-        getIdToken: (user) => user.getIdToken(),
-      };
-    }
+  // profile
+  verifyBanner: $("#verify-banner"),
+  resendVerification: $("#resend-verification"),
+  refreshVerification: $("#refresh-verification"),
 
-    // Best-effort modular detection (only if someone loaded it globally)
-    const hasModular =
-      typeof window !== "undefined" &&
-      window.firebase === undefined &&
-      (typeof window.getAuth === "function" ||
-        (window.firebaseAuth && typeof window.firebaseAuth.getAuth === "function"));
-    if (hasModular) {
-      const getAuth = window.getAuth || (window.firebaseAuth && window.firebaseAuth.getAuth);
-      const _create =
-        window.createUserWithEmailAndPassword ||
-        (window.firebaseAuth && window.firebaseAuth.createUserWithEmailAndPassword);
-      const _signIn =
-        window.signInWithEmailAndPassword ||
-        (window.firebaseAuth && window.firebaseAuth.signInWithEmailAndPassword);
-      const _signOut = window.signOut || (window.firebaseAuth && window.firebaseAuth.signOut);
-      const _onAuthStateChanged =
-        window.onAuthStateChanged || (window.firebaseAuth && window.firebaseAuth.onAuthStateChanged);
+  profileForm: $("#profile-form"),
+  profileName: $("#profile-name"),
+  profileEmail: $("#profile-email"),
+  profileDob: $("#profile-dob"),
+  profileGender: $("#profile-gender"),
+  profileAvatar: $("#profile-avatar"),
+  profileSave: $("#profile-save"),
 
-      const auth = getAuth();
-      return {
-        auth,
-        createUserWithEmailAndPassword: (email, password) => _create(auth, email, password),
-        signInWithEmailAndPassword: (email, password) => _signIn(auth, email, password),
-        // For Google sign-in you'd need to expose GoogleAuthProvider globally in modular too.
-        signInWithGooglePopup: async () => {
-          throw new Error("Google sign-in requires compat SDK in this setup.");
-        },
-        signOut: () => _signOut(auth),
-        onAuthStateChanged: (cb) => _onAuthStateChanged(auth, cb),
-        getIdToken: (user) => user.getIdToken(),
-      };
-    }
+  logout: $("#logout"),
+  toast: $("#toast"),
+};
 
-    throw new Error(
-      "Firebase Auth SDK not found. Include compat scripts in <head> and initialize firebase.initializeApp(firebaseConfig)."
-    );
-  }
+function toast(msg, bad = false, ms = 2200) {
+  if (!els.toast) return;
+  els.toast.textContent = msg;
+  els.toast.style.background = bad ? "#b00020" : "#333";
+  els.toast.style.opacity = "1";
+  els.toast.style.visibility = "visible";
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => {
+    els.toast.style.opacity = "0";
+    els.toast.style.visibility = "hidden";
+  }, ms);
+}
 
-  // ===== Validators & error mapping =====
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function show(section) {
+  if (els.authSection) els.authSection.classList.toggle("hidden", section !== "auth");
+  if (els.profileSection) els.profileSection.classList.toggle("hidden", section !== "profile");
+}
 
-  function validateLogin({ email, password }) {
-    if (!email || !emailRegex.test(email)) return "Please enter a valid email.";
-    if (!password || password.length < 6) return "Please enter your password (min 6 characters).";
-    return null;
-  }
-
-  function mapFirebaseError(code) {
-    const c = (code || "").toString();
-    if (c.includes("email-already-in-use")) return "Email already exists.";
-    if (c.includes("invalid-email")) return "That email address looks invalid.";
-    if (c.includes("weak-password")) return "Password must be at least 6 characters.";
-    if (c.includes("user-not-found")) return "No account found for that email.";
-    if (c.includes("wrong-password")) return "Wrong password.";
-    if (c.includes("too-many-requests")) return "Too many attempts. Please try again later.";
-    if (c.includes("network-request-failed")) return "Network error. Check your connection.";
-    if (c.includes("popup-blocked")) return "Popup blocked. Please allow popups or try again.";
-    return "Something went wrong. Please try again.";
-  }
-
-  // ===== Backend calls =====
-  async function ensureLocalUser(idToken) {
-    // Create local DB user if not exists; backend should be idempotent
-    try {
-      await fetch(USERS_SIGNUP_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({}),
-      });
-    } catch {
-      // ignore; it's best-effort
-    }
-  }
-
-  async function fetchProfile(idToken) {
-    const res = await fetch(USERS_ME_ENDPOINT, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`,
-      },
-    });
-    if (!res.ok) {
-      const message =
-        res.status === 401 || res.status === 403 ? "Session expired. Please log in again." : `Failed to load profile (${res.status}).`;
-      const err = new Error(message);
-      err.status = res.status;
-      err.body = await res.text().catch(() => "");
-      throw err;
-    }
-    return res.json();
-  }
-
-  // ===== Render profile =====
-  function renderProfile(info) {
-    // We do NOT force the user to fill anything; we just display what we have.
-    setText(els.profileEmail, info.email || "");
-    setText(els.profileName, info.name || info.display_name || "");
-    if (els.profileDob && info.dob) setText(els.profileDob, info.dob);
-    if (els.profileGender && info.gender) els.profileGender.value = info.gender || "";
-    if (els.profileAvatar && info.avatar_url) setText(els.profileAvatar, info.avatar_url);
-  }
-
-  // ===== Auth handlers =====
-async function afterAuthSuccess(user, api, silent = false) {
-  const idToken = await api.getIdToken(user);
-
-  // Save full user info to localStorage
-  localStorage.setItem("loggedInUser", JSON.stringify({
-    uid: user.uid,
-    email: user.email || "",
-    name: user.displayName || "",
-    idToken
-  }));
-
-  // Ensure user exists in backend DB
-  await ensureLocalUser(idToken);
-
+function redirectPostLogin() {
   try {
-    // Load extra profile info (dob, gender, etc.)
-    const data = await fetchProfile(idToken);
-
-    // Merge backend profile name if Firebase didn't have it
-    if (data?.name && !user.displayName) {
-      const stored = JSON.parse(localStorage.getItem("loggedInUser"));
-      stored.name = data.name;
-      localStorage.setItem("loggedInUser", JSON.stringify(stored));
-    }
-
-    if (!silent) showToast("Logged in successfully.");
-
-    // Always redirect home (Amazon-style)
-    window.location.href = REDIRECT_AFTER_LOGIN;
-
-  } catch (err) {
-    clearAuth();
-    show("login");
-    showToast(err.message || "Could not load your profile.", true);
+    const url = sessionStorage.getItem("postLoginRedirect") || "index.html";
+    sessionStorage.removeItem("postLoginRedirect");
+    window.location.href = url;
+  } catch {
+    window.location.href = "index.html";
   }
 }
 
-
-async function handleEmailLogin(e, api) {
-  e.preventDefault();
-  const email = (e.target.querySelector("#login-email")?.value || "").trim();
-  const password = e.target.querySelector("#login-password")?.value || "";
-
-  const validation = validateLogin({ email, password });
-  if (validation) return showToast(validation, true);
-
-  try {
-    setButtonLoading(els.loginForm, true);
-    const cred = await api.signInWithEmailAndPassword(email, password);
-    if (!cred?.user) throw new Error("Login failed.");
-
-    if (!cred.user.emailVerified) {
-      showToast("Please verify your email before logging in.", true, 4000);
-      await api.signOut();
-      return;
-    }
-
-    await afterAuthSuccess(cred.user, api);
-  } catch (err) {
-    showToast(mapFirebaseError(err.code) || err.message || "Login failed.", true);
-  } finally {
-    setButtonLoading(els.loginForm, false);
-  }
+/* --------------- Bind exactly once (prevents double Google prompt) --------------- */
+if (!window.__profile_js_bound__) {
+  window.__profile_js_bound__ = true;
+  document.addEventListener("DOMContentLoaded", () => {
+    wireHandlers();
+    initAuthState();
+  });
 }
 
-
-async function handleEmailSignup(e, api) {
-  e.preventDefault();
-  const email = (e.target.querySelector("#signup-email")?.value || "").trim();
-  const name = (e.target.querySelector("#signup-name")?.value || "").trim();
-  const password = e.target.querySelector("#signup-password")?.value || "";
-  const confirm = e.target.querySelector("#signup-password-confirm")?.value || "";
-
-  let validation = null;
-  if (!emailRegex.test(email)) validation = "Please enter a valid email.";
-  else if (!name) validation = "Please enter your full name.";
-  else if (password.length < 6) validation = "Password must be at least 6 characters.";
-  else if (password !== confirm) validation = "Passwords do not match.";
-
-  if (validation) return showToast(validation, true);
-
-  try {
-    setButtonLoading(els.signupForm, true);
-    const cred = await api.createUserWithEmailAndPassword(email, password);
-    if (!cred?.user) throw new Error("Signup failed.");
-
-    // Set displayName
-    await cred.user.updateProfile({ displayName: name });
-
-    // Send email verification
-    await cred.user.sendEmailVerification();
-
-    // Close modal if present
-    if (els.registerModal) els.registerModal.style.display = "none";
-
-    showToast("Account created! Please verify your email before logging in.", false, 4000);
-  } catch (err) {
-    showToast(mapFirebaseError(err.code) || err.message || "Signup failed.", true);
-  } finally {
-    setButtonLoading(els.signupForm, false);
-  }
-}
-
-
-  async function handleGoogleLogin(api) {
-    try {
-      setButtonLoading(els.googleBtn, true);
-      const cred = await api.signInWithGooglePopup();
-      // If redirect flow was triggered, cred may be null; the onAuthStateChanged will handle it.
-      if (cred && cred.user) {
-        await afterAuthSuccess(cred.user, api);
-      } else {
-        showToast("Continue Google sign-in…");
-      }
-    } catch (err) {
-      showToast(`Google login failed: ${err.code || err.message || err}`, true);
-    } finally {
-      setButtonLoading(els.googleBtn, false);
-    }
-  }
-
-  async function handleLogout(api) {
-    try {
-      setButtonLoading(els.logoutBtn, true);
-      clearAuth();
-      await api.signOut();
-    } catch {
-      // ignore
-    } finally {
-      setButtonLoading(els.logoutBtn, false);
-      window.location.href = "profile.html";
-    }
-  }
-
-  // ===== Boot =====
-  document.addEventListener("DOMContentLoaded", async () => {
-    let api;
-    try {
-      api = getFirebaseAuthAPI();
-    } catch (e) {
-      console.error(e);
-      showToast("Auth not initialized. Check Firebase SDK & CSP.", true);
-      show("login");
-      return;
-    }
-
-    // Wire forms
-    if (els.loginForm) els.loginForm.addEventListener("submit", (e) => handleEmailLogin(e, api));
-    if (els.signupForm) els.signupForm.addEventListener("submit", (e) => handleEmailSignup(e, api));
-    if (els.googleBtn) els.googleBtn.addEventListener("click", (e) => { e.preventDefault(); handleGoogleLogin(api); });
-    if (els.logoutBtn) els.logoutBtn.addEventListener("click", (e) => { e.preventDefault(); handleLogout(api); });
-
-    // Initial state
-    const stored = loadAuth();
-    if (stored?.idToken) {
-      try {
-        const data = await fetchProfile(stored.idToken);
-        renderProfile(data);
-        show("profile");
-      } catch {
-        clearAuth();
-        show("login");
-      }
-    } else {
-      show("login");
-    }
-
-    // Keep Firebase state in sync (also handles Google redirect)
-    try {
-      api.onAuthStateChanged(async (user) => {
-        if (!user) return;
-        // If we already have a token stored, skip (avoid double redirects)
-        const st = loadAuth();
-        if (st?.idToken) return;
-        try {
-          await afterAuthSuccess(user, api, /*silent*/ true);
-        } catch (e) {
-          console.error(e);
-        }
-      });
-    } catch {
-      // ignore
+/* ---------------- Event handlers ---------------- */
+function wireHandlers() {
+  // Show/hide signup card (fix for “btn only works via console”)
+  els.openSignup?.addEventListener("click", () => {
+    if (els.signupForm) {
+      els.signupForm.classList.remove("hidden");
+      els.signupName?.focus();
     }
   });
-})();
+  els.cancelSignup?.addEventListener("click", () => {
+    els.signupForm?.classList.add("hidden");
+  });
+
+  // Email login
+  els.loginForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (els.loginSubmit) els.loginSubmit.disabled = true;
+    try {
+      const cred = await auth().signInWithEmailAndPassword(
+        els.loginEmail?.value.trim() || "",
+        els.loginPassword?.value || ""
+      );
+      await afterFirebaseAuth(cred.user);
+      toast("Logged in");
+      redirectPostLogin();
+    } catch (err) {
+      console.error(err);
+      toast("Login failed. Check your credentials.", true);
+    } finally {
+      if (els.loginSubmit) els.loginSubmit.disabled = false;
+    }
+  });
+
+  // Google sign-in — POPUP only (no redirect), and only one handler
+  els.googleBtn?.addEventListener("click", async () => {
+    els.googleBtn.disabled = true;
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const result = await auth().signInWithPopup(provider);
+      await afterFirebaseAuth(result.user);
+      toast("Signed in with Google");
+      redirectPostLogin();
+    } catch (err) {
+      console.error(err);
+      toast("Google sign-in failed.", true);
+    } finally {
+      els.googleBtn.disabled = false;
+    }
+  });
+
+  // Signup (handles email-already-in-use → try login, guide user)
+  els.signupForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (els.signupSubmit) els.signupSubmit.disabled = true;
+
+    const name = els.signupName?.value.trim();
+    const email = els.signupEmail?.value.trim();
+    const pw = els.signupPassword?.value || "";
+    const pw2 = els.signupPasswordConfirm?.value || "";
+
+    if (!name) { toast("Enter your name.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
+    if (pw.length < 6) { toast("Password must be at least 6 chars.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
+    if (pw !== pw2) { toast("Passwords do not match.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
+
+    try {
+      const cred = await auth().createUserWithEmailAndPassword(email, pw);
+      await cred.user.updateProfile({ displayName: name }).catch(()=>{});
+      // Optional verification email:
+      // await cred.user.sendEmailVerification().catch(()=>{});
+      await afterFirebaseAuth(cred.user);
+      els.signupForm?.classList.add("hidden");
+      toast("Account created");
+      redirectPostLogin();
+    } catch (err) {
+      console.error(err);
+      const code = err?.code || "";
+      if (code === "auth/email-already-in-use") {
+        // Try logging in instead (user already exists with this email)
+        try {
+          const loginCred = await auth().signInWithEmailAndPassword(email, pw);
+          await loginCred.user.updateProfile({ displayName: name }).catch(()=>{});
+          await afterFirebaseAuth(loginCred.user);
+          els.signupForm?.classList.add("hidden");
+          toast("Welcome back! Logged in.");
+          redirectPostLogin();
+        } catch (signErr) {
+          const scode = signErr?.code || "";
+          if (scode === "auth/wrong-password") {
+            toast("Email already registered. Please log in or reset your password.", true);
+          } else if (scode === "auth/user-not-found") {
+            toast("Account exists under a different method. Try Google sign-in.", true);
+          } else {
+            toast("Email in use. Try logging in or Google sign-in.", true);
+          }
+        }
+      } else if (code === "auth/weak-password") {
+        toast("Password must be at least 6 characters.", true);
+      } else {
+        toast("Signup failed. " + (err?.message || ""), true);
+      }
+    } finally {
+      if (els.signupSubmit) els.signupSubmit.disabled = false;
+    }
+  });
+
+  // Save profile (only if profile section present)
+  els.profileForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (els.profileSave) els.profileSave.disabled = true;
+    try {
+      const body = {
+        name: els.profileName?.value.trim() || null,
+        dob: els.profileDob?.value || null,
+        gender: els.profileGender?.value || null,
+        avatar_url: els.profileAvatar?.value.trim() || null,
+      };
+      const updated = await apiRequest("/users/me/profile", { method: "PUT", body });
+      populateProfile(updated);
+      toast("Profile saved");
+    } catch (err) {
+      console.error(err);
+      toast("Failed to save profile.", true);
+    } finally {
+      if (els.profileSave) els.profileSave.disabled = false;
+    }
+  });
+
+  // Email verification helpers (Firebase link)
+  els.resendVerification?.addEventListener("click", async ()=>{
+    const btn = els.resendVerification;
+    btn.disabled = true;
+    try {
+      const user = auth().currentUser;
+      if (!user) { toast("Not signed in.", true); return; }
+      await user.sendEmailVerification();
+      toast("Verification email sent");
+    } catch (e) {
+      console.error("sendEmailVerification failed:", e);
+      toast("Could not send verification email.", true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  
+  els.refreshVerification?.addEventListener("click", async ()=>{
+    const btn = els.refreshVerification;
+    btn.disabled = true;
+    try {
+      await refreshEmailVerified();
+      const user = auth().currentUser;
+      toast(user && user.emailVerified ? "Email verified ✔" : "Still unverified", !(user && user.emailVerified));
+    } catch (e) {
+      console.error("refreshEmailVerified failed:", e);
+      toast("Could not refresh status.", true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+
+
+  // Logout
+  els.logout?.addEventListener("click", async () => {
+    try { await auth().signOut(); } catch {}
+    clearAuth();
+    location.href = "index.html";
+  });
+}
+
+/* ---------------- Auth state, profile hydration ---------------- */
+function initAuthState() {
+  auth().onAuthStateChanged(async (user) => {
+    if (!user) { clearAuth(); show("auth"); return; }
+
+    // Fast path: if token exists, try hydrating
+    const existing = getAuth();
+    if (existing?.idToken) {
+      try {
+        const me = await apiRequest("/users/me");
+        populateProfile(me);
+        updateVerifyBanner(me);
+        show("profile");
+        return;
+      } catch (e) {
+        console.warn("Stored token rejected, refreshing…");
+      }
+    }
+
+    try {
+      await afterFirebaseAuth(user, /*silent*/ true);
+      show("profile");
+    } catch (e) {
+      console.error(e);
+      show("auth");
+    }
+  });
+}
+
+async function afterFirebaseAuth(user, silent = false) {
+  // Always refresh token after sign-in to avoid stale claims
+  const idToken = await user.getIdToken(true);
+  setAuth({
+    idToken,
+    uid: user.uid,
+    email: user.email,
+    name: user.displayName || user.email,
+    photoURL: user.photoURL || null,
+  });
+
+  // Idempotent: ensure local user exists
+  try { await apiRequest("/signup", { method: "POST" }); } catch {}
+
+  // Hydrate profile if markup exists
+  try {
+    const me = await apiRequest("/users/me");
+    populateProfile(me);
+    updateVerifyBanner(me);
+  } catch (e) {
+    // If /users/me is not accessible yet, continue without blocking login
+    console.warn(e);
+  }
+
+  if (!silent) toast("Signed in");
+}
+
+function populateProfile(me) {
+  if (!els.profileSection) return;
+  if (els.profileName)   els.profileName.value   = me.profile_name || me.name || "";
+  if (els.profileEmail)  els.profileEmail.value  = me.email || "";
+  if (els.profileDob)    els.profileDob.value    = me.profile_dob || "";
+  if (els.profileGender) els.profileGender.value = me.profile_gender || "";
+  if (els.profileAvatar) els.profileAvatar.value = me.profile_avatar_url || "";
+}
+
+async function refreshEmailVerified() {
+  try {
+    const user = auth().currentUser;
+    if (!user) return;
+    await user.reload();
+    const token = await user.getIdToken(true);
+    setAuth({ ...getAuth(), idToken: token });
+    const me = await apiRequest("/users/me");
+    updateVerifyBanner(me);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function updateVerifyBanner(me) {
+  if (!els.verifyBanner) return;
+  const user = auth().currentUser;
+  const verified = (user && user.emailVerified) || !!me?.email_verified;
+  els.verifyBanner.classList.toggle("hidden", !!verified);
+  document.body.classList.toggle("unverified", !verified);
+}

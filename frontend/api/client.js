@@ -3,54 +3,63 @@
 // Centralized API client for frontend
 // ==============================
 
-export const API_BASE = "/"; // change if backend runs on another port
+export const API_BASE = ""; // same-origin
 
-// Helper to get stored token
-function getToken() {
-  const stored = JSON.parse(localStorage.getItem("loggedInUser"));
-  return stored ? stored.idToken : null;
+// ---- Auth storage helpers (single source of truth) ----
+const STORAGE_KEY = "loggedInUser";
+
+export function getAuth() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
+  catch { return null; }
+}
+export function setAuth(obj) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj || {}));
+}
+export function clearAuth() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+export function getToken() {
+  return getAuth()?.idToken || null;
 }
 
-// Generic API request
-async function request(endpoint, options = {}) {
+// ---- Core request wrapper ----
+export async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
   const token = getToken();
-  const headers = options.headers || {};
-
-  // Always send JSON
-  if (!(options.body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  // Attach auth token if available
-  if (token) {
-    headers["Authorization"] = "Bearer " + token;
-  }
 
   const res = await fetch(API_BASE + endpoint, {
-    ...options,
-    headers
+    method,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: "same-origin",
   });
 
-  // Handle unauthorized globally
   if (res.status === 401) {
-    localStorage.removeItem("loggedInUser");
-    window.location.href = "/"; // force logout
-    throw new Error("Unauthorized, please log in again.");
+    // clear and bounce to login
+    clearAuth();
+    const here = typeof location !== "undefined" ? location.pathname + location.search : "/";
+    try { sessionStorage.setItem("postLoginRedirect", here); } catch {}
+    if (typeof window !== "undefined") window.location.href = "profile.html";
+    throw new Error("Unauthorized");
   }
 
-  // Parse JSON or throw
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "API request failed");
+    let err = {};
+    try { err = await res.json(); } catch {}
+    throw new Error(err.error || res.statusText || "Request failed");
   }
 
+  if (res.status === 204) return null;
   return res.json();
 }
 
-// Exported API methods
+// Convenience API object (for existing code like wishlist.js)
 export const apiClient = {
-  get: (endpoint) => request(endpoint),
-  post: (endpoint, body) => request(endpoint, { method: "POST", body: JSON.stringify(body) }),
-  put: (endpoint, body) => request(endpoint, { method: "PUT", body: JSON.stringify(body) }),
-  delete: (endpoint) => request(endpoint, { method: "DELETE" })
+  get: (e) => apiRequest(e),
+  post: (e, b) => apiRequest(e, { method: "POST", body: b }),
+  put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
+  delete: (e) => apiRequest(e, { method: "DELETE" }),
 };
