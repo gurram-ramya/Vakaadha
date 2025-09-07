@@ -37,14 +37,22 @@ export async function apiRequest(endpoint, { method = "GET", headers = {}, body 
     credentials: "same-origin",
   });
 
+
   if (res.status === 401) {
-    // clear and bounce to login
     clearAuth();
     const here = typeof location !== "undefined" ? location.pathname + location.search : "/";
     try { sessionStorage.setItem("postLoginRedirect", here); } catch {}
-    if (typeof window !== "undefined") window.location.href = "profile.html";
+
+    // Avoid reload loops if we are already on profile.html
+    const path = (typeof location !== "undefined" && location.pathname) ? location.pathname : "";
+    const alreadyOnProfile = /(^|\/)profile\.html$/.test(path);
+
+    if (!alreadyOnProfile && typeof window !== "undefined") {
+      window.location.href = "profile.html";
+    }
     throw new Error("Unauthorized");
   }
+
 
   if (!res.ok) {
     let err = {};

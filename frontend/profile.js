@@ -278,9 +278,23 @@ function initAuthState() {
   auth().onAuthStateChanged(async (user) => {
     if (!user) { clearAuth(); show("auth"); return; }
 
-    // Fast path: if token exists, try hydrating
+    // // Fast path: if token exists, try hydrating
+    // const existing = getAuth();
+    // if (existing?.idToken) {
+    //   try {
+    //     const me = await apiRequest("/users/me");
+    //     populateProfile(me);
+    //     updateVerifyBanner(me);
+    //     show("profile");
+    //     return;
+    //   } catch (e) {
+    //     console.warn("Stored token rejected, refreshing…");
+    //   }
+    // }
+
+    // Fast path ONLY if we have both a stored token and a currentUser
     const existing = getAuth();
-    if (existing?.idToken) {
+    if (existing?.idToken && auth().currentUser) {
       try {
         const me = await apiRequest("/users/me");
         populateProfile(me);
@@ -291,6 +305,7 @@ function initAuthState() {
         console.warn("Stored token rejected, refreshing…");
       }
     }
+
 
     try {
       await afterFirebaseAuth(user, /*silent*/ true);
