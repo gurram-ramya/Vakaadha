@@ -12,19 +12,30 @@ export function getAuth() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
   catch { return null; }
 }
+
 export function setAuth(obj) {
+  console.log("🧪 [AUTH] setAuth called with:", obj);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(obj || {}));
 }
+
 export function clearAuth() {
+  console.log("🧪 [AUTH] clearAuth called");
   localStorage.removeItem(STORAGE_KEY);
 }
+
 export function getToken() {
-  return getAuth()?.idToken || null;
+  const token = getAuth()?.idToken || null;
+  console.log("🧪 [AUTH] getToken called. Token exists?", !!token);
+  if (token) console.log("🧪 [AUTH] Token (start):", token.substring(0, 40), "...");
+  return token;
 }
 
 // ---- Core request wrapper ----
 export async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
   const token = getToken();
+
+  console.log("🧪 [API REQUEST]", method, endpoint);
+  console.log("🧪 [API] Token present?", !!token);
 
   const res = await fetch(API_BASE + endpoint, {
     method,
@@ -37,31 +48,32 @@ export async function apiRequest(endpoint, { method = "GET", headers = {}, body 
     credentials: "same-origin",
   });
 
-
   if (res.status === 401) {
     clearAuth();
     const here = typeof location !== "undefined" ? location.pathname + location.search : "/";
     try { sessionStorage.setItem("postLoginRedirect", here); } catch {}
 
-    // Avoid reload loops if we are already on profile.html
     const path = (typeof location !== "undefined" && location.pathname) ? location.pathname : "";
     const alreadyOnProfile = /(^|\/)profile\.html$/.test(path);
 
     if (!alreadyOnProfile && typeof window !== "undefined") {
+      console.warn("🧪 [API] Redirecting to login due to 401");
       window.location.href = "profile.html";
     }
     throw new Error("Unauthorized");
   }
 
-
   if (!res.ok) {
     let err = {};
     try { err = await res.json(); } catch {}
+    console.error("🧪 [API ERROR]", err);
     throw new Error(err.error || res.statusText || "Request failed");
   }
 
   if (res.status === 204) return null;
-  return res.json();
+  const json = await res.json();
+  console.log("🧪 [API] Response JSON:", json);
+  return json;
 }
 
 // Convenience API object (for existing code like wishlist.js)

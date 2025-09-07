@@ -129,7 +129,14 @@ function wireHandlers() {
       redirectPostLogin();
     } catch (err) {
       console.error(err);
-      toast("Login failed. Check your credentials.", true);
+      const code = err?.code || "";
+      if (code === "auth/wrong-password") {
+        toast("Wrong password.", true);
+      } else if (code === "auth/user-not-found") {
+        toast("No account found. Try signing up.", true);
+      } else {
+        toast("Login failed: " + (err.message || ""), true);
+      }
     } finally {
       if (els.loginSubmit) els.loginSubmit.disabled = false;
     }
@@ -319,7 +326,10 @@ function initAuthState() {
 
 async function afterFirebaseAuth(user, silent = false) {
   // Always refresh token after sign-in to avoid stale claims
+  await user.reload(); // Force refresh of emailVerified, displayName
+  console.log("🧪 [AUTH] Firebase user:", user);
   const idToken = await user.getIdToken(true);
+  console.log("🧪 [AUTH] Token from Firebase:", idToken.substring(0, 40), "...");
   setAuth({
     idToken,
     uid: user.uid,

@@ -39,6 +39,7 @@ def install_security_headers(app):
         "'self'",
         "https://accounts.google.com",
         "https://*.googleusercontent.com",
+        "https://*.firebaseapp.com",       
     ]
     font_src = [
         "'self'",

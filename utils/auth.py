@@ -64,10 +64,17 @@ def require_auth(f: Callable):
             return jsonify({"error": "missing_authorization", "detail": "Authorization: Bearer <idToken> required"}), 401
 
         try:
+            
+            # print("🧪 [AUTH] Raw Authorization header:", request.headers.get("Authorization"))  
+            # print("🧪 [AUTH] Extracted token (start):", token[:40], "...")
+            # print("🧪 [AUTH] Request path:", request.path)
             decoded = _verify_firebase_id_token(token)
         except Exception as e:
-            return jsonify({"error": "invalid_token", "detail": str(e)}), 401
-
+            return jsonify({
+                "error": "invalid_token",
+                "detail": "Firebase token invalid or expired. Please login again.",
+                "exception": str(e)
+            }), 401
         # Extract identity bits from token
         uid = decoded.get("uid")
         email = decoded.get("email")
