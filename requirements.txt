@@ -1,3 +1,8 @@
-Flask
 requests
+Flask
+Flask-CORS
 firebase-admin
+python-dotenv
+Flask-SQLAlchemy
+Flask-Migrate
+
