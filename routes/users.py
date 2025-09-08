@@ -10,33 +10,20 @@ bp = Blueprint("users", __name__)
 @bp.post("/signup")
 @require_auth
 def signup():
-    """
-    Idempotent: ensure a local user exists for the authenticated Firebase uid.
-    Also backfills name if Firebase provided one.
-    Returns the merged current user payload.
-    """
-    # # require_auth already called ensure_user; but do it once more to backfill name if needed
-    # ensured = users_service.ensure_user(
-    #     firebase_uid=g.user["uid"],
-    #     email=g.user.get("email"),
-    #     name=g.user.get("name"),
-    #     avatar_url=None,
-    #     update_last_login=True,
-    # )
-    
-    # # Rebuild g.user.name if it was just filled by ensure_user
-    # g.user["user_id"] = ensured["id"]
-    # g.user["name"] = ensured.get("name") or g.user.get("name")
+    ensured = users_service.ensure_user(
+        firebase_uid=g.user["uid"],
+        email=g.user.get("email"),
+        name=g.user.get("name"),
+        avatar_url=None,
+        update_last_login=True,
+    )
 
-    # already ensured via require_auth; no need to re-call ensure_user
-    pass
-
+    g.user["user_id"] = ensured["id"]
+    g.user["name"] = ensured.get("name") or g.user.get("name")
 
     me = users_service.get_user_with_profile(g.user["user_id"])
-    # Attach email_verified from token
     me["email_verified"] = bool(g.user.get("email_verified"))
     return jsonify(me)
-
 
 @bp.get("/users/me")
 @require_auth
