@@ -48,6 +48,10 @@ function showUser(nameOrEmail) {
 // ==============================
 window.onload = async () => {
   const stored = getStoredUser();
+  const userDisplay = document.getElementById("user-display");
+  const authLink = document.getElementById("auth-link");
+  const loggedInLinks = document.getElementById("logged-in-links");
+
   if (stored && stored.idToken) {
     try {
       const res = await fetch(API_BASE + "me", {
@@ -55,16 +59,23 @@ window.onload = async () => {
       });
       if (res.ok) {
         const user = await res.json();
-        showUser(user.name || user.email);
+        userDisplay.textContent = "Hello, " + (user.name || user.email);
+        if (authLink) authLink.classList.add("hidden");
+        if (loggedInLinks) loggedInLinks.classList.remove("hidden");
       } else {
-        logout(); // token invalid or expired
+        logout();
       }
-    } catch (err) {
-      console.error("Auto-login failed:", err);
+    } catch {
       logout();
     }
+  } else {
+    // Not logged in
+    if (userDisplay) userDisplay.textContent = "Login / Signup";
+    if (authLink) authLink.classList.remove("hidden");
+    if (loggedInLinks) loggedInLinks.classList.add("hidden");
   }
 };
+
 
 // ==============================
 // Google Login
@@ -80,6 +91,7 @@ if (googleLoginBtn) {
         saveUser(user, idToken);
         await syncWithBackend(idToken);
         showUser(user.displayName || user.email);
+        window.location.href = "/";
       })
       .catch(err => alert("Google login failed: " + err.message));
   });
@@ -101,6 +113,7 @@ if (loginForm) {
       saveUser(user, idToken);
       await syncWithBackend(idToken);
       showUser(user.email);
+      window.location.href = "/";
     } catch (err) {
       alert("Login failed: " + err.message);
     }
@@ -123,6 +136,7 @@ if (signupForm) {
       saveUser(user, idToken);
       await syncWithBackend(idToken);
       showUser(user.email);
+      window.location.href = "/";
     } catch (err) {
       alert("Signup failed: " + err.message);
     }

@@ -1,0 +1,58 @@
+<!-- frontend/addresses.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Address Book • VAKAADHA</title>
+
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="stylesheet" href="profile.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 12px 0;
+    }
+    .address-entry {
+      border-bottom: 1px solid #ccc;
+      padding: 12px 0;
+    }
+    .address-entry:last-child {
+      border-bottom: none;
+    }
+    .btn-add {
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header class="navbar">
+    <a class="logo" href="index.html">VAKAADHA</a>
+    <nav class="nav-links">
+      <a href="index.html"><i class="fas fa-house"></i></a>
+      <a href="wishlist.html"><i class="fas fa-heart"></i></a>
+      <a href="cart.html"><i class="fas fa-shopping-cart"></i></a>
+      <a href="profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
+
+  <main class="profile-container">
+    <h2>Address Book</h2>
+
+    <div id="addresses-list" class="card">
+      <p><em>Loading addresses...</em></p>
+      <!-- Dynamic content will appear here -->
+    </div>
+
+    <button id="add-address" class="btn-add">+ Add New Address</button>
+  </main>
+
+  <div id="toast">OK</div>
+
+  <script type="module" src="api/client.js"></script>
+  <script type="module" src="addresses.js"></script>
+</body>
+</html>

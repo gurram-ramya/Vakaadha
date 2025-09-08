@@ -28,7 +28,38 @@
       <a href="./cart.html" aria-label="Cart">
         <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
       </a>
-      <a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a>
+      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
+      
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
+          <hr class="dropdown-divider"/> 
+
+          <!-- Static Placeholders -->
+          <a href="#">Orders</a>
+          <a href="#">Wishlist</a>
+          <a href="#">Gift Cards</a>
+          <a href="#">Contact Us</a>
+          <a href="#">Saved Cards</a>
+          <a href="#">Saved VPA</a>
+          <a href="#">Saved Addresses</a>
+
+          <!-- Logged-in View -->
+          <div id="logged-in-links" class="hidden">
+            <hr class="dropdown-divider"/>
+            <a href="profile.html">Settings</a>
+            <a href="orders.html">My Orders</a>
+            <a href="wishlist.html">Wishlist</a>
+            <a href="addresses.html">Addresses</a>
+            <a href="#" id="logout">Logout</a>
+          </div>
+        </div>
+      </div>
+
     </nav>
   </header>
 
