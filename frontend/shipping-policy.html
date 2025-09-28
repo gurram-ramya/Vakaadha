@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Shipping Policy – Vakaadha</title>
+  <link rel="stylesheet" href="index.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <!-- <link rel="stylesheet" href="vendor/aos/aos.css"/> -->
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
+  <script src="./navbar.js"></script>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="navbar">
+    <a href="index.html" class="logo">VAKAADHA</a>
+
+    <input type="checkbox" id="menu-toggle"/>
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+
+    <nav class="nav-links">
+      <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html" aria-label="Wishlist">
+        <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
+      </a>
+      <a href="./cart.html" aria-label="Cart">
+        <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
+      </a>
+      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
+      
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
+          <hr class="dropdown-divider"/> 
+
+          <!-- Static Placeholders -->
+          <a href="#">Orders</a>
+          <a href="#">Wishlist</a>
+          <a href="#">Gift Cards</a>
+          <a href="#">Contact Us</a>
+          <a href="#">Saved Cards</a>
+          <a href="#">Saved VPA</a>
+          <a href="#">Saved Addresses</a>
+
+          <!-- Logged-in View -->
+          <div id="logged-in-links" class="hidden">
+            <hr class="dropdown-divider"/>
+            <a href="profile.html">Settings</a>
+            <a href="orders.html">My Orders</a>
+            <a href="wishlist.html">Wishlist</a>
+            <a href="addresses.html">Addresses</a>
+            <a href="#" id="logout">Logout</a>
+          </div>
+        </div>
+      </div>
+
+    </nav>
+  </header>
+
+  <main class="policy-page">
+    <h1>Shipping Policy – Vakaadha</h1>
+
+    <h2>Processing Time</h2>
+    <p>Orders processed in 1–3 business days.</p>
+
+    <h2>Delivery Time</h2>
+    <p>3–7 working days (up to 10 for remote areas).</p>
+
+    <h2>Coverage</h2>
+    <p>Currently shipping across India only.</p>
+
+    <h2>Charges</h2>
+    <p>Shown at checkout. Free shipping may apply during promotions.</p>
+
+    <h2>Tracking</h2>
+    <p>Tracking ID shared via SMS/Email/WhatsApp.</p>
+
+    <h2>Jurisdiction</h2>
+    <p>Disputes subject to Kurnool, Andhra Pradesh.</p>
+
+    <h2>Contact Us</h2>
+    <p>Email: contact.vakaadha@gmail.com<br>
+    Phone/WhatsApp: 7893153335</p>
+  </main>
+</body>
+</html>

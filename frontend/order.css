@@ -1,0 +1,365 @@
+/* Base Styles */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  /* background-color: #d6c0b3d1; */
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  color: black;
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  padding: 15px 30px;
+  border-bottom: 1px solid #222;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+/* Logo in the nav bar */
+.logo {
+  font-family: 'Megrim', cursive;
+  font-size: 1.5rem;   /* ⬅ same height as old 150px image */
+  color: #493628;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-decoration: none;
+}
+
+/* Nav Buttons*/
+.navbar .nav-links a{
+    color: #493628;
+}
+
+
+#menu-toggle {
+  display: none;
+}
+
+.menu-icon {
+  /* background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1); */
+  display: none;
+  font-size: 28px;
+  color: black;
+  cursor: pointer;
+}
+
+/* Desktop Nav Links */
+.nav-links {
+  /* background-color: #E4E0E1; */
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.nav-links a {
+  color: black;
+  width: 20px;
+  font-size: 1.2rem;
+  padding: 10px;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background-color 0.3s, color 0.3s;
+  position: relative;
+}
+
+.nav-links a:hover {
+  /* background-color: #E4E0E1; */
+  color: black;
+}
+
+.nav-links .wishlist-count,
+.nav-links #cartCount {
+  background-color: transparent;
+  color: black;
+  font-size: 15px;
+  padding: 2px 6px;
+  border-radius: 50%;
+  position: absolute;
+  top: -2px;
+  right: 2px;
+  font-weight: bold;
+}
+
+/* ==== RESPONSIVE NAVBAR ==== */
+@media (max-width: 768px) {
+  .menu-icon {
+    display: block;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 70px;
+    left: 0;
+    right: 0;
+    background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+    flex-direction: column;
+    gap: 15px;
+    padding: 20px 0;
+    border-top: 1px solid #222;
+  }
+
+  #menu-toggle:checked + .menu-icon + .nav-links {
+    display: flex;
+  }
+
+  .nav-links a {
+    /* width: 100%; */
+    text-align: center;
+    font-size: 1.1rem;
+    padding: 15px;
+    /* border-bottom: 1px solid #222; */
+  }
+
+  .nav-links .wishlist-count,
+  .nav-links #cartCount {
+    top: 5px;
+    right: 10px;
+  }
+}
+
+
+/* === PROFILE DROPDOWN MENU === */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  background-color: #D6C0B3;
+  min-width: 15vw;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  z-index: 1000;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.dropdown-content hr{
+  margin: auto;
+  width: 90%;
+  border-top: 1px solid #493628;
+}
+
+.dropdown-content a {
+  color: black;
+  /* padding: 10px 14px; */
+  text-decoration: none;
+  display: block;
+  /* border: solid 1px black; */
+  font-size: 14px;
+  width: 90%;
+}
+
+.dropdown-content a:hover {
+  background-color: #f1f1f1;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+.dropdown-divider {
+  border: none;
+  border-top: 1px solid #ccc;
+  margin: 6px 0;
+}
+.hidden {
+  display: none;
+}
+
+main h2{
+  text-align: center;
+}
+
+/* Orders Page */
+.orders-container {
+  padding: 2rem;
+  display: grid;
+  grid-template-columns: repeat(5,1fr);
+  gap: 1.5rem;
+}
+
+.order-card {
+  background: white;
+  border-radius: 10px;
+  padding: 1rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.order-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.order-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.order-items {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.order-items img {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+button.view-btn {
+  margin-top: 0.8rem;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 6px;
+  background: #0077ff;
+  color: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+button.view-btn:hover {
+  background: #005fcc;
+}
+
+/* 4 per row on large tablets */
+@media (max-width: 1200px) {
+  .orders-container {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* 3 per row on tablets */
+@media (max-width: 992px) {
+  .orders-container {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* 2 per row on mobile landscape */
+@media (max-width: 768px) {
+  .orders-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 1 per row on small mobiles */
+@media (max-width: 480px) {
+  .orders-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==== MODAL STYLING ==== */
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); /* Dark overlay */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  position: relative; /* ✅ Needed for absolute close button */
+  background: #fff;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 2rem;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+  font-size: 1.4rem;
+  color: #493628;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 0.5rem;
+}
+
+.modal-content h4 {
+  margin-top: 1.2rem;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.modal-content p {
+  margin: 0.3rem 0;
+  line-height: 1.4;
+}
+
+.modal-content img {
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+/* ✅ Close button fixed */
+.close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  z-index: 10;
+}
+
+.close:hover {
+  color: #000;
+}
+
+/* Modal fade animation */
+@keyframes fadeIn {
+  from { transform: translateY(-20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Responsive modal */
+@media (max-width: 480px) {
+  .modal-content {
+    width: 95%;
+    padding: 1.5rem;
+  }
+  .close {
+    top: 10px;
+    right: 12px;
+    font-size: 1.5rem;
+  }
+}
+
+footer p{
+  text-align: center;
+  padding: 15px;
+  background: #493628;
+  color: white;
+  margin: 0;
+}

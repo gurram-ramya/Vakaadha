@@ -1,35 +1,79 @@
-document.addEventListener("DOMContentLoaded", async () => {
-  const user = JSON.parse(localStorage.getItem("loggedInUser"));
-  if (!user || !user.idToken) {
-    alert("Please log in to view your orders.");
-    return window.location.href = "profile.html";
+document.addEventListener("DOMContentLoaded", () => {
+  const ordersList = document.getElementById("ordersList");
+  const orderModal = document.getElementById("orderModal");
+  const orderDetails = document.getElementById("orderDetails");
+  const closeBtn = orderModal.querySelector(".close");
+
+  const orders = JSON.parse(localStorage.getItem("orders") || "[]");
+
+  if (!orders.length) {
+    ordersList.innerHTML = "<p>No orders placed yet.</p>";
+    return;
   }
 
-  try {
-    const res = await fetch("/users/me/orders", {
-      headers: {
-        Authorization: `Bearer ${user.idToken}`
-      }
-    });
-    const orders = await res.json();
-
-    const container = document.getElementById("ordersContainer");
-    if (orders.length === 0) {
-      container.innerHTML = "<p>No orders found.</p>";
-      return;
-    }
-
-    container.innerHTML = orders.map(order => `
+  // Render Orders
+  ordersList.innerHTML = orders.map(order => {
+    const firstItem = order.items[0];
+    return `
       <div class="order-card">
-        <h3>Order #${order.order_id}</h3>
-        <p>Date: ${new Date(order.order_date).toLocaleDateString()}</p>
-        <p>Status: ${order.status}</p>
-        <p>Total: ₹${order.total_amount.toFixed(2)}</p>
-        <p>Payment: ${order.payment_method || "N/A"}</p>
+        <div class="order-header">
+          <span>Order ID: ${order.id}</span>
+          <span>Status: ${order.status}</span>
+        </div>
+        <div class="order-items">
+          <img src="${firstItem.image || './placeholder.png'}" alt="${firstItem.name}"/>
+          <div>
+            <p>${firstItem.name} (${firstItem.size || "-"}) × ${firstItem.qty || 1}</p>
+            <p><strong>₹${order.total}</strong></p>
+            <p><small>${order.date}</small></p>
+          </div>
+        </div>
+        <button class="view-btn" data-id="${order.id}">View Details</button>
       </div>
-    `).join("");
-  } catch (err) {
-    console.error("Error loading orders:", err);
-    alert("Failed to load orders.");
-  }
+    `;
+  }).join("");
+
+  // Handle modal open
+  ordersList.addEventListener("click", (e) => {
+    const btn = e.target.closest(".view-btn");
+    if (!btn) return;
+
+    const id = parseInt(btn.dataset.id, 10);
+    const order = orders.find(o => o.id === id);
+
+    if (order) {
+      orderDetails.innerHTML = `
+        <h3>Order ID: ${order.id}</h3>
+        <p><strong>Status:</strong> ${order.status}</p>
+        <p><strong>Date:</strong> ${order.date}</p>
+        <p><strong>Payment:</strong> ${order.payment}</p>
+        <h4>Delivery Address:</h4>
+        <p>${order.address.name}<br>
+        ${order.address.street}, ${order.address.city} - ${order.address.zip}</p>
+        <h4>Items:</h4>
+        ${order.items.map(item => `
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+            <img src="${item.image || './placeholder.png'}" width="50"/>
+            <div>
+              <p>${item.name} (${item.size || "-"}) × ${item.qty || 1}</p>
+              <p>₹${item.price} each</p>
+            </div>
+          </div>
+        `).join("")}
+        <h4>Total: ₹${order.total}</h4>
+      `;
+      orderModal.classList.remove("hidden");
+    }
+  });
+
+  // Close modal
+  closeBtn.addEventListener("click", () => {
+    orderModal.classList.add("hidden");
+  });
+
+  window.addEventListener("click", (e) => {
+    if (e.target === orderModal) {
+      orderModal.classList.add("hidden");
+    }
+  });
 });

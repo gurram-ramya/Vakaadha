@@ -5,54 +5,108 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Address Book • VAKAADHA</title>
-
-  <link rel="stylesheet" href="style.css"/>
-  <link rel="stylesheet" href="profile.css"/>
+  <!-- <link rel="stylesheet" href="profile.css" /> -->
+  <link rel="stylesheet" href="./address.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-  <style>
-    .card {
-      border: 1px solid #ddd;
-      border-radius: 12px;
-      padding: 16px;
-      margin: 12px 0;
-    }
-    .address-entry {
-      border-bottom: 1px solid #ccc;
-      padding: 12px 0;
-    }
-    .address-entry:last-child {
-      border-bottom: none;
-    }
-    .btn-add {
-      margin-top: 12px;
-    }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
+  <script src="./navbar.js"></script>
 </head>
 <body>
+  <!-- HEADER -->
   <header class="navbar">
-    <a class="logo" href="index.html">VAKAADHA</a>
+    <a href="index.html" class="logo">VAKAADHA</a>
+
+    <input type="checkbox" id="menu-toggle"/>
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+
     <nav class="nav-links">
-      <a href="index.html"><i class="fas fa-house"></i></a>
-      <a href="wishlist.html"><i class="fas fa-heart"></i></a>
-      <a href="cart.html"><i class="fas fa-shopping-cart"></i></a>
-      <a href="profile.html"><i class="fas fa-user"></i></a>
+      <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html" aria-label="Wishlist">
+        <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
+      </a>
+      <a href="./cart.html" aria-label="Cart">
+        <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
+      </a>
+      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
+      
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
+          <hr class="dropdown-divider"/> 
+
+          <!-- Static Placeholders -->
+          <a href="#">Orders</a>
+          <a href="#">Wishlist</a>
+          <a href="#">Gift Cards</a>
+          <a href="#">Contact Us</a>
+          <a href="#">Saved Cards</a>
+          <a href="#">Saved VPA</a>
+          <a href="#">Saved Addresses</a>
+
+          <!-- Logged-in View -->
+          <div id="logged-in-links" class="hidden">
+            <hr class="dropdown-divider"/>
+            <a href="profile.html">Settings</a>
+            <a href="orders.html">My Orders</a>
+            <a href="wishlist.html">Wishlist</a>
+            <a href="addresses.html">Addresses</a>
+            <a href="#" id="logout">Logout</a>
+          </div>
+        </div>
+      </div>
+
     </nav>
   </header>
 
   <main class="profile-container">
-    <h2>Address Book</h2>
+    <h2>Select or Add Address</h2>
 
-    <div id="addresses-list" class="card">
-      <p><em>Loading addresses...</em></p>
-      <!-- Dynamic content will appear here -->
-    </div>
+    <!-- Existing addresses list -->
+    <div id="address-list"></div>
 
-    <button id="add-address" class="btn-add">+ Add New Address</button>
+    <!-- Add new address button -->
+    <button id="addAddressBtn">+ Add New Address</button>
+
+    <!-- Address form (hidden initially) -->
+    <form id="addressForm" style="display:none; margin-top:20px;">
+      <h3>Add Address</h3>
+      <label>
+        Full Name:
+        <input type="text" id="addrName" required />
+      </label><br><br>
+      <label>
+        Street:
+        <br>
+        <input type="text" id="addrStreet" required />
+      </label><br><br>
+      <label>
+        City:
+        <br>
+        <input type="text" id="addrCity" required />
+      </label><br><br>
+      <label>
+        ZIP:
+        <br>
+        <input type="text" id="addrZip" required />
+      </label><br><br>
+      <button type="submit">Save Address</button>
+      <button type="button" id="cancelForm">Cancel</button>
+    </form>
+    
+    <button id="proceedToPayment">Proceed to Payment</button>
   </main>
 
-  <div id="toast">OK</div>
 
-  <script type="module" src="api/client.js"></script>
-  <script type="module" src="addresses.js"></script>
+  <!-- <script type="module" src="api/client.js"></script> -->
+  <script type="module" src="./addresses.js"></script>
+  <script>
+    document.getElementById("proceedToPayment").addEventListener("click", () => {
+      window.location.href = "payment.html";
+    });
+  </script>
 </body>
 </html>

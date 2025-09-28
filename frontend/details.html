@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>T-Shirt Details | VAKAADHA</title>
+  <link rel="stylesheet" href="details.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet">
+  <script defer src="details.js"></script>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="navbar">
+    <a href="index.html" class="logo">VAKAADHA</a>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html"><i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span></a>
+      <a href="./cart.html"><i class="fas fa-shopping-cart"></i><span id="cartCount">0</span></a>
+      <a href="./profile.html"><i class="fas fa-user"></i></a>
+    </nav>
+  </header>
+
+  <main class="product-page">
+    <!-- Left: Product Image Carousel -->
+    <div class="product-image">
+      <button class="arrow left" id="prevBtn"><i class="fas fa-chevron-left"></i></button>
+      <div class="image-container">
+        <img src="./Images/one more rep front.jpg" alt="One More Rep Tee" class="active">
+        <img src="./Images/one more rep b.jpg" alt="Back View">
+      </div>
+      <button class="arrow right" id="nextBtn"><i class="fas fa-chevron-right"></i></button>
+    </div>
+
+    <!-- Right: Product Info -->
+    <div class="product-info">
+      <h2 class="product-name">One More Rep <br> <span class="product-subtitle">White Oversized Graphic Tee</span> </h2>
+      <hr>
+      <p class="product-price">₹999</p>
+            <!-- Size Options -->
+      <div class="sizes">
+        <label>Select Size:</label>
+        <div class="size-options">
+          <button class="size-btn">S</button>
+          <button class="size-btn">M</button>
+          <button class="size-btn">L</button>
+          <button class="size-btn">XL</button>
+          <button class="size-btn">XXL</button>
+          <button class="size-btn">XXXL</button>
+        </div>
+      </div>
+      <!-- Buttons -->
+      <div class="actions">
+        <button class="btn add-to-cart">Add to Cart</button>
+        <button class="btn buy-now">Buy Now</button>
+        <button class="btn wishlist">♡ Wishlist</button>
+      </div>
+      <p class="product-description">
+        Step up your streetwear game with the Oversized Graphic Tee – “One More Rep”. 
+        Made from 100% cotton, 240 GSM French Terry fabric, this tee offers a premium 
+        heavyweight feel with lasting comfort. The oversized fit gives it a relaxed, 
+        trendy look, while the DTF print delivers the graphic in sharp, 
+        vibrant, and durable detail.
+      </p>
+
+      <div class="highlights">
+        <h3>Highlights:</h3>
+        <ul>
+          <li>Oversized fit for a relaxed look</li>
+          <li>100% cotton, 240 GSM French Terry – heavyweight, soft & breathable</li>
+          <li>Premium DTF print – fade-proof & crack-resistant</li>
+          <li>Bold “One More Rep” streetwear graphic</li>
+          <li>Durable fabric for everyday wear</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

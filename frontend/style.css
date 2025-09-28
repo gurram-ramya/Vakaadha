@@ -1,11 +1,10 @@
 /* Base Styles */
-body {
+/* body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  /* background-color: #d6c0b3d1; */
   background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
   color: black;
-}
+} */
 
 /* Navbar */
 .navbar {
@@ -298,16 +297,16 @@ body {
 
 /* Info Section */
 /* About & Contact Button Section */
-.info-section {
+/* .info-section {
   padding: 60px 30px;
-  /* background-color: #0d0d0d; */
+  background-color: #0d0d0d;
   color: black;
   display: flex;
   justify-content: center;
 }
 
 .info-buttons {
-  /* border: solid 1px #ffffff; */
+  border: solid 1px #ffffff;
   display: flex;
   align-items: flex-start;
   gap: 30px;
@@ -349,7 +348,7 @@ body {
   h2{
     margin-left: 25vh;
   }
-}
+} */
 
 .social-icons {
   display: flex;

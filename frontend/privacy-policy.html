@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Privacy Policy – Vakaadha</title>
+  <link rel="stylesheet" href="index.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <!-- <link rel="stylesheet" href="vendor/aos/aos.css"/> -->
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
+  <script src="./navbar.js"></script>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="navbar">
+    <a href="index.html" class="logo">VAKAADHA</a>
+
+    <input type="checkbox" id="menu-toggle"/>
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+
+    <nav class="nav-links">
+      <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html" aria-label="Wishlist">
+        <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
+      </a>
+      <a href="./cart.html" aria-label="Cart">
+        <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
+      </a>
+      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
+      
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
+          <hr class="dropdown-divider"/> 
+
+          <!-- Static Placeholders -->
+          <a href="#">Orders</a>
+          <a href="#">Wishlist</a>
+          <a href="#">Gift Cards</a>
+          <a href="#">Contact Us</a>
+          <a href="#">Saved Cards</a>
+          <a href="#">Saved VPA</a>
+          <a href="#">Saved Addresses</a>
+
+          <!-- Logged-in View -->
+          <div id="logged-in-links" class="hidden">
+            <hr class="dropdown-divider"/>
+            <a href="profile.html">Settings</a>
+            <a href="orders.html">My Orders</a>
+            <a href="wishlist.html">Wishlist</a>
+            <a href="addresses.html">Addresses</a>
+            <a href="#" id="logout">Logout</a>
+          </div>
+        </div>
+      </div>
+
+    </nav>
+  </header>
+
+  <main class="policy-page">
+    <h1>Privacy Policy – Vakaadha</h1>
+    <p><strong>Last updated:</strong> [Date]</p>
+
+    <p>At Vakaadha, we value your trust. This Privacy Policy explains how we collect, use, and protect your information when you use our website, place an order, or interact with us.</p>
+
+    <h2>1. Information We Collect</h2>
+    <ul>
+      <li>Contact details: Name, phone number, email, billing & shipping address</li>
+      <li>Payment information (processed securely by Cashfree/PayU — we do not store your full card/UPI info)</li>
+      <li>Order details: Products purchased, delivery preferences, transaction history</li>
+      <li>Device & usage data: Browser type, IP address, and how you use our website</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <ul>
+      <li>Process and deliver your orders</li>
+      <li>Provide customer support</li>
+      <li>Send updates (order confirmations, delivery updates)</li>
+      <li>Improve products and website</li>
+      <li>Share promotions (only if you opt-in)</li>
+      <li>Comply with legal obligations</li>
+    </ul>
+
+    <h2>3. Sharing of Information</h2>
+    <p>We share only with payment providers (Cashfree/PayU), delivery partners, or legal authorities if required by law. We never sell or rent your data.</p>
+
+    <h2>4. Data Security</h2>
+    <p>Your payment details are encrypted and processed securely. We take reasonable steps to protect your data but cannot guarantee 100% security online.</p>
+
+    <h2>5. Data Retention</h2>
+    <p>We keep your information only as long as necessary for order processing, legal compliance, and improving services.</p>
+
+    <h2>6. Your Rights</h2>
+    <ul>
+      <li>Request access to your personal information</li>
+      <li>Ask for correction or deletion of your data</li>
+      <li>Opt out of promotional emails/SMS anytime</li>
+    </ul>
+
+    <h2>7. Cookies</h2>
+    <p>Our website may use cookies to improve your browsing experience. You can disable cookies, but some features may not work properly.</p>
+
+    <h2>8. Changes</h2>
+    <p>We may update this Privacy Policy. Changes will be posted with a new “Last updated” date.</p>
+
+    <h2>9. Contact Us</h2>
+    <p>Email: contact.vakaadha@gmail.com<br>
+    Address: 14-293, IG Nagar, Veldurthi, Kurnool, Andhra Pradesh, 518216<br>
+    Phone/WhatsApp: 7893153335</p>
+  </main>
+</body>
+</html>
