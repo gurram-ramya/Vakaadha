@@ -1,58 +1,107 @@
-from flask import Blueprint, request, jsonify, abort
-from domain.catalog import service as catalog
+# routes/catalog.py
+from flask import Blueprint, jsonify, request
+import sqlite3
 
-bp = Blueprint("catalog", __name__)
+catalog_bp = Blueprint("catalog", __name__, url_prefix="/api")
 
-def _parse_int(val, default=None, min_val=None, max_val=None):
-    if val is None or val == "":
-        return default
-    try:
-        i = int(val)
-    except (TypeError, ValueError):
-        return default
-    if min_val is not None and i < min_val:
-        i = min_val
-    if max_val is not None and i > max_val:
-        i = max_val
-    return i
+DB_PATH = "vakaadha.db"
 
-@bp.get("/products")
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@catalog_bp.route("/products", methods=["GET"])
 def list_products():
-    # Pagination
-    page = _parse_int(request.args.get("page"), default=1, min_val=1)
-    page_size = _parse_int(request.args.get("pageSize"), default=24, min_val=1, max_val=100)
+    """
+    Returns all products with their first image, base price, and variant sizes.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    # Basic filters
-    search = request.args.get("search") or None
-    category = request.args.get("category") or None
-    sort = request.args.get("sort") or None
-    min_price = _parse_int(request.args.get("minPrice"))
-    max_price = _parse_int(request.args.get("maxPrice"))
+    # Base product info
+    cur.execute("""
+        SELECT 
+            p.product_id AS id,
+            p.name,
+            p.category,
+            MIN(v.price_cents) AS price_cents,
+            (SELECT image_url 
+             FROM product_images 
+             WHERE product_id = p.product_id 
+             ORDER BY sort_order ASC 
+             LIMIT 1) AS image_url
+        FROM products p
+        LEFT JOIN product_variants v ON p.product_id = v.product_id
+        GROUP BY p.product_id
+        ORDER BY p.created_at DESC;
+    """)
+    products = [dict(row) for row in cur.fetchall()]
 
-    # Attribute filters: attr.<name>=csv (e.g., attr.color=red,blue)
-    attrs = {}
-    for key, val in request.args.items():
-        if key.startswith("attr."):
-            name = key[5:].strip().lower()
-            values = [v.strip() for v in (val or "").split(",") if v.strip()]
-            if name and values:
-                attrs[name] = values
+    # Attach variant sizes per product
+    for prod in products:
+        cur.execute("""
+            SELECT size, color, price_cents 
+            FROM product_variants 
+            WHERE product_id = ?
+            ORDER BY size
+        """, (prod["id"],))
+        prod["variants"] = [dict(v) for v in cur.fetchall()]
 
-    data = catalog.list_products(
-        page=page,
-        page_size=page_size,
-        search=search,
-        category=category,
-        attrs=attrs,
-        min_price=min_price,
-        max_price=max_price,
-        sort=sort,
-    )
-    return jsonify(data), 200
+    conn.close()
+    return jsonify(products)
 
-@bp.get("/products/<int:product_id>")
-def get_product(product_id: int):
-    p = catalog.get_product(product_id)
-    if not p:
-        abort(404)
-    return jsonify(p), 200
+
+
+@catalog_bp.route("/products/<int:product_id>", methods=["GET"])
+def get_product(product_id):
+    """
+    Returns a single product with details, variants, and images.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Base product
+    cur.execute("SELECT * FROM products WHERE product_id = ?", (product_id,))
+    product = cur.fetchone()
+    if not product:
+        conn.close()
+        return jsonify({"error": "Product not found"}), 404
+
+    # Variants
+    cur.execute("""
+        SELECT variant_id, size, color, sku, price_cents
+        FROM product_variants
+        WHERE product_id = ?
+        ORDER BY created_at
+    """, (product_id,))
+    variants = [dict(v) for v in cur.fetchall()]
+
+    # Images
+    cur.execute("""
+        SELECT image_url, sort_order
+        FROM product_images
+        WHERE product_id = ?
+        ORDER BY sort_order
+    """, (product_id,))
+    images = [dict(img) for img in cur.fetchall()]
+
+    # Details (optional)
+    cur.execute("""
+        SELECT long_description, specifications, care_instructions
+        FROM product_details
+        WHERE product_id = ?
+    """, (product_id,))
+    details = cur.fetchone()
+    details = dict(details) if details else {}
+
+    conn.close()
+
+    result = dict(product)
+    result["variants"] = variants
+    result["images"] = images
+    result["details"] = details
+
+    return jsonify(result)
