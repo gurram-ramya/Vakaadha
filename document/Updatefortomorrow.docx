@@ -1,147 +1,123 @@
-Why Do We Need client.js?
+Here is the structured list of what still needs to be integrated. I’ve grouped them by **component/service** and sorted in the logical order you should tackle them:
 
-In Amazon/Flipkart-style apps:
+---
 
-All API requests must:
+## 1. **Catalog (Products)**
 
-Use the same base URL.
+* ✅ Fetch products dynamically (done).
+* Add support for multiple product images (carousel/gallery per product).
+* Product detail page (deep link from product card).
+* Filtering and sorting (by size, price, category).
+* Pagination or “load more” support.
 
-Attach Authorization header (Bearer <idToken>).
+---
 
-Handle 401 (unauthorized) globally (auto-logout).
+## 2. **Cart Service**
 
-Handle errors consistently.
+* API endpoints to:
 
-Instead of repeating this in every JS file, we create one API client wrapper.
+  * Add item to cart.
+  * Remove item from cart.
+  * Update quantity.
+  * Fetch current cart contents.
+* Frontend cart page (`cart.html`) to render items, total price, checkout button.
+* Cart persistence (per user session or DB).
 
-🔹 Where It Will Be Used
+---
 
-Every other frontend script (profile.js, wishlist.js, cart.js, etc.) should import and call apiClient.get(), apiClient.post(), etc., instead of writing fetch() manually.
+## 3. **Wishlist Service**
 
-Example:
+* API endpoints to:
 
-// profile.js
-import { apiClient } from "./api/client.js";
+  * Add/remove items to wishlist.
+  * Fetch wishlist items.
+* Frontend integration (`wishlist.html`) to show saved items.
+* Sync wishlist with logged-in user account.
 
-apiClient.get("users/me").then(user => {
-  document.getElementById("name").value = user.name;
-});
+---
 
+## 4. **Orders / Checkout**
 
-🔹 Plan for profile.js
+* API endpoints to:
 
-We’ll build a clean script that:
+  * Place an order (convert cart → order).
+  * Fetch past orders for user.
+* Frontend (`orders.html`): order history page.
+* Order confirmation flow (modal or redirect).
 
-On page load → fetches /users/me via apiClient.
+---
 
-Populates profile form (name, email, dob, gender, avatar).
+## 5. **Users / Authentication**
 
-Allows user to update profile → PUT /users/me.
+* API endpoints for:
 
-Allows user to update extended profile (dob, gender, avatar) → PUT /users/me/profile.
+  * User registration.
+  * Login (JWT/session).
+  * Logout.
+  * Profile fetch/update.
+* Frontend integration (`profile.html`):
 
+  * Login/signup forms.
+  * Logged-in view (My Orders, Wishlist, Addresses).
 
+---
 
+## 6. **Addresses**
 
-UPdate for the 24/8
+* API endpoints to:
 
-What we should do next (detailed plan)
-1) Orders detail & history (frontend + backend)
+  * Add/edit/delete user addresses.
+  * Fetch saved addresses.
+* Frontend (`addresses.html`) for address management.
 
-Backend
+---
 
-GET /users/me/orders/:id → order header (date, status, totals, payment method, address), items with current snapshots (variant, price at purchase).
+## 7. **Inventory Management**
 
-Frontend
+* Sync inventory with product variants.
+* Decrement stock on order placement.
+* Prevent checkout if item out of stock.
+* Admin-side APIs for restocking (future).
 
-order-details.html + order-details.js:
+---
 
-Show items, delivery address, payment method, status progress (Placed → Paid → Shipped → Delivered).
+## 8. **Payments (Later Stage)**
 
-“Track shipment” link if available.
+* Payment gateway integration (Razorpay/Stripe).
+* Backend order → payment verification callback.
+* Payment status stored with order.
 
-2) Payment status simulation (MVP)
+---
 
-Extend orders.checkout to set payment_status:
+## 9. **Admin / Management (Future)**
 
-For UPI/CARD: set payment_status='success' (MVP simulation).
+* Admin portal for:
 
-For COD: set payment_status='pending'.
+  * Adding/editing products.
+  * Uploading images.
+  * Managing orders and inventory.
+* Role-based access control.
 
-Include payment_status in responses & UI badges.
+---
 
-3) Address edit/delete (full CRUD)
+## 10. **Enhancements / Utilities**
 
-Backend
+* Toast notifications for actions (add to cart, wishlist, copy link).
+* Share modal deep link support.
+* SEO (meta tags, structured data).
+* Security hardening (CSP headers, input sanitization).
 
-PUT /users/me/addresses/:id and DELETE /users/me/addresses/:id (with ownership checks).
+---
 
-Frontend
+### Suggested Order of Implementation:
 
-Address card with “Edit” & “Delete”.
+1. **Cart Service**
+2. **Wishlist Service**
+3. **Orders & Checkout**
+4. **Users / Authentication**
+5. **Addresses**
+6. **Inventory sync**
+7. Payments
+8. Admin portal
+9. Utilities/Enhancements
 
-Update checkout.js to refresh after edit/delete.
-
-Allow setting default address (optional column exists if you added it).
-
-4) Cart badges + global header sync
-
-A small header script to pull counts:
-
-GET /users/me/cart to show item count in the cart badge.
-
-GET /users/me/wishlist to show wishlist count.
-
-Ensure every page header keeps counts in sync after actions.
-
-5) Orders admin tools (optional but useful)
-
-Backend Admin
-
-GET /admin/orders?status= (list/filter).
-
-PUT /admin/orders/:id/status to move order to paid, shipped, delivered, etc.
-
-Frontend Admin
-
-Simple admin/orders.html: filter, update status.
-
-Provides the backbone for operational control (flipkart/amazon-style backoffice).
-
-6) Vouchers / discounts (phase 2)
-
-Backend
-
-POST /users/me/cart/apply-voucher (validate date range, usage limits, product/category eligibility).
-
-Update totals on checkout (discount_cents, final_total_cents).
-
-Frontend
-
-cart.js: voucher input UI, feedback.
-
-7) Returns / cancellations (phase 2)
-
-Backend
-
-POST /users/me/orders/:id/cancel (if allowed).
-
-POST /users/me/orders/:id/return (RMA flow).
-
-Frontend
-
-Buttons on order-details.html with conditions and status updates.
-
-8) Performance & search (future)
-
-Product listing + FTS search endpoints (you already have FTS5 prepared).
-
-Faceted filters using product_attributes.
-
-9) Security & validation polish
-
-Ownership checks everywhere (user_id scoping).
-
-Input sanitation & minimum field validation.
-
-Rate limiting (later).
