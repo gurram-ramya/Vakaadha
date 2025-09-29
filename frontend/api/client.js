@@ -87,7 +87,9 @@
 
 // excluding the helper codes. 
 
-// api/client.js
+// frontend/api/client.js
+
+// ---- Core request wrapper ----
 export async function apiFetch(path, options = {}) {
   const token = localStorage.getItem("idToken");
   const headers = {
@@ -103,4 +105,15 @@ export async function apiFetch(path, options = {}) {
   }
   return res.json();
 }
+
+// ---- Backward compatibility ----
+export const apiRequest = apiFetch;
+
+// ---- Convenience API object ----
+export const apiClient = {
+  get: (e) => apiFetch(e),
+  post: (e, b) => apiFetch(e, { method: "POST", body: JSON.stringify(b) }),
+  put: (e, b) => apiFetch(e, { method: "PUT", body: JSON.stringify(b) }),
+  delete: (e) => apiFetch(e, { method: "DELETE" }),
+};
 
