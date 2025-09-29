@@ -15,18 +15,19 @@ CREATE TABLE IF NOT EXISTS users (
   user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
   firebase_uid  TEXT NOT NULL UNIQUE,
   email         TEXT UNIQUE,
-  name          TEXT,                      -- added back
+  name          TEXT,
   is_admin      INTEGER NOT NULL DEFAULT 0,
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
+  updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  last_login    DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS user_profiles (
-  profile_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER NOT NULL,
-  dob           DATE,
-  gender        TEXT,
-  avatar_url    TEXT,
+  profile_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL UNIQUE,
+  dob          TEXT,
+  gender       TEXT,
+  avatar_url   TEXT,
   FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 

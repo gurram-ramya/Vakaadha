@@ -1,9 +1,7 @@
 // frontend/profile.js
 import { apiRequest, getAuth, setAuth, clearAuth } from "./api/client.js";
 
-/* ---------------- Firebase init (moved from HTML) ---------------- */
-// NOTE: keeping config client-side is standard for Firebase. We’re just
-// moving it out of the HTML so it’s not inline-visible in the DOM.
+/* ---------------- Firebase init ---------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
   authDomain: "vakaadha.firebaseapp.com",
@@ -16,13 +14,11 @@ if (!firebase.apps.length) {
   firebase.initializeApp(firebaseConfig);
 }
 const auth = () => firebase.auth();
-// Persist login across reloads/tabs
-auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e)=>{
+auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
   console.warn("Could not set LOCAL persistence:", e);
 });
 
-
-/* ---------------- DOM refs & small helpers ---------------- */
+/* ---------------- DOM refs ---------------- */
 const $ = (s) => document.querySelector(s);
 
 const els = {
@@ -61,10 +57,13 @@ const els = {
   profileAvatar: $("#profile-avatar"),
   profileSave: $("#profile-save"),
 
-  logout: $("#logout"),
+  // fixed logout ID
+  logout: $("#profile-logout"),
+
   toast: $("#toast"),
 };
 
+/* ---------------- Helpers ---------------- */
 function toast(msg, bad = false, ms = 2200) {
   if (!els.toast) return;
   els.toast.textContent = msg;
@@ -93,7 +92,7 @@ function redirectPostLogin() {
   }
 }
 
-/* --------------- Bind exactly once (prevents double Google prompt) --------------- */
+/* ---------------- Bootstrap ---------------- */
 if (!window.__profile_js_bound__) {
   window.__profile_js_bound__ = true;
   document.addEventListener("DOMContentLoaded", () => {
@@ -104,12 +103,10 @@ if (!window.__profile_js_bound__) {
 
 /* ---------------- Event handlers ---------------- */
 function wireHandlers() {
-  // Show/hide signup card (fix for “btn only works via console”)
+  // Toggle signup
   els.openSignup?.addEventListener("click", () => {
-    if (els.signupForm) {
-      els.signupForm.classList.remove("hidden");
-      els.signupName?.focus();
-    }
+    els.signupForm?.classList.remove("hidden");
+    els.signupName?.focus();
   });
   els.cancelSignup?.addEventListener("click", () => {
     els.signupForm?.classList.add("hidden");
@@ -118,31 +115,28 @@ function wireHandlers() {
   // Email login
   els.loginForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (els.loginSubmit) els.loginSubmit.disabled = true;
+    els.loginSubmit.disabled = true;
     try {
       const cred = await auth().signInWithEmailAndPassword(
-        els.loginEmail?.value.trim() || "",
-        els.loginPassword?.value || ""
+        els.loginEmail.value.trim(),
+        els.loginPassword.value
       );
       await afterFirebaseAuth(cred.user);
+      updateNavbarUser({
+        name: cred.user.displayName,
+        email: cred.user.email,
+      });
       toast("Logged in");
       redirectPostLogin();
     } catch (err) {
       console.error(err);
-      const code = err?.code || "";
-      if (code === "auth/wrong-password") {
-        toast("Wrong password.", true);
-      } else if (code === "auth/user-not-found") {
-        toast("No account found. Try signing up.", true);
-      } else {
-        toast("Login failed: " + (err.message || ""), true);
-      }
+      toast("Login failed: " + (err.message || ""), true);
     } finally {
-      if (els.loginSubmit) els.loginSubmit.disabled = false;
+      els.loginSubmit.disabled = false;
     }
   });
 
-  // Google sign-in — POPUP only (no redirect), and only one handler
+  // Google sign-in
   els.googleBtn?.addEventListener("click", async () => {
     els.googleBtn.disabled = true;
     try {
@@ -160,119 +154,58 @@ function wireHandlers() {
     }
   });
 
-  // Signup (handles email-already-in-use → try login, guide user)
+  // Signup
   els.signupForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (els.signupSubmit) els.signupSubmit.disabled = true;
+    els.signupSubmit.disabled = true;
 
-    const name = els.signupName?.value.trim();
-    const email = els.signupEmail?.value.trim();
-    const pw = els.signupPassword?.value || "";
-    const pw2 = els.signupPasswordConfirm?.value || "";
+    const name = els.signupName.value.trim();
+    const email = els.signupEmail.value.trim();
+    const pw = els.signupPassword.value;
+    const pw2 = els.signupPasswordConfirm.value;
 
-    if (!name) { toast("Enter your name.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
-    if (pw.length < 6) { toast("Password must be at least 6 chars.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
-    if (pw !== pw2) { toast("Passwords do not match.", true); if (els.signupSubmit) els.signupSubmit.disabled = false; return; }
+    if (!name) { toast("Enter your name.", true); els.signupSubmit.disabled = false; return; }
+    if (pw.length < 6) { toast("Password must be at least 6 chars.", true); els.signupSubmit.disabled = false; return; }
+    if (pw !== pw2) { toast("Passwords do not match.", true); els.signupSubmit.disabled = false; return; }
 
     try {
       const cred = await auth().createUserWithEmailAndPassword(email, pw);
-      await cred.user.updateProfile({ displayName: name }).catch(()=>{});
-      // Optional verification email:
-      // await cred.user.sendEmailVerification().catch(()=>{});
+      await cred.user.updateProfile({ displayName: name }).catch(() => {});
       await afterFirebaseAuth(cred.user);
-      els.signupForm?.classList.add("hidden");
+      els.signupForm.classList.add("hidden");
       toast("Account created");
       redirectPostLogin();
     } catch (err) {
       console.error(err);
-      const code = err?.code || "";
-      if (code === "auth/email-already-in-use") {
-        // Try logging in instead (user already exists with this email)
-        try {
-          const loginCred = await auth().signInWithEmailAndPassword(email, pw);
-          await loginCred.user.updateProfile({ displayName: name }).catch(()=>{});
-          await afterFirebaseAuth(loginCred.user);
-          els.signupForm?.classList.add("hidden");
-          toast("Welcome back! Logged in.");
-          redirectPostLogin();
-        } catch (signErr) {
-          const scode = signErr?.code || "";
-          if (scode === "auth/wrong-password") {
-            toast("Email already registered. Please log in or reset your password.", true);
-          } else if (scode === "auth/user-not-found") {
-            toast("Account exists under a different method. Try Google sign-in.", true);
-          } else {
-            toast("Email in use. Try logging in or Google sign-in.", true);
-          }
-        }
-      } else if (code === "auth/weak-password") {
-        toast("Password must be at least 6 characters.", true);
-      } else {
-        toast("Signup failed. " + (err?.message || ""), true);
-      }
+      toast("Signup failed: " + (err.message || ""), true);
     } finally {
-      if (els.signupSubmit) els.signupSubmit.disabled = false;
+      els.signupSubmit.disabled = false;
     }
   });
 
-  // Save profile (only if profile section present)
+  // Profile save
   els.profileForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (els.profileSave) els.profileSave.disabled = true;
+    els.profileSave.disabled = true;
     try {
       const body = {
-        name: els.profileName?.value.trim() || null,
-        dob: els.profileDob?.value || null,
-        gender: els.profileGender?.value || null,
-        avatar_url: els.profileAvatar?.value.trim() || null,
+        name: els.profileName.value.trim() || null,
+        dob: els.profileDob.value || null,
+        gender: els.profileGender.value || null,
+        avatar_url: els.profileAvatar.value.trim() || null,
       };
-      const updated = await apiRequest("/users/me/profile", { method: "PUT", body });
+      const updated = await apiRequest("/api/users/me/profile", { method: "PUT", body });
       populateProfile(updated);
       toast("Profile saved");
     } catch (err) {
       console.error(err);
       toast("Failed to save profile.", true);
     } finally {
-      if (els.profileSave) els.profileSave.disabled = false;
+      els.profileSave.disabled = false;
     }
   });
 
-  // Email verification helpers (Firebase link)
-  els.resendVerification?.addEventListener("click", async ()=>{
-    const btn = els.resendVerification;
-    btn.disabled = true;
-    try {
-      const user = auth().currentUser;
-      if (!user) { toast("Not signed in.", true); return; }
-      await user.sendEmailVerification();
-      toast("Verification email sent");
-    } catch (e) {
-      console.error("sendEmailVerification failed:", e);
-      toast("Could not send verification email.", true);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  
-  els.refreshVerification?.addEventListener("click", async ()=>{
-    const btn = els.refreshVerification;
-    btn.disabled = true;
-    try {
-      await refreshEmailVerified();
-      const user = auth().currentUser;
-      toast(user && user.emailVerified ? "Email verified ✔" : "Still unverified", !(user && user.emailVerified));
-    } catch (e) {
-      console.error("refreshEmailVerified failed:", e);
-      toast("Could not refresh status.", true);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-
-
-  // Logout
+  // Logout (fixed id)
   els.logout?.addEventListener("click", async () => {
     try { await auth().signOut(); } catch {}
     clearAuth();
@@ -280,42 +213,25 @@ function wireHandlers() {
   });
 }
 
-/* ---------------- Auth state, profile hydration ---------------- */
+/* ---------------- Auth state ---------------- */
 function initAuthState() {
   auth().onAuthStateChanged(async (user) => {
     if (!user) { clearAuth(); show("auth"); return; }
 
-    // // Fast path: if token exists, try hydrating
-    // const existing = getAuth();
-    // if (existing?.idToken) {
-    //   try {
-    //     const me = await apiRequest("/users/me");
-    //     populateProfile(me);
-    //     updateVerifyBanner(me);
-    //     show("profile");
-    //     return;
-    //   } catch (e) {
-    //     console.warn("Stored token rejected, refreshing…");
-    //   }
-    // }
-
-    // Fast path ONLY if we have both a stored token and a currentUser
     const existing = getAuth();
     if (existing?.idToken && auth().currentUser) {
       try {
-        const me = await apiRequest("/users/me");
+        const me = await apiRequest("/api/users/me");
         populateProfile(me);
-        updateVerifyBanner(me);
         show("profile");
         return;
-      } catch (e) {
+      } catch {
         console.warn("Stored token rejected, refreshing…");
       }
     }
 
-
     try {
-      await afterFirebaseAuth(user, /*silent*/ true);
+      await afterFirebaseAuth(user, true);
       show("profile");
     } catch (e) {
       console.error(e);
@@ -324,12 +240,10 @@ function initAuthState() {
   });
 }
 
+/* ---------------- Auth + Profile sync ---------------- */
 async function afterFirebaseAuth(user, silent = false) {
-  // Always refresh token after sign-in to avoid stale claims
-  await user.reload(); // Force refresh of emailVerified, displayName
-  console.log("🧪 [AUTH] Firebase user:", user);
+  await user.reload();
   const idToken = await user.getIdToken(true);
-  console.log("🧪 [AUTH] Token from Firebase:", idToken.substring(0, 40), "...");
   setAuth({
     idToken,
     uid: user.uid,
@@ -338,16 +252,13 @@ async function afterFirebaseAuth(user, silent = false) {
     photoURL: user.photoURL || null,
   });
 
-  // Idempotent: ensure local user exists
-  try { await apiRequest("/signup", { method: "POST" }); } catch {}
+  // Ensure local DB user exists
+  try { await apiRequest("/api/auth/register", { method: "POST" }); } catch {}
 
-  // Hydrate profile if markup exists
   try {
-    const me = await apiRequest("/users/me");
+    const me = await apiRequest("/api/users/me");
     populateProfile(me);
-    updateVerifyBanner(me);
   } catch (e) {
-    // If /users/me is not accessible yet, continue without blocking login
     console.warn(e);
   }
 
@@ -356,11 +267,13 @@ async function afterFirebaseAuth(user, silent = false) {
 
 function populateProfile(me) {
   if (!els.profileSection) return;
-  if (els.profileName)   els.profileName.value   = me.profile_name || me.name || "";
+  if (els.profileName)   els.profileName.value   = me.name || "";
   if (els.profileEmail)  els.profileEmail.value  = me.email || "";
-  if (els.profileDob)    els.profileDob.value    = me.profile_dob || "";
-  if (els.profileGender) els.profileGender.value = me.profile_gender || "";
-  if (els.profileAvatar) els.profileAvatar.value = me.profile_avatar_url || "";
+  if (els.profileDob)    els.profileDob.value    = me.dob || "";
+  if (els.profileGender) els.profileGender.value = me.gender || "";
+  if (els.profileAvatar) els.profileAvatar.value = me.avatar_url || "";
+
+  updateNavbarUser(me);
 }
 
 async function refreshEmailVerified() {
@@ -370,7 +283,7 @@ async function refreshEmailVerified() {
     await user.reload();
     const token = await user.getIdToken(true);
     setAuth({ ...getAuth(), idToken: token });
-    const me = await apiRequest("/users/me");
+    const me = await apiRequest("/api/users/me");
     updateVerifyBanner(me);
   } catch (e) {
     console.error(e);
@@ -383,4 +296,11 @@ function updateVerifyBanner(me) {
   const verified = (user && user.emailVerified) || !!me?.email_verified;
   els.verifyBanner.classList.toggle("hidden", !!verified);
   document.body.classList.toggle("unverified", !verified);
+}
+
+function updateNavbarUser(me) {
+  const el = document.getElementById("user-display");
+  if (el) {
+    el.textContent = me?.name || me?.email || "";
+  }
 }

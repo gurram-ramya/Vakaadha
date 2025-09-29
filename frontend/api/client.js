@@ -87,33 +87,65 @@
 
 // excluding the helper codes. 
 
+// ==============================
 // frontend/api/client.js
+// Centralized API client for frontend
+// ==============================
+
+export const API_BASE = ""; // same-origin
+
+// ---- Auth storage helpers ----
+const STORAGE_KEY = "loggedInUser";
+
+export function getAuth() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+export function setAuth(obj) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj || {}));
+}
+
+export function clearAuth() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+export function getToken() {
+  return getAuth()?.idToken || null;
+}
 
 // ---- Core request wrapper ----
-export async function apiFetch(path, options = {}) {
-  const token = localStorage.getItem("idToken");
-  const headers = {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...options.headers,
-  };
+export async function apiFetch(endpoint, { method = "GET", headers = {}, body } = {}) {
+  const token = getToken();
+  const res = await fetch(API_BASE + endpoint, {
+    method,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: "same-origin",
+  });
 
-  const res = await fetch(path, { ...options, headers });
   if (!res.ok) {
     const msg = await res.text();
     throw new Error(`API error ${res.status}: ${msg}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
-// ---- Backward compatibility ----
+// ---- Backward compatibility alias ----
 export const apiRequest = apiFetch;
 
-// ---- Convenience API object ----
+// ---- Convenience client ----
 export const apiClient = {
   get: (e) => apiFetch(e),
-  post: (e, b) => apiFetch(e, { method: "POST", body: JSON.stringify(b) }),
-  put: (e, b) => apiFetch(e, { method: "PUT", body: JSON.stringify(b) }),
+  post: (e, b) => apiFetch(e, { method: "POST", body: b }),
+  put: (e, b) => apiFetch(e, { method: "PUT", body: b }),
   delete: (e) => apiFetch(e, { method: "DELETE" }),
 };
-

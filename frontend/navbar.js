@@ -22,12 +22,58 @@
     if (wishEl) wishEl.textContent = wishlistCount;
   }
 
-  // run on load
-  document.addEventListener("DOMContentLoaded", updateNavbarCounts);
+  function updateAuthUI() {
+    const auth = JSON.parse(localStorage.getItem("loggedInUser") || "null");
+    const loginLink = document.getElementById("loginLink");
+    const profileLink = document.getElementById("profileLink");
+    const logoutLink = document.getElementById("navbar-logout");
 
-  // expose globally so other files call it
+
+    if (auth && auth.idToken) {
+      if (loginLink) loginLink.style.display = "none";
+      if (profileLink) profileLink.style.display = "inline-block";
+      if (logoutLink) logoutLink.style.display = "inline-block";
+    } else {
+      if (loginLink) loginLink.style.display = "inline-block";
+      if (profileLink) profileLink.style.display = "none";
+      if (logoutLink) logoutLink.style.display = "none";
+    }
+  }
+
+  function wireLogout() {
+    const logoutLink = document.getElementById("navbar-logout");
+
+    if (!logoutLink) return;
+
+    logoutLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        if (window.firebase && firebase.auth) {
+          await firebase.auth().signOut();
+        }
+      } catch (err) {
+        console.warn("Firebase signOut failed:", err);
+      }
+      localStorage.removeItem("loggedInUser");
+      window.location.href = "index.html";
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    updateNavbarCounts();
+    updateAuthUI();
+    wireLogout();
+  });
+
+  // expose globally
   window.updateNavbarCounts = updateNavbarCounts;
-
-  // expose keys in case debugging is needed
   window.__VAKAADHA_KEYS = { CART_KEY, WISHLIST_KEY };
+
+  // add helper for user display
+  window.updateNavbarUser = function (user) {
+    const el = document.getElementById("user-display");
+    if (!el) return;
+    el.textContent = user?.name || user?.email || "";
+  };  
+
 })();
