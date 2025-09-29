@@ -8,6 +8,7 @@ from utils.errors import install_error_handlers
 from utils.security import install_security_headers
 from db import init_db_for_app
 
+
 def create_app(config_object=DevConfig):
     app = Flask(__name__, static_folder="frontend", static_url_path="")
     app.config.from_object(config_object)
@@ -45,8 +46,10 @@ def create_app(config_object=DevConfig):
 
     # ---------------- API BLUEPRINTS ----------------
     from routes.catalog import catalog_bp
+    from routes.users import bp as users_bp
 
     app.register_blueprint(catalog_bp, url_prefix="/api")
+    app.register_blueprint(users_bp, url_prefix="/api")
 
     # Health check
     @app.get("/health")

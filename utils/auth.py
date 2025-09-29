@@ -1,129 +1,95 @@
 # utils/auth.py
-from __future__ import annotations
 import os
 from functools import wraps
-from typing import Callable, Optional, Dict
-
 from flask import request, jsonify, g
-
 import firebase_admin
 from firebase_admin import credentials, auth as admin_auth
+from domain.users import service as user_service
+from db import get_db_connection
 
-# --- Firebase Admin init (once) ---
-def _init_firebase_admin():
-    if not firebase_admin._apps:
-        # Try common locations; prefer explicit path via env
-        key_path = os.getenv("FIREBASE_ADMIN_CREDENTIALS") or os.path.join(
-            os.path.dirname(__file__), "..", "firebase-adminsdk.json"
-        )
-        key_path = os.path.abspath(key_path)
-        if os.path.exists(key_path):
-            cred = credentials.Certificate(key_path)
-            firebase_admin.initialize_app(cred)
-        else:
-            # Fallback: Application Default Credentials (e.g., on GCP)
-            firebase_admin.initialize_app()
+# ------------------------------------------------
+# Firebase Initialization
+# ------------------------------------------------
 
-_init_firebase_admin()
-
-
-def _parse_bearer_token() -> Optional[str]:
-    h = request.headers.get("Authorization", "")
-    if not h.startswith("Bearer "):
-        return None
-    return h.split(" ", 1)[1].strip()
+if not firebase_admin._apps:
+    # Priority 1: explicit env var
+    cred_path = os.getenv("FIREBASE_ADMIN_CREDENTIALS")
+    if cred_path and os.path.isfile(cred_path):
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+    # Priority 2: bundled service account file in repo root
+    elif os.path.isfile("firebase-adminsdk.json"):
+        cred = credentials.Certificate("firebase-adminsdk.json")
+        firebase_admin.initialize_app(cred)
+    # Priority 3: ADC (for cloud deployment)
+    else:
+        firebase_admin.initialize_app()
 
 
-def _verify_firebase_id_token(id_token: str) -> Dict:
+# ------------------------------------------------
+# Decorators
+# ------------------------------------------------
+
+def require_auth(f):
     """
-    Verify Firebase ID token and return decoded claims.
-    Raises on invalid/expired tokens.
+    Decorator to enforce Firebase authentication.
+    - Expects Authorization: Bearer <idToken>
+    - Verifies token
+    - Ensures user exists in DB
+    - Populates g.user with DB fields
     """
-    return admin_auth.verify_id_token(id_token, check_revoked=False)
 
-
-def require_auth(f: Callable):
-    """
-    Ensures the request has a valid Firebase ID token.
-    - Verifies the token using Firebase Admin
-    - Upserts/loads a local DB user via users.service.ensure_user(...)
-    - Attaches a stable request-scoped identity at g.user:
-      {
-        uid: <firebase uid>,
-        email: <email from token>,
-        name: <display name from token (if any)>,
-        email_verified: <bool>,
-        user_id: <local users.id>,
-        role: <'user' or existing role>
-      }
-    """
     @wraps(f)
-    def _wrap(*args, **kwargs):
-        token = _parse_bearer_token()
-        if not token:
-            return jsonify({"error": "missing_authorization", "detail": "Authorization: Bearer <idToken> required"}), 401
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+        id_token = auth_header.split(" ", 1)[1]
 
         try:
-            
-            # print("🧪 [AUTH] Raw Authorization header:", request.headers.get("Authorization"))  
-            # print("🧪 [AUTH] Extracted token (start):", token[:40], "...")
-            # print("🧪 [AUTH] Request path:", request.path)
-            decoded = _verify_firebase_id_token(token)
+            decoded = admin_auth.verify_id_token(id_token)
         except Exception as e:
-            return jsonify({
-                "error": "invalid_token",
-                "detail": "Firebase token invalid or expired. Please login again.",
-                "exception": str(e)
-            }), 401
-        # Extract identity bits from token
-        uid = decoded.get("uid")
+            return jsonify({"error": "Invalid or expired token", "details": str(e)}), 401
+
+        firebase_uid = decoded.get("uid")
         email = decoded.get("email")
-        # Firebase claims may expose name under 'name' or 'displayName'
         name = decoded.get("name") or decoded.get("displayName")
-        picture = decoded.get("picture")
-        email_verified = bool(decoded.get("email_verified"))
+        avatar_url = decoded.get("picture")
 
-        if not uid:
-            return jsonify({"error": "invalid_token", "detail": "uid missing"}), 401
-
-        # Upsert local user and ensure we have a local users.id
-        from domain.users import service as users_service
-        db_user = users_service.ensure_user(
-            firebase_uid=uid,
+        # Ensure user exists in DB (updates last_login timestamp)
+        user = user_service.ensure_user(
+            firebase_uid=firebase_uid,
             email=email,
-            name=name,                # may be None; service handles keep-or-update logic
-            avatar_url=picture,
+            name=name,
+            avatar_url=avatar_url,
             update_last_login=True,
         )
 
-        # Normalize role and local id
-        local_id = db_user.get("id") or db_user.get("user_id")
-        role = db_user.get("role") or "user"
-
-        # Attach request identity
+        # Attach to request context
         g.user = {
-            "uid": uid,
-            "email": email,
-            "name": db_user.get("name") or name or (email.split("@")[0] if email else None),
-            "email_verified": email_verified,
-            "user_id": local_id,
-            "role": role,
+            "user_id": user["id"],
+            "firebase_uid": user["firebase_uid"],
+            "email": user.get("email"),
+            "name": user.get("name"),
+            "role": user.get("role"),
+            "is_admin": 1 if user.get("role") == "admin" else 0,
         }
+
         return f(*args, **kwargs)
 
-    return _wrap
+    return decorated
 
 
-def require_admin(f: Callable):
+def require_admin(f):
     """
-    Example admin guard. Your schema defaults to 'user'; only 'admin' passes here.
+    Decorator to require admin role.
     """
     @wraps(f)
-    def _wrap(*args, **kwargs):
-        user = getattr(g, "user", None)
-        if not user:
-            return jsonify({"error": "unauthorized"}), 401
-        if user.get("role") != "admin":
-            return jsonify({"error": "forbidden", "detail": "admin_only"}), 403
+    def decorated(*args, **kwargs):
+        if not getattr(g, "user", None):
+            return jsonify({"error": "Unauthorized"}), 401
+        if g.user.get("role") != "admin":
+            return jsonify({"error": "Forbidden"}), 403
         return f(*args, **kwargs)
-    return _wrap
+    return decorated

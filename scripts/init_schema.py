@@ -12,24 +12,22 @@ PRAGMA foreign_keys = ON;
 -- USERS & PROFILES
 -- =========================
 CREATE TABLE IF NOT EXISTS users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  firebase_uid  TEXT NOT NULL UNIQUE,
   email         TEXT UNIQUE,
-  firebase_uid  TEXT UNIQUE,            -- optional if using Firebase
-  password_hash TEXT,                   -- nullable if using external auth
-  name          TEXT,
-  role          TEXT NOT NULL DEFAULT 'customer',  -- customer, admin, seller, etc.
-  status        TEXT NOT NULL DEFAULT 'active',    -- active, blocked, deleted
-  last_login    DATETIME,
-  created_at    DATETIME NOT NULL DEFAULT (datetime('now'))
+  name          TEXT,                      -- added back
+  is_admin      INTEGER NOT NULL DEFAULT 0,
+  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS user_profiles (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id      INTEGER NOT NULL,
-  dob          DATE,
-  gender       TEXT,
-  avatar_url   TEXT,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  profile_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL,
+  dob           DATE,
+  gender        TEXT,
+  avatar_url    TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- =========================
@@ -46,16 +44,16 @@ CREATE TABLE IF NOT EXISTS addresses (
   state         TEXT NOT NULL,
   postal_code   TEXT NOT NULL,
   country       TEXT NOT NULL DEFAULT 'IN',
-  type          TEXT NOT NULL DEFAULT 'shipping',  -- shipping | billing
-  is_default    INTEGER NOT NULL DEFAULT 0,        -- 0/1
+  type          TEXT NOT NULL DEFAULT 'shipping',
+  is_default    INTEGER NOT NULL DEFAULT 0,
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_addresses_user ON addresses(user_id);
 
 -- =========================
--- CATALOG
+-- CATALOG (unchanged)
 -- =========================
 CREATE TABLE IF NOT EXISTS products (
   product_id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +67,7 @@ CREATE TABLE IF NOT EXISTS product_details (
   detail_id     INTEGER PRIMARY KEY AUTOINCREMENT,
   product_id    INTEGER NOT NULL,
   long_description   TEXT,
-  specifications     TEXT,   -- JSON/text
+  specifications     TEXT,
   care_instructions  TEXT,
   FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE CASCADE
 );
@@ -106,11 +104,12 @@ CREATE TABLE IF NOT EXISTS inventory (
 -- =========================
 CREATE TABLE IF NOT EXISTS carts (
   cart_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER NOT NULL,
+  user_id       INTEGER,
+  guest_id      TEXT,
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','converted','abandoned')),
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_carts_user ON carts(user_id);
 
@@ -119,7 +118,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
   cart_id       INTEGER NOT NULL,
   variant_id    INTEGER NOT NULL,
   quantity      INTEGER NOT NULL CHECK (quantity > 0),
-  price_cents   INTEGER NOT NULL,  -- snapshot at add time
+  price_cents   INTEGER NOT NULL,
   FOREIGN KEY(cart_id) REFERENCES carts(cart_id) ON DELETE CASCADE,
   FOREIGN KEY(variant_id) REFERENCES product_variants(variant_id) ON DELETE CASCADE
 );
@@ -131,7 +130,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_items_unique ON cart_items(cart_id, v
 CREATE TABLE IF NOT EXISTS orders (
   order_id        INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id         INTEGER NOT NULL,
-  order_no        TEXT UNIQUE,  -- may be NULL initially; SQLite allows multiple NULLs in UNIQUE
+  order_no        TEXT UNIQUE,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','shipped','delivered','cancelled')),
   payment_method  TEXT,
   payment_status  TEXT NOT NULL DEFAULT 'pending',
@@ -142,7 +141,7 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_address_id INTEGER,
   created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY(shipping_address_id) REFERENCES addresses(address_id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
@@ -194,7 +193,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at     DATETIME,
   FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE CASCADE,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews(user_id);
@@ -206,7 +205,7 @@ CREATE TABLE IF NOT EXISTS review_votes (
   is_helpful     INTEGER NOT NULL DEFAULT 1,
   created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(review_id) REFERENCES reviews(review_id) ON DELETE CASCADE,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_review_votes_unique ON review_votes(review_id, user_id);
 
@@ -244,19 +243,18 @@ CREATE TABLE IF NOT EXISTS vouchers (
   name               TEXT,
   description        TEXT,
   discount_type      TEXT NOT NULL CHECK (discount_type IN ('percent','fixed')),
-  percent_off        INTEGER,              -- 1..100 when type=percent
-  amount_off_cents   INTEGER,              -- when type=fixed
+  percent_off        INTEGER,
+  amount_off_cents   INTEGER,
   min_subtotal_cents INTEGER DEFAULT 0,
   max_discount_cents INTEGER,
   starts_at          DATETIME,
   ends_at            DATETIME,
-  usage_limit        INTEGER,              -- total uses across all customers
-  per_user_limit     INTEGER,              -- per-user cap
+  usage_limit        INTEGER,
+  per_user_limit     INTEGER,
   is_active          INTEGER NOT NULL DEFAULT 1,
   created_at         DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
--- per-product or per-category applicability
 CREATE TABLE IF NOT EXISTS voucher_targets (
   target_id      INTEGER PRIMARY KEY AUTOINCREMENT,
   voucher_id     INTEGER NOT NULL,
@@ -265,7 +263,6 @@ CREATE TABLE IF NOT EXISTS voucher_targets (
   FOREIGN KEY(voucher_id) REFERENCES vouchers(voucher_id) ON DELETE CASCADE,
   FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE CASCADE
 );
--- Uniqueness: either targeted by (voucher, product) or (voucher, category)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_target_product
   ON voucher_targets(voucher_id, product_id) WHERE product_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_voucher_target_category
@@ -279,7 +276,7 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
   discount_cents INTEGER NOT NULL,
   redeemed_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(voucher_id) REFERENCES vouchers(voucher_id) ON DELETE CASCADE,
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY(order_id) REFERENCES orders(order_id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_redemptions_user ON voucher_redemptions(user_id);
@@ -288,24 +285,23 @@ CREATE INDEX IF NOT EXISTS idx_redemptions_user ON voucher_redemptions(user_id);
 -- WISHLIST
 -- =========================
 CREATE TABLE IF NOT EXISTS wishlist_items (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  wishlist_id   INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       INTEGER NOT NULL,
-  product_id    INTEGER,   -- allow either product or variant
-  variant_id    INTEGER,   -- when variant-specific wish
+  product_id    INTEGER,
+  variant_id    INTEGER,
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
   FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE CASCADE,
   FOREIGN KEY(variant_id) REFERENCES product_variants(variant_id) ON DELETE CASCADE,
   CHECK (variant_id IS NOT NULL OR product_id IS NOT NULL)
 );
--- Enforce uniqueness without expressions in PK/UNIQUE
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_user_variant
   ON wishlist_items(user_id, variant_id) WHERE variant_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_user_product
   ON wishlist_items(user_id, product_id) WHERE variant_id IS NULL AND product_id IS NOT NULL;
 """
 
-# Optional FTS5 (search). Will be skipped if your SQLite doesn't support FTS5.
+# Full-text search triggers (unchanged)
 DDL_FTS = """
 CREATE VIRTUAL TABLE IF NOT EXISTS products_fts
 USING fts5(name, description, details, content='');
@@ -373,77 +369,10 @@ CREATE TRIGGER IF NOT EXISTS trg_details_ad AFTER DELETE ON product_details BEGI
 END;
 """
 
-SEED_SQL = """
--- Users
-INSERT INTO users (email, name, role, status) VALUES
-('demo@vakaadha.com','Demo User','customer','active'),
-('admin@vakaadha.com','Admin User','admin','active');
-
-INSERT INTO user_profiles (user_id, gender) VALUES
-(1, 'other'),
-(2, 'other');
-
--- Addresses
-INSERT INTO addresses (user_id, full_name, phone, line1, city, state, postal_code, country, type, is_default) VALUES
-(1, 'Demo User', '9000000000', '12, MG Road', 'Bengaluru', 'KA', '560001', 'IN', 'shipping', 1),
-(1, 'Demo User', '9000000000', '12, MG Road', 'Bengaluru', 'KA', '560001', 'IN', 'billing', 0);
-
--- Catalog
-INSERT INTO products (name, description, category) VALUES
-('Cotton T-Shirt', 'Soft cotton tee', 'apparel'),
-('Running Shoes', 'Lightweight shoes', 'footwear');
-
-INSERT INTO product_details (product_id, long_description, specifications, care_instructions) VALUES
-(1, '100% cotton tee. Breathable.', '{"material":"cotton"}', 'Machine wash cold'),
-(2, 'Great for daily runs.', '{"material":"mesh"}', 'Hand wash');
-
-INSERT INTO product_images (product_id, image_url, sort_order) VALUES
-(1, 'Images/tshirt.jpg', 0),
-(2, 'Images/shoes.jpg', 0);
-
-INSERT INTO product_variants (product_id, size, color, sku, price_cents) VALUES
-(1, 'M', 'Black', 'TSHIRT-M-BLK', 79900),
-(1, 'L', 'Black', 'TSHIRT-L-BLK', 79900),
-(2, '9', 'Blue', 'SHOE-9-BLU', 299900);
-
-INSERT INTO inventory (variant_id, quantity) VALUES
-(1, 50),(2, 30),(3, 20);
-
--- Cart
-INSERT INTO carts (user_id, status) VALUES (1, 'active');
-INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents) VALUES
-(1, 1, 2, 79900);
-
--- Order
-INSERT INTO orders (user_id, order_no, status, payment_method, payment_status, subtotal_cents, shipping_cents, discount_cents, total_cents, shipping_address_id)
-VALUES (1, 'ORD-1001', 'paid', 'COD', 'paid', 159800, 10000, 0, 169800, 1);
-
-INSERT INTO order_items (order_id, product_id, variant_id, quantity, price_cents) VALUES
-(1, 1, 1, 2, 79900);
-
-INSERT INTO shipments (order_id, carrier, tracking_no, status) VALUES
-(1, 'Delhivery', 'DL123456', 'shipped');
-
-INSERT INTO shipment_events (shipment_id, status, message, event_time) VALUES
-(1, 'shipped', 'Parcel departed origin facility', datetime('now'));
-
--- Voucher + Redemption (FKs now correctly point to users.id)
-INSERT INTO vouchers (code, name, discount_type, percent_off, starts_at, ends_at, is_active)
-VALUES ('WELCOME10','Welcome 10%','percent',10, datetime('now','-1 day'), datetime('now','+30 day'), 1);
-
-INSERT INTO voucher_redemptions (voucher_id, user_id, order_id, discount_cents) VALUES
-(1, 1, 1, 16980);
-
--- Wishlist sample
-INSERT INTO wishlist_items (user_id, product_id, variant_id) VALUES
-(1, 2, 3);
-"""
-
 def exec_script(con: sqlite3.Connection, sql: str):
     con.executescript(sql)
 
 def main():
-    # Fresh init: delete existing DB unless KEEP_DB=1
     if DB_PATH.exists() and os.getenv("KEEP_DB") != "1":
         try:
             os.remove(DB_PATH)
@@ -454,18 +383,12 @@ def main():
     try:
         con.execute("PRAGMA foreign_keys = ON;")
         exec_script(con, DDL_CORE)
-
-        # Optional FTS5
         try:
             exec_script(con, DDL_FTS)
         except sqlite3.OperationalError as e:
             print(f"⚠️  FTS5 not available: {e}")
-
-        # Seed demo data
-        exec_script(con, SEED_SQL)
-
         con.commit()
-        print(f"✅ Schema initialized and seeded at {DB_PATH}")
+        print(f"✅ Schema initialized at {DB_PATH}")
     finally:
         con.close()
 

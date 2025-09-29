@@ -1,77 +1,68 @@
 # routes/users.py
-from __future__ import annotations
-from flask import Blueprint, jsonify, g, request
-
+from flask import Blueprint, request, jsonify, g
 from utils.auth import require_auth
-from domain.users import service as users_service
+from domain.users import service as user_service
+from db import get_db_connection
 
 bp = Blueprint("users", __name__)
 
-@bp.post("/signup")
+# =============================
+# AUTH ROUTES
+# =============================
+
+@bp.route("/auth/register", methods=["POST"])
 @require_auth
-def signup():
-    ensured = users_service.ensure_user(
-        firebase_uid=g.user["uid"],
-        email=g.user.get("email"),
-        name=g.user.get("name"),
-        avatar_url=None,
-        update_last_login=True,
-    )
+def register():
+    """Register or return existing user based on Firebase UID"""
+    payload = request.json or {}
+    name = payload.get("name")
+    email = payload.get("email")
 
-    g.user["user_id"] = ensured["id"]
-    g.user["name"] = ensured.get("name") or g.user.get("name")
+    con = get_db_connection()
+    user = user_service.ensure_user(con, g.user["firebase_uid"], name, email)
+    return jsonify(user), 201
 
-    me = users_service.get_user_with_profile(g.user["user_id"])
-    me["email_verified"] = bool(g.user.get("email_verified"))
-    return jsonify(me)
 
-@bp.get("/users/me")
+@bp.route("/auth/logout", methods=["POST"])
 @require_auth
-def users_me():
+def logout():
     """
-    Return the merged user + profile + email_verified.
+    Stateless logout: frontend clears Firebase token from storage.
+    Backend just acknowledges.
     """
-    me = users_service.get_user_with_profile(g.user["user_id"])
-    me["email_verified"] = bool(g.user.get("email_verified"))
-    return jsonify(me)
+    return jsonify({"message": "Logged out"}), 200
 
 
-@bp.put("/users/me/profile")
+# =============================
+# USER PROFILE ROUTES
+# =============================
+
+@bp.route("/users/me", methods=["GET"])
 @require_auth
-def update_my_profile():
-    """
-    Update profile fields. Name updates on `users` table if provided.
-    Body: { name?, dob?, gender?, avatar_url? }
-    """
-    body = request.get_json(silent=True) or {}
-    name = body.get("name")
-    dob = body.get("dob")
-    gender = body.get("gender")
-    avatar_url = body.get("avatar_url")
+def get_me():
+    """Fetch current authenticated user + profile"""
+    con = get_db_connection()
+    user = user_service.get_user_with_profile(con, g.user["firebase_uid"])
+    return jsonify(user)
 
-    updated = users_service.update_profile(
-        g.user["user_id"],
+
+@bp.route("/users/me/profile", methods=["PUT"])
+@require_auth
+def update_profile():
+    """Update user profile (name, dob, gender, avatar)"""
+    payload = request.json or {}
+    name = payload.get("name")
+    dob = payload.get("dob")
+    gender = payload.get("gender")
+    avatar_url = payload.get("avatar_url")
+
+    con = get_db_connection()
+    updated_user = user_service.update_profile(
+        con,
+        g.user["firebase_uid"],
         name=name,
         dob=dob,
         gender=gender,
         avatar_url=avatar_url,
     )
-    updated["email_verified"] = bool(g.user.get("email_verified"))
-    return jsonify(updated)
-
-
-# Example admin endpoint (optional). Ensure you use <int:user_id> not {user_id}
-@bp.delete("/admin/users/<int:user_id>")
-@require_auth
-def admin_delete_user(user_id: int):
-    """
-    Soft-delete user (example). You can protect this with @require_admin if needed.
-    """
-    # from utils.auth import require_admin
-    # (Decorate with @require_admin above if you want real admin guard.)
-
-    from db import get_db
-    con = get_db()
-    con.execute("UPDATE users SET status='deleted' WHERE id = ?", (user_id,))
-    con.commit()
-    return jsonify({"deleted": True, "user_id": user_id})
+    return jsonify(updated_user), 200

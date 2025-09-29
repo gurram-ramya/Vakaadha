@@ -1,110 +1,108 @@
+// profile.js
+import { apiFetch } from "./api/client.js";
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+  signOut,
+} from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 
-document.addEventListener("DOMContentLoaded", () => {
-  const params = new URLSearchParams(window.location.search);
-  const productId = params.get("id");
+// Ensure Firebase is initialized globally
+const auth = getAuth();
 
-  if (!productId) {
-    document.getElementById("productDetails").innerHTML = "<p>Invalid Product ID</p>";
-    return;
+// Save Firebase token to localStorage
+async function saveToken(user) {
+  const idToken = await user.getIdToken();
+  localStorage.setItem("idToken", idToken);
+}
+
+// Ensure user exists in backend (called after login/signup)
+async function ensureBackendUser() {
+  await apiFetch("/auth/register", { method: "POST", body: "{}" });
+}
+
+// Hydrate profile form
+async function loadProfile() {
+  try {
+    const me = await apiFetch("/users/me");
+    document.querySelector("#profile-name").value = me.name || "";
+    document.querySelector("#profile-dob").value = me.profile?.dob || "";
+    document.querySelector("#profile-gender").value = me.profile?.gender || "";
+    document.querySelector("#profile-avatar").value =
+      me.profile?.avatar_url || "";
+  } catch (e) {
+    console.warn("Not logged in:", e.message);
   }
+}
 
-  fetch(`http://127.0.0.1:5000/products/${productId}`)
-    .then(res => res.json())
-    .then(product => renderProduct(product))
-    .catch(err => {
-      console.error("Failed to load product", err);
-      document.getElementById("productDetails").innerHTML = "<p>Product not found.</p>";
-    });
+// Save profile form
+async function saveProfile(e) {
+  e.preventDefault();
+  const body = {
+    name: document.querySelector("#profile-name").value,
+    dob: document.querySelector("#profile-dob").value,
+    gender: document.querySelector("#profile-gender").value,
+    avatar_url: document.querySelector("#profile-avatar").value,
+  };
+  await apiFetch("/users/me/profile", {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  alert("Profile updated");
+}
+
+// Email/password login
+document.querySelector("#login-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = e.target.querySelector("#login-email").value;
+  const password = e.target.querySelector("#login-password").value;
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  await saveToken(cred.user);
+  await ensureBackendUser();
+  await loadProfile();
 });
 
-function renderProduct(product) {
-  const container = document.getElementById("productDetails");
+// Signup
+document.querySelector("#signup-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = e.target.querySelector("#signup-email").value;
+  const password = e.target.querySelector("#signup-password").value;
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  await saveToken(cred.user);
+  await ensureBackendUser();
+  await loadProfile();
+});
 
-  container.innerHTML = `
-    <div class="product-view">
-      <img src="${product.image_url}" alt="${product.name}" />
-      <div class="product-info">
-        <h2>${product.name}</h2>
-        <p>${product.description}</p>
-        <p><strong>₹${product.price.toFixed(2)}</strong></p>
+// Google Sign-In
+document.querySelector("#google-login")?.addEventListener("click", async () => {
+  const provider = new GoogleAuthProvider();
+  const cred = await signInWithPopup(auth, provider);
+  await saveToken(cred.user);
+  await ensureBackendUser();
+  await loadProfile();
+});
 
-        <label for="size">Size:</label>
-        <select id="size">
-          <option value="M">M</option>
-          <option value="L">L</option>
-          <option value="XL">XL</option>
-        </select>
+// Save profile form
+document.querySelector("#profile-form")?.addEventListener("submit", saveProfile);
 
-        <label for="color">Color:</label>
-        <select id="color">
-          <option value="Black">Black</option>
-          <option value="White">White</option>
-          <option value="Red">Red</option>
-        </select>
+// Logout
+document.querySelector("#logout-btn")?.addEventListener("click", async () => {
+  await signOut(auth);
+  localStorage.removeItem("idToken");
+  await apiFetch("/auth/logout", { method: "POST", body: "{}" }).catch(() => {});
+  window.location.href = "index.html";
+});
 
-        <label for="qty">Quantity:</label>
-        <input type="number" id="qty" value="1" min="1" max="10" />
-
-        <button class="btn-primary" onclick="addToCart(${product.product_id})">Add to Cart</button>
-      </div>
-    </div>
-  `;
-}
-
-async function addToCart(productId) {
-  const user = firebase.auth().currentUser;
-
-  if (!user) {
-    alert("⚠️ Please login to add items to cart.");
-    return;
+// Auto-hydrate on auth state
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    await saveToken(user);
+    await ensureBackendUser();
+    await loadProfile();
+  } else {
+    localStorage.removeItem("idToken");
   }
-
-  const size = document.getElementById("size").value;
-  const color = document.getElementById("color").value;
-  const quantity = parseInt(document.getElementById("qty").value);
-
-  try {
-    // Step 1: Fetch SKU ID
-    const skuRes = await fetch(`http://127.0.0.1:5000/sku?product_id=${productId}&size=${size}&color=${color}`);
-    const skuData = await skuRes.json();
-
-    if (!skuData.sku_id) {
-      alert("❌ SKU not found. Please try a different size/color.");
-      return;
-    }
-
-    const sku_id = skuData.sku_id;
-
-    // Log payload before sending
-    console.log("👤 Firebase user:", user);
-    console.log("📦 Sending to /cart:", {
-      user_id: user.uid,
-      sku_id: sku_id,
-      quantity: quantity
-    });
-
-    // Step 2: Post to /cart
-    const cartRes = await fetch("http://127.0.0.1:5000/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: user.email,
-        sku_id: sku_id,
-        quantity: quantity
-      })
-    });
-
-    const cartResult = await cartRes.json();
-
-    if (cartRes.ok) {
-      alert("✅ " + cartResult.message);
-    } else {
-      console.error("❌ Backend error:", cartResult);
-      alert("❌ Failed to add to cart: " + (cartResult.error || "Unknown error"));
-    }
-
-  } catch (err) {
-    console.error("❌ Add to Cart Exception:", err);
-    alert("❌ Unexpected error occurred. See console for details.");
-  }
-}
+});
