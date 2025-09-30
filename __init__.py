@@ -47,9 +47,12 @@ def create_app(config_object=DevConfig):
     # ---------------- API BLUEPRINTS ----------------
     from routes.catalog import catalog_bp
     from routes.users import bp as users_bp
+    from routes.cart import bp as cart_bp
 
     app.register_blueprint(catalog_bp, url_prefix="/api")
     app.register_blueprint(users_bp, url_prefix="/api")
+    app.register_blueprint(cart_bp)
+
 
     # Health check
     @app.get("/health")

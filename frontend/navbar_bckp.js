@@ -34,10 +34,8 @@
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error("Cart fetch failed");
       const data = await res.json();
-
-      // ✅ FIX: API returns { cart_id, items: [] }, not an array
-      if (!data || !Array.isArray(data.items)) return 0;
-      return data.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+      if (!Array.isArray(data)) return 0;
+      return data.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     } catch (err) {
       console.warn("Cart count update failed:", err);
       return 0;
@@ -106,10 +104,8 @@
     wireLogout();
   });
 
-  // ✅ FIX: Expose under both names for consistency
+  // expose globally
   window.updateNavbarCounts = updateNavbarCounts;
-  window.refreshCartCount = updateNavbarCounts; // alias to match index.html & cart.js
-
   window.__VAKAADHA_KEYS = { WISHLIST_KEY };
 
   window.updateNavbarUser = function (user) {

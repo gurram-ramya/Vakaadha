@@ -71,6 +71,9 @@
   </div>
 
   <!-- Scripts -->
+
+    <!-- Scripts -->
+
     <script>
     function loadProducts() {
         fetch("/api/products")
@@ -107,14 +110,92 @@
                 <button class="btn buy-now">Buy Now</button>
                 </div>
             `;
+
+            // attach handler here, with prod in closure
+            card.querySelector(".add-to-cart").addEventListener("click", () => {
+                let variant;
+                const activeSize = card.querySelector(".size-btn.active");
+                if (activeSize) {
+                variant = prod.variants.find(v => v.size === activeSize.textContent);
+                }
+
+                if (prod.variants && prod.variants.length > 0) {
+                if (!variant) variant = prod.variants[0];
+                } else {
+                alert("This product has no available variants");
+                return;
+                }
+
+                addToCart(variant.variant_id, 1);
+            });
+
             grid.appendChild(card);
+
+            // size button toggle
+            card.querySelectorAll(".size-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                card.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                });
+            });
             });
         })
         .catch(err => console.error("Error loading products:", err));
     }
 
-    document.addEventListener("DOMContentLoaded", loadProducts);
+    document.addEventListener("DOMContentLoaded", () => {
+        loadProducts();
+        updateNavbarCounts();
+    });
     </script>
+
+    <script>
+    // --- keep this as-is ---
+    function getOrCreateGuestId() {
+        let gid = localStorage.getItem("guest_id");
+        if (!gid) {
+        gid = crypto.randomUUID();
+        localStorage.setItem("guest_id", gid);
+        }
+        return gid;
+    }
+
+    async function addToCart(variantId, quantity = 1) {
+        const guestId = getOrCreateGuestId();
+        try {
+        const res = await fetch(`/api/cart?guest_id=${guestId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ variant_id: variantId, quantity })
+        });
+        if (!res.ok) throw new Error("Failed to add item");
+        const cart = await res.json();
+        console.log("Cart updated:", cart);
+        alert("Item successfully added to cart!");
+        updateNavbarCounts();
+        } catch (err) {
+        console.error("Add to cart error:", err);
+        alert("Could not add to cart");
+        }
+    }
+
+    // function refreshCartCount() {
+    //     const guestId = localStorage.getItem("guest_id");
+    //     if (!guestId) return;
+    //     fetch(`/api/cart?guest_id=${guestId}`)
+    //     .then(res => res.json())
+    //     .then(data => {
+    //         const badge = document.getElementById("cartCount");
+    //         if (badge) badge.textContent = data.items.length;
+    //     })
+    //     .catch(err => console.error("Cart count error:", err));
+    // }
+    </script>
+
+
+
+
+
   <script src="./script.js"></script>
 </body>
 </html>

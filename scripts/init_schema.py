@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS cart_items (
   variant_id    INTEGER NOT NULL,
   quantity      INTEGER NOT NULL CHECK (quantity > 0),
   price_cents   INTEGER NOT NULL,
+  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(cart_id) REFERENCES carts(cart_id) ON DELETE CASCADE,
   FOREIGN KEY(variant_id) REFERENCES product_variants(variant_id) ON DELETE CASCADE
 );
@@ -368,6 +370,27 @@ CREATE TRIGGER IF NOT EXISTS trg_details_ad AFTER DELETE ON product_details BEGI
           (SELECT description FROM products WHERE product_id=old.product_id),
           '');
 END;
+
+-- =========================
+-- CART ITEM TRIGGERS
+-- =========================
+CREATE TRIGGER IF NOT EXISTS trg_cart_items_au
+AFTER UPDATE ON cart_items
+BEGIN
+  UPDATE cart_items
+  SET updated_at = datetime('now')
+  WHERE cart_item_id = old.cart_item_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cart_items_ai
+AFTER INSERT ON cart_items
+BEGIN
+  UPDATE cart_items
+  SET created_at = COALESCE(created_at, datetime('now')),
+      updated_at = datetime('now')
+  WHERE cart_item_id = new.cart_item_id;
+END;
+
 """
 
 def exec_script(con: sqlite3.Connection, sql: str):
