@@ -5,13 +5,9 @@ from flask import request, jsonify, g
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from domain.users import service as user_service
-from domain.cart import service as cart_service  # <-- added import
 
-# ----------------------------
-# Firebase Admin Initialization
-# ----------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-cred_path = os.path.join(BASE_DIR, "firebase-adminsdk.json")  # <-- updated name
+cred_path = os.path.join(BASE_DIR, "firebase-adminsdk.json")
 
 if not firebase_admin._apps:
     if not os.path.exists(cred_path):
@@ -20,9 +16,6 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
-# ----------------------------
-# Decorator to enforce authentication
-# ----------------------------
 def require_auth(fn):
     @wraps(fn)
     def decorated(*args, **kwargs):
@@ -44,16 +37,23 @@ def require_auth(fn):
         if not firebase_uid:
             return jsonify({"error": "Invalid Firebase UID"}), 401
 
-        # Ensure user exists in DB
+        # Optional guest_id for merge (sent during login/register)
+        guest_id = None
+        try:
+            payload = request.get_json(silent=True)
+            if payload and isinstance(payload, dict):
+                guest_id = payload.get("guest_id")
+        except Exception:
+            guest_id = None
+
+        # Ensure user exists (handles cart + guest merge)
         user = user_service.ensure_user(
             firebase_uid=firebase_uid,
             email=email,
             name=name,
             update_last_login=True,
+            guest_id=guest_id,
         )
-
-        # Ensure cart exists for this user
-        cart_service.get_or_create_cart(user_id=user["user_id"], guest_id=None)
 
         g.user = {
             "user_id": user["user_id"],
@@ -62,6 +62,9 @@ def require_auth(fn):
             "name": user.get("name"),
             "is_admin": user.get("is_admin", 0),
         }
+
+        # Debug trace
+        print("[DEBUG require_auth] g.user:", g.user)
 
         return fn(*args, **kwargs)
 

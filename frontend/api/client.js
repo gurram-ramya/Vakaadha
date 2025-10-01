@@ -89,14 +89,15 @@
 
 // ==============================
 // frontend/api/client.js
-// Centralized API client for frontend
+// Unified API + Auth + Guest handling
 // ==============================
 
+// frontend/api/client.js
 export const API_BASE = ""; // same-origin
-
-// ---- Auth storage helpers ----
 const STORAGE_KEY = "loggedInUser";
+const GUEST_KEY = "guest_id";
 
+// ---- Auth helpers ----
 export function getAuth() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
@@ -106,7 +107,11 @@ export function getAuth() {
 }
 
 export function setAuth(obj) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj || {}));
+  if (!obj) {
+    localStorage.removeItem(STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
 }
 
 export function clearAuth() {
@@ -117,35 +122,68 @@ export function getToken() {
   return getAuth()?.idToken || null;
 }
 
+export function getUserId() {
+  return getAuth()?.user_id || null;
+}
+
+// ---- Guest ID helpers ----
+export function getGuestId() {
+  let gid = localStorage.getItem(GUEST_KEY);
+  if (!gid) {
+    gid = crypto.randomUUID();
+    localStorage.setItem(GUEST_KEY, gid);
+  }
+  return gid;
+}
+
+export function resetGuestId() {
+  localStorage.removeItem(GUEST_KEY);
+  const newId = crypto.randomUUID();
+  localStorage.setItem(GUEST_KEY, newId);
+  return newId;
+}
+
 // ---- Core request wrapper ----
-export async function apiFetch(endpoint, { method = "GET", headers = {}, body } = {}) {
+export async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
   const token = getToken();
-  const res = await fetch(API_BASE + endpoint, {
+  const h = {
+    ...(body ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...headers,
+  };
+
+  let url = API_BASE + endpoint;
+  if (!token && !url.includes("guest_id")) {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}guest_id=${getGuestId()}`;
+  }
+
+  console.log("[DEBUG client.js] request", { url, method, headers: h, body });
+
+  const res = await fetch(url, {
     method,
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
+    headers: h,
     body: body ? JSON.stringify(body) : undefined,
     credentials: "same-origin",
   });
 
-  if (!res.ok) {
-    const msg = await res.text();
-    throw new Error(`API error ${res.status}: ${msg}`);
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
-  if (res.status === 204) return null;
-  return res.json();
+
+  if (!res.ok) {
+    console.error("[ERROR client.js]", { status: res.status, data });
+    throw new Error(data?.error || `API error ${res.status}`);
+  }
+  return data;
 }
 
-// ---- Backward compatibility alias ----
-export const apiRequest = apiFetch;
-
-// ---- Convenience client ----
 export const apiClient = {
-  get: (e) => apiFetch(e),
-  post: (e, b) => apiFetch(e, { method: "POST", body: b }),
-  put: (e, b) => apiFetch(e, { method: "PUT", body: b }),
-  delete: (e) => apiFetch(e, { method: "DELETE" }),
+  get: (e) => apiRequest(e),
+  post: (e, b) => apiRequest(e, { method: "POST", body: b }),
+  put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
+  delete: (e) => apiRequest(e, { method: "DELETE" }),
 };

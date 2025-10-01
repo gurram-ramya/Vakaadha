@@ -244,22 +244,35 @@ function initAuthState() {
 async function afterFirebaseAuth(user, silent = false) {
   await user.reload();
   const idToken = await user.getIdToken(true);
+
+  // Grab any guest_id
+  const guestId = localStorage.getItem("guest_id");
+
+  // Register user with backend (send guest_id for merge)
+  let backendUser;
+  try {
+    const res = await apiRequest("/api/auth/register", {
+      method: "POST",
+      body: guestId ? { guest_id: guestId } : {},
+    });
+    backendUser = res; // must include user_id
+  } catch (e) {
+    console.warn("Register sync failed:", e);
+  }
+
+  // Store enriched auth state
   setAuth({
     idToken,
     uid: user.uid,
     email: user.email,
     name: user.displayName || user.email,
     photoURL: user.photoURL || null,
+    user_id: backendUser?.user_id || null,
   });
 
-  // Ensure local DB user exists
-  try { await apiRequest("/api/auth/register", { method: "POST" }); } catch {}
-
-  try {
-    const me = await apiRequest("/api/users/me");
-    populateProfile(me);
-  } catch (e) {
-    console.warn(e);
+  // Always drop guest_id after merge attempt
+  if (guestId) {
+    localStorage.removeItem("guest_id");
   }
 
   if (!silent) toast("Signed in");
@@ -273,7 +286,14 @@ function populateProfile(me) {
   if (els.profileGender) els.profileGender.value = me.gender || "";
   if (els.profileAvatar) els.profileAvatar.value = me.avatar_url || "";
 
-  updateNavbarUser(me);
+  // Pass backend-enriched user to navbar
+  if (window.updateNavbarUser) {
+    window.updateNavbarUser({
+      user_id: me.user_id,
+      name: me.name,
+      email: me.email,
+    });
+  }
 }
 
 async function refreshEmailVerified() {

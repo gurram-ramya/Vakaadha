@@ -23,10 +23,13 @@ def get_or_create_cart(user_id: Optional[int] = None, guest_id: Optional[str] = 
         """, (user_id,))
         row = cur.fetchone()
         if row:
+            print(f"[DEBUG get_or_create_cart] Found active cart_id={row['cart_id']} for user_id={user_id}")
             return row["cart_id"]
+
         cur.execute("INSERT INTO carts (user_id) VALUES (?)", (user_id,))
         cart_id = cur.lastrowid
         con.commit()
+        print(f"[DEBUG get_or_create_cart] Created new cart_id={cart_id} for user_id={user_id}")
         return cart_id
 
     if guest_id:
@@ -37,10 +40,13 @@ def get_or_create_cart(user_id: Optional[int] = None, guest_id: Optional[str] = 
         """, (guest_id,))
         row = cur.fetchone()
         if row:
+            print(f"[DEBUG get_or_create_cart] Found active cart_id={row['cart_id']} for guest_id={guest_id}")
             return row["cart_id"]
+
         cur.execute("INSERT INTO carts (guest_id) VALUES (?)", (guest_id,))
         cart_id = cur.lastrowid
         con.commit()
+        print(f"[DEBUG get_or_create_cart] Created new cart_id={cart_id} for guest_id={guest_id}")
         return cart_id
 
 
@@ -93,15 +99,15 @@ def hydrate_cart_items(cart_id: int) -> List[Dict[str, Any]]:
             "subtotal": subtotal,
             "stock": r["stock"] if r["stock"] is not None else 0
         })
+
+    print(f"[DEBUG hydrate_cart_items] cart_id={cart_id}, items={len(items)}")
     return items
 
 
 def get_cart(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> Dict[str, Any]:
-    if user_id:
-        cart_id = get_or_create_cart(user_id=user_id)
-    else:
-        cart_id = get_or_create_cart(guest_id=guest_id)
+    cart_id = get_or_create_cart(user_id=user_id, guest_id=guest_id)
     items = hydrate_cart_items(cart_id)
+    print(f"[DEBUG get_cart] user_id={user_id}, guest_id={guest_id}, cart_id={cart_id}, items={len(items)}")
     return {"cart_id": cart_id, "items": items}
 
 
@@ -125,10 +131,7 @@ def add_cart_item(user_id: Optional[int], guest_id: Optional[str],
     if quantity > stock:
         raise ValueError("Quantity exceeds available stock")
 
-    if user_id:
-        cart_id = get_or_create_cart(user_id=user_id)
-    else:
-        cart_id = get_or_create_cart(guest_id=guest_id)
+    cart_id = get_or_create_cart(user_id=user_id, guest_id=guest_id)
 
     # If already exists, update quantity
     cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
@@ -140,12 +143,14 @@ def add_cart_item(user_id: Optional[int], guest_id: Optional[str],
             raise ValueError("Quantity exceeds available stock")
         cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
                     (new_qty, row["cart_item_id"]))
+        print(f"[DEBUG add_cart_item] Updated variant_id={variant_id}, new_qty={new_qty}, cart_id={cart_id}")
     else:
         price_cents = pv["price_cents"]
         cur.execute("""
             INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
             VALUES (?, ?, ?, ?)
         """, (cart_id, variant_id, quantity, price_cents))
+        print(f"[DEBUG add_cart_item] Inserted variant_id={variant_id}, qty={quantity}, cart_id={cart_id}")
 
     con.commit()
     return get_cart(user_id, guest_id)
@@ -184,11 +189,9 @@ def update_cart_item(user_id: Optional[int], guest_id: Optional[str],
     cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
                 (quantity, cart_item_id))
     con.commit()
+    print(f"[DEBUG update_cart_item] cart_item_id={cart_item_id}, qty={quantity}, user_id={user_id}, guest_id={guest_id}")
 
-    if user_id:
-        return get_cart(user_id=user_id)
-    else:
-        return get_cart(guest_id=guest_id)
+    return get_cart(user_id=user_id, guest_id=guest_id)
 
 
 def remove_cart_item(user_id: Optional[int], guest_id: Optional[str],
@@ -213,11 +216,9 @@ def remove_cart_item(user_id: Optional[int], guest_id: Optional[str],
 
     cur.execute("DELETE FROM cart_items WHERE cart_item_id=?", (cart_item_id,))
     con.commit()
+    print(f"[DEBUG remove_cart_item] cart_item_id={cart_item_id}, user_id={user_id}, guest_id={guest_id}")
 
-    if user_id:
-        return get_cart(user_id=user_id)
-    else:
-        return get_cart(guest_id=guest_id)
+    return get_cart(user_id=user_id, guest_id=guest_id)
 
 
 def merge_guest_cart(guest_id: str, user_id: int):
@@ -231,6 +232,7 @@ def merge_guest_cart(guest_id: str, user_id: int):
     cur.execute("SELECT cart_id FROM carts WHERE guest_id=? AND status='active'", (guest_id,))
     g = cur.fetchone()
     if not g:
+        print(f"[DEBUG merge_guest_cart] No active guest cart for guest_id={guest_id}")
         return
     guest_cart_id = g["cart_id"]
 
@@ -240,6 +242,7 @@ def merge_guest_cart(guest_id: str, user_id: int):
     # Pull guest items
     cur.execute("SELECT variant_id, quantity, price_cents FROM cart_items WHERE cart_id=?", (guest_cart_id,))
     guest_items = cur.fetchall()
+    print(f"[DEBUG merge_guest_cart] guest_id={guest_id}, items={len(guest_items)} → user_id={user_id}")
 
     for gi in guest_items:
         variant_id = gi["variant_id"]
@@ -251,7 +254,8 @@ def merge_guest_cart(guest_id: str, user_id: int):
         stock_row = cur.fetchone()
         stock = stock_row["quantity"] if stock_row else 0
         if stock <= 0:
-            continue  # nothing to add
+            print(f"[DEBUG merge_guest_cart] variant_id={variant_id} has no stock, skipping")
+            continue
 
         # Does user cart already have this variant?
         cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
@@ -261,6 +265,7 @@ def merge_guest_cart(guest_id: str, user_id: int):
             new_qty = min(stock, row["quantity"] + qty_to_add)
             cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
                         (new_qty, row["cart_item_id"]))
+            print(f"[DEBUG merge_guest_cart] Updated variant_id={variant_id}, merged_qty={new_qty}")
         else:
             final_qty = min(stock, qty_to_add)
             if final_qty > 0:
@@ -268,10 +273,12 @@ def merge_guest_cart(guest_id: str, user_id: int):
                     INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
                     VALUES (?, ?, ?, ?)
                 """, (user_cart_id, variant_id, final_qty, price_cents))
+                print(f"[DEBUG merge_guest_cart] Inserted variant_id={variant_id}, qty={final_qty}")
 
     # Retire guest cart
     cur.execute("UPDATE carts SET status='converted' WHERE cart_id=?", (guest_cart_id,))
     con.commit()
+    print(f"[DEBUG merge_guest_cart] guest_cart_id={guest_cart_id} marked as converted")
 
 
 # Alias for routes
