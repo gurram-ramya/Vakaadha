@@ -1,11 +1,16 @@
-// navbar.js
+// navbar.js – unified token handling
 (function () {
   const WISHLIST_KEY = "vakaadha_wishlist_v1";
   const GUEST_KEY = "guest_id";
   const API_BASE = "/api/cart";
 
   function getToken() {
-    return localStorage.getItem("auth_token") || null;
+    try {
+      const user = JSON.parse(localStorage.getItem("loggedInUser") || "null");
+      return user && user.idToken ? user.idToken : null;
+    } catch {
+      return null;
+    }
   }
 
   function getGuestId() {
@@ -19,10 +24,9 @@
 
   async function fetchCartCount() {
     const token = getToken();
-    const guestId = getGuestId();
     let url = API_BASE;
     if (!token) {
-      url += `?guest_id=${guestId}`;
+      url += `?guest_id=${getGuestId()}`;
     }
 
     const headers = {};
@@ -34,8 +38,6 @@
       const res = await fetch(url, { headers });
       if (!res.ok) throw new Error("Cart fetch failed");
       const data = await res.json();
-
-      // ✅ FIX: API returns { cart_id, items: [] }, not an array
       if (!data || !Array.isArray(data.items)) return 0;
       return data.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     } catch (err) {
@@ -53,13 +55,11 @@
   }
 
   async function updateNavbarCounts() {
-    // wishlist count from localStorage
     const wishlist = readWishlist();
     const wishlistCount = Array.isArray(wishlist) ? wishlist.length : 0;
     const wishEl = document.getElementById("wishlistCount");
     if (wishEl) wishEl.textContent = wishlistCount;
 
-    // cart count from API
     const cartCount = await fetchCartCount();
     const cartEl = document.getElementById("cartCount");
     if (cartEl) cartEl.textContent = cartCount;
@@ -82,6 +82,30 @@
     }
   }
 
+  // --- merge guest cart into user cart after login ---
+  async function mergeCartOnLogin() {
+    const token = getToken();
+    const guestId = localStorage.getItem(GUEST_KEY);
+    if (!token || !guestId) return;
+
+    try {
+      const res = await fetch("/api/cart/merge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ guest_id: guestId }),
+      });
+      if (!res.ok) throw new Error("Cart merge failed");
+      await res.json();
+      localStorage.removeItem(GUEST_KEY); // Clear guest ID after merge
+      if (typeof updateNavbarCounts === "function") updateNavbarCounts();
+    } catch (err) {
+      console.warn("Cart merge failed:", err);
+    }
+  }
+
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
@@ -96,6 +120,8 @@
         console.warn("Firebase signOut failed:", err);
       }
       localStorage.removeItem("loggedInUser");
+      localStorage.removeItem(GUEST_KEY);
+      localStorage.setItem(GUEST_KEY, crypto.randomUUID()); // new guest cart
       window.location.href = "index.html";
     });
   }
@@ -106,15 +132,17 @@
     wireLogout();
   });
 
-  // ✅ FIX: Expose under both names for consistency
   window.updateNavbarCounts = updateNavbarCounts;
-  window.refreshCartCount = updateNavbarCounts; // alias to match index.html & cart.js
-
-  window.__VAKAADHA_KEYS = { WISHLIST_KEY };
+  window.refreshCartCount = updateNavbarCounts;
 
   window.updateNavbarUser = function (user) {
     const el = document.getElementById("user-display");
-    if (!el) return;
-    el.textContent = user?.name || user?.email || "";
+    if (el) el.textContent = user?.name || user?.email || "";
+    if (user) {
+      localStorage.setItem("loggedInUser", JSON.stringify(user));
+      mergeCartOnLogin();
+    }
+    updateAuthUI();
+    updateNavbarCounts();
   };
 })();

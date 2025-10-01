@@ -1,11 +1,11 @@
 # app/__init__.py
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, request, g
 from flask_cors import CORS
 from pathlib import Path
 import os
 from config import DevConfig
 from utils.errors import install_error_handlers
-from utils.security import install_security_headers
+from utils.security import install_security_headers, decode_token
 from db import init_db_for_app
 
 
@@ -24,6 +24,27 @@ def create_app(config_object=DevConfig):
     init_db_for_app(app)
     install_security_headers(app)
     install_error_handlers(app)
+
+    # ---------------- USER CONTEXT ----------------
+    @app.before_request
+    def attach_user_id():
+        """
+        Extract user_id from Authorization header if present.
+        Supports Firebase ID tokens via decode_token().
+        """
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+            try:
+                payload = decode_token(token)
+                request.user_id = payload.get("user_id")
+                g.user_id = request.user_id
+            except Exception:
+                request.user_id = None
+                g.user_id = None
+        else:
+            request.user_id = None
+            g.user_id = None
 
     # ---------------- FRONTEND ROUTES ----------------
     @app.route("/")
@@ -52,7 +73,6 @@ def create_app(config_object=DevConfig):
     app.register_blueprint(catalog_bp, url_prefix="/api")
     app.register_blueprint(users_bp, url_prefix="/api")
     app.register_blueprint(cart_bp)
-
 
     # Health check
     @app.get("/health")

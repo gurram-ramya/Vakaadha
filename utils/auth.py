@@ -5,6 +5,7 @@ from flask import request, jsonify, g
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from domain.users import service as user_service
+from domain.cart import service as cart_service  # <-- added import
 
 # ----------------------------
 # Firebase Admin Initialization
@@ -50,6 +51,9 @@ def require_auth(fn):
             name=name,
             update_last_login=True,
         )
+
+        # Ensure cart exists for this user
+        cart_service.get_or_create_cart(user_id=user["user_id"], guest_id=None)
 
         g.user = {
             "user_id": user["user_id"],

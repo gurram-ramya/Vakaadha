@@ -105,14 +105,15 @@ CREATE TABLE IF NOT EXISTS inventory (
 -- =========================
 CREATE TABLE IF NOT EXISTS carts (
   cart_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id       INTEGER,
-  guest_id      TEXT,
+  user_id       INTEGER UNIQUE,
+  guest_id      TEXT UNIQUE,
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','converted','abandoned')),
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_carts_user ON carts(user_id);
+CREATE INDEX IF NOT EXISTS idx_carts_guest ON carts(guest_id);
 
 CREATE TABLE IF NOT EXISTS cart_items (
   cart_item_id  INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,33 +1,33 @@
-# routes\cart.py
+# routes/cart.py
 
-from flask import Blueprint, request, jsonify
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from domain.cart.service import (
     get_cart_with_items,
     add_cart_item,
     update_cart_item,
     remove_cart_item,
+    merge_guest_cart,
 )
-import sqlite3
-
+from utils.auth import require_auth
 
 bp = Blueprint("cart", __name__, url_prefix="/api/cart")
 
 
-def get_db():
-    conn = sqlite3.connect("vakaadha.db")
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def resolve_identity(req):
     """
-    Resolve identity for cart ownership.
-    Priority: logged-in user_id > guest_id
+    Resolve current actor as user or guest.
+    Preference: user_id if authenticated.
     """
-    user_id = getattr(req, "user_id", None)  # set by auth middleware if present
-    guest_id = request.args.get("guest_id") or (request.json or {}).get("guest_id")
-    return user_id, guest_id
+    if hasattr(g, "user") and g.user.get("user_id"):
+        return g.user["user_id"], None
+
+    guest_id = req.args.get("guest_id")
+    if not guest_id and req.method in ("POST", "PUT"):
+        data = req.get_json(silent=True) or {}
+        guest_id = data.get("guest_id")
+
+    return None, guest_id
+
 
 
 @bp.route("", methods=["GET"])
@@ -62,8 +62,12 @@ def add_item():
         return jsonify({"error": "Invalid variant_id or quantity"}), 400
 
     try:
-        cart = add_cart_item(user_id=user_id, guest_id=guest_id,
-                             variant_id=variant_id, quantity=quantity)
+        cart = add_cart_item(
+            user_id=user_id,
+            guest_id=guest_id,
+            variant_id=variant_id,
+            quantity=quantity,
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -87,8 +91,12 @@ def update_item(cart_item_id):
         return jsonify({"error": "Invalid quantity"}), 400
 
     try:
-        cart = update_cart_item(user_id=user_id, guest_id=guest_id,
-                                cart_item_id=cart_item_id, quantity=quantity)
+        cart = update_cart_item(
+            user_id=user_id,
+            guest_id=guest_id,
+            cart_item_id=cart_item_id,
+            quantity=quantity,
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -105,9 +113,30 @@ def delete_item(cart_item_id):
         return jsonify({"error": "Missing user_id or guest_id"}), 400
 
     try:
-        cart = remove_cart_item(user_id=user_id, guest_id=guest_id,
-                                cart_item_id=cart_item_id)
+        cart = remove_cart_item(
+            user_id=user_id,
+            guest_id=guest_id,
+            cart_item_id=cart_item_id,
+        )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
     return jsonify(cart)
+
+
+@bp.route("/merge", methods=["POST"])
+@require_auth
+def merge_cart():
+    """
+    Merge a guest cart into the authenticated user's cart.
+    Body: { "guest_id": str }
+    """
+    data = request.get_json(force=True)
+    user_id = g.user["user_id"]
+    guest_id = data.get("guest_id")
+
+    if not guest_id:
+        return jsonify({"error": "Missing guest_id"}), 400
+
+    merge_guest_cart(guest_id, user_id)
+    return jsonify(get_cart_with_items(user_id=user_id))

@@ -21,20 +21,20 @@ def ensure_user(
     update_last_login: bool = False,
 ) -> Dict[str, Any]:
     """
-    Ensure a user exists for this firebase_uid.
-    - If not exists, create one with provided data.
-    - If exists, return it (optionally update last_login and name/email/avatar).
+    Ensure a user exists for this firebase_uid or email.
+    - If UID exists → return/update that user.
+    - If UID not found but email exists → link UID to that row.
+    - Else → insert new user.
     """
     from db import get_db_connection
     con = get_db_connection()
     con.row_factory = sqlite3.Row
 
+    # 1. Try lookup by firebase_uid
     cur = con.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
     row = cur.fetchone()
-
     if row:
-        updates = []
-        params = []
+        updates, params = [], []
         if name and not row["name"]:
             updates.append("name = ?")
             params.append(name)
@@ -49,11 +49,23 @@ def ensure_user(
             params.append(firebase_uid)
             con.execute(sql, tuple(params))
             con.commit()
-        # return refreshed row
         cur = con.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
         return _row_to_dict(cur.fetchone())
 
-    # User not found → create
+    # 2. If no UID match, try lookup by email
+    if email:
+        cur = con.execute("SELECT * FROM users WHERE email = ?", (email,))
+        row = cur.fetchone()
+        if row:
+            con.execute(
+                "UPDATE users SET firebase_uid = ?, last_login = ? WHERE user_id = ?",
+                (firebase_uid, datetime.utcnow().isoformat(), row["user_id"]),
+            )
+            con.commit()
+            cur = con.execute("SELECT * FROM users WHERE user_id = ?", (row["user_id"],))
+            return _row_to_dict(cur.fetchone())
+
+    # 3. No UID, no email → insert new
     cur = con.execute(
         """
         INSERT INTO users (firebase_uid, email, name, created_at, last_login)

@@ -1,10 +1,15 @@
-// cart.js – enterprise-grade API-backed cart integration
+// cart.js – unified token handling
 (function () {
   const API_BASE = "/api/cart";
   const GUEST_KEY = "guest_id";
 
   function getToken() {
-    return localStorage.getItem("auth_token") || null;
+    try {
+      const user = JSON.parse(localStorage.getItem("loggedInUser") || "null");
+      return user && user.idToken ? user.idToken : null;
+    } catch {
+      return null;
+    }
   }
 
   function getGuestId() {
@@ -18,17 +23,19 @@
 
   async function apiRequest(path, options = {}) {
     const token = getToken();
-    const guestId = getGuestId();
+    const headers = {};
 
-    const headers = { "Content-Type": "application/json" };
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
+    }
+    if (options.body && options.method && options.method !== "GET") {
+      headers["Content-Type"] = "application/json";
     }
 
     let url = `${API_BASE}${path}`;
     if (!token) {
       const sep = url.includes("?") ? "&" : "?";
-      url = `${url}${sep}guest_id=${guestId}`;
+      url = `${url}${sep}guest_id=${getGuestId()}`;
     }
 
     try {
@@ -47,7 +54,6 @@
     const emptyEl = document.getElementById("cart-empty");
     const container = document.getElementById("cart-items");
     const summary = document.getElementById("cart-summary");
-
     if (!container || !summary || !emptyEl) return;
 
     try {
@@ -60,7 +66,6 @@
 
       if (items.length === 0) {
         emptyEl.classList.remove("hidden");
-        // ✅ also refresh navbar badge
         if (typeof updateNavbarCounts === "function") updateNavbarCounts();
         return;
       }
@@ -97,14 +102,12 @@
         container.appendChild(row);
       });
 
-      // Summary
       document.getElementById("cart-subtotal").textContent = `₹${subtotal.toFixed(2)}`;
       document.getElementById("cart-total").textContent = `₹${subtotal.toFixed(2)}`;
       const checkoutBtn = document.getElementById("checkout-btn");
       checkoutBtn.disabled = items.length === 0;
       summary.classList.remove("hidden");
 
-      // Attach qty handlers
       container.querySelectorAll(".qty-input").forEach((input) => {
         input.addEventListener("change", async (e) => {
           const id = e.target.dataset.id;
@@ -125,7 +128,6 @@
         });
       });
 
-      // Attach remove handlers
       container.querySelectorAll(".remove-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const id = btn.dataset.id;
@@ -138,13 +140,11 @@
         });
       });
 
-      // Checkout handler
       checkoutBtn.onclick = () => {
         if (items.length === 0) return;
         window.location.href = "checkout.html";
       };
 
-      // ✅ Refresh navbar badge
       if (typeof updateNavbarCounts === "function") updateNavbarCounts();
     } catch (err) {
       emptyEl.innerHTML = `<p class="error">Failed to load cart: ${err.message}</p>`;

@@ -7,6 +7,7 @@ from db import get_db_connection
 def get_or_create_cart(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> int:
     """
     Ensure there is an active cart for user or guest. Return cart_id.
+    Preference: user_id > guest_id
     """
     if not user_id and not guest_id:
         raise ValueError("Either user_id or guest_id must be provided")
@@ -14,25 +15,33 @@ def get_or_create_cart(user_id: Optional[int] = None, guest_id: Optional[str] = 
     con = get_db_connection()
     cur = con.cursor()
 
-    cur.execute("""
-        SELECT cart_id FROM carts
-        WHERE status = 'active' AND
-              ((? IS NOT NULL AND user_id = ?) OR
-               (? IS NOT NULL AND guest_id = ?))
-        LIMIT 1
-    """, (user_id, user_id, guest_id, guest_id))
-    row = cur.fetchone()
+    if user_id:
+        cur.execute("""
+            SELECT cart_id FROM carts
+            WHERE status = 'active' AND user_id = ?
+            LIMIT 1
+        """, (user_id,))
+        row = cur.fetchone()
+        if row:
+            return row["cart_id"]
+        cur.execute("INSERT INTO carts (user_id) VALUES (?)", (user_id,))
+        cart_id = cur.lastrowid
+        con.commit()
+        return cart_id
 
-    if row:
-        return row["cart_id"]
-
-    cur.execute("""
-        INSERT INTO carts (user_id, guest_id)
-        VALUES (?, ?)
-    """, (user_id, guest_id))
-    cart_id = cur.lastrowid
-    con.commit()
-    return cart_id
+    if guest_id:
+        cur.execute("""
+            SELECT cart_id FROM carts
+            WHERE status = 'active' AND guest_id = ?
+            LIMIT 1
+        """, (guest_id,))
+        row = cur.fetchone()
+        if row:
+            return row["cart_id"]
+        cur.execute("INSERT INTO carts (guest_id) VALUES (?)", (guest_id,))
+        cart_id = cur.lastrowid
+        con.commit()
+        return cart_id
 
 
 def hydrate_cart_items(cart_id: int) -> List[Dict[str, Any]]:
@@ -88,7 +97,10 @@ def hydrate_cart_items(cart_id: int) -> List[Dict[str, Any]]:
 
 
 def get_cart(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> Dict[str, Any]:
-    cart_id = get_or_create_cart(user_id, guest_id)
+    if user_id:
+        cart_id = get_or_create_cart(user_id=user_id)
+    else:
+        cart_id = get_or_create_cart(guest_id=guest_id)
     items = hydrate_cart_items(cart_id)
     return {"cart_id": cart_id, "items": items}
 
@@ -113,7 +125,10 @@ def add_cart_item(user_id: Optional[int], guest_id: Optional[str],
     if quantity > stock:
         raise ValueError("Quantity exceeds available stock")
 
-    cart_id = get_or_create_cart(user_id, guest_id)
+    if user_id:
+        cart_id = get_or_create_cart(user_id=user_id)
+    else:
+        cart_id = get_or_create_cart(guest_id=guest_id)
 
     # If already exists, update quantity
     cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
@@ -169,7 +184,11 @@ def update_cart_item(user_id: Optional[int], guest_id: Optional[str],
     cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
                 (quantity, cart_item_id))
     con.commit()
-    return get_cart(user_id, guest_id)
+
+    if user_id:
+        return get_cart(user_id=user_id)
+    else:
+        return get_cart(guest_id=guest_id)
 
 
 def remove_cart_item(user_id: Optional[int], guest_id: Optional[str],
@@ -194,40 +213,63 @@ def remove_cart_item(user_id: Optional[int], guest_id: Optional[str],
 
     cur.execute("DELETE FROM cart_items WHERE cart_item_id=?", (cart_item_id,))
     con.commit()
-    return get_cart(user_id, guest_id)
+
+    if user_id:
+        return get_cart(user_id=user_id)
+    else:
+        return get_cart(guest_id=guest_id)
 
 
 def merge_guest_cart(guest_id: str, user_id: int):
     """
-    On login: merge guest cart into user cart.
+    On login: merge guest cart into user cart with stock validation.
     """
     con = get_db_connection()
     cur = con.cursor()
 
+    # Find guest cart
     cur.execute("SELECT cart_id FROM carts WHERE guest_id=? AND status='active'", (guest_id,))
     g = cur.fetchone()
     if not g:
         return
     guest_cart_id = g["cart_id"]
 
+    # Ensure user cart exists
     user_cart_id = get_or_create_cart(user_id=user_id)
 
+    # Pull guest items
     cur.execute("SELECT variant_id, quantity, price_cents FROM cart_items WHERE cart_id=?", (guest_cart_id,))
     guest_items = cur.fetchall()
+
     for gi in guest_items:
+        variant_id = gi["variant_id"]
+        qty_to_add = gi["quantity"]
+        price_cents = gi["price_cents"]
+
+        # Get available stock
+        cur.execute("SELECT quantity FROM inventory WHERE variant_id=?", (variant_id,))
+        stock_row = cur.fetchone()
+        stock = stock_row["quantity"] if stock_row else 0
+        if stock <= 0:
+            continue  # nothing to add
+
+        # Does user cart already have this variant?
         cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
-                    (user_cart_id, gi["variant_id"]))
+                    (user_cart_id, variant_id))
         row = cur.fetchone()
         if row:
-            new_qty = row["quantity"] + gi["quantity"]
+            new_qty = min(stock, row["quantity"] + qty_to_add)
             cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
                         (new_qty, row["cart_item_id"]))
         else:
-            cur.execute("""
-                INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
-                VALUES (?, ?, ?, ?)
-            """, (user_cart_id, gi["variant_id"], gi["quantity"], gi["price_cents"]))
+            final_qty = min(stock, qty_to_add)
+            if final_qty > 0:
+                cur.execute("""
+                    INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
+                    VALUES (?, ?, ?, ?)
+                """, (user_cart_id, variant_id, final_qty, price_cents))
 
+    # Retire guest cart
     cur.execute("UPDATE carts SET status='converted' WHERE cart_id=?", (guest_cart_id,))
     con.commit()
 

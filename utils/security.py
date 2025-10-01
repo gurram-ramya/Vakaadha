@@ -1,4 +1,35 @@
 # utils/security.py
+import firebase_admin
+from firebase_admin import auth, credentials
+
+_firebase_initialized = False
+
+
+def _init_firebase():
+    global _firebase_initialized
+    if not _firebase_initialized:
+        try:
+            # Requires GOOGLE_APPLICATION_CREDENTIALS env var
+            firebase_admin.initialize_app()
+            _firebase_initialized = True
+        except ValueError:
+            # already initialized
+            _firebase_initialized = True
+
+
+def decode_token(token: str) -> dict:
+    """
+    Verify a Firebase ID token and return user_id in a standard payload.
+    Raises if invalid or expired.
+    """
+    _init_firebase()
+    decoded = auth.verify_id_token(token)
+    return {
+        "user_id": decoded.get("uid"),
+        "email": decoded.get("email"),
+    }
+
+
 def install_security_headers(app):
     """
     Install a Content-Security-Policy that allows Firebase Auth, Google sign-in,
@@ -39,7 +70,7 @@ def install_security_headers(app):
         "'self'",
         "https://accounts.google.com",
         "https://*.googleusercontent.com",
-        "https://*.firebaseapp.com",       
+        "https://*.firebaseapp.com",
     ]
     font_src = [
         "'self'",
