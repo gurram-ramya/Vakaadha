@@ -1,6 +1,7 @@
-# New version 18/8
+# app.py
 
-from __init__ import create_app
+from . import create_app
+
 app = create_app()
 
 if __name__ == "__main__":

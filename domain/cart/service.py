@@ -1,285 +1,322 @@
 # domain/cart/service.py
+
 import sqlite3
-from typing import Optional, List, Dict, Any
-from db import get_db_connection
+import logging
+from uuid import uuid4
+from datetime import datetime
+from ...db import get_db_connection  # corrected import path
+
+# -------------------------------------------------------------
+# Exception Classes
+# -------------------------------------------------------------
+class GuestCartNotFoundError(Exception):
+    pass
+
+class MergeConflictError(Exception):
+    pass
+
+class InvalidVariantError(Exception):
+    pass
+
+class InsufficientStockError(Exception):
+    pass
+
+class InvalidQuantityError(Exception):
+    pass
+
+class DBError(Exception):
+    pass
 
 
-def get_or_create_cart(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> int:
-    """
-    Ensure there is an active cart for user or guest. Return cart_id.
-    Preference: user_id > guest_id
-    """
-    if not user_id and not guest_id:
-        raise ValueError("Either user_id or guest_id must be provided")
+# -------------------------------------------------------------
+# Helper: Stock and Variant Validation
+# -------------------------------------------------------------
+def _get_variant_data(conn, variant_id):
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT pv.variant_id, pv.product_id, pv.name, pv.price, pv.stock, pv.is_active, p.name
+        FROM product_variants pv
+        JOIN products p ON pv.product_id = p.product_id
+        WHERE pv.variant_id = ?
+    """, (variant_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise InvalidVariantError("Variant not found")
+    variant = {
+        "variant_id": row[0],
+        "product_id": row[1],
+        "variant_name": row[2],
+        "price": float(row[3]),
+        "stock": int(row[4]),
+        "is_active": bool(row[5]),
+        "product_name": row[6]
+    }
+    return variant
 
-    con = get_db_connection()
-    cur = con.cursor()
 
-    if user_id:
-        cur.execute("""
-            SELECT cart_id FROM carts
-            WHERE status = 'active' AND user_id = ?
-            LIMIT 1
-        """, (user_id,))
-        row = cur.fetchone()
+# -------------------------------------------------------------
+# Core Cart Functions
+# -------------------------------------------------------------
+def get_or_create_guest_cart(guest_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+        if not guest_id:
+            guest_id = str(uuid4())
+
+        cursor.execute("SELECT cart_id, converted FROM carts WHERE guest_id = ?", (guest_id,))
+        row = cursor.fetchone()
+
         if row:
-            print(f"[DEBUG get_or_create_cart] Found active cart_id={row['cart_id']} for user_id={user_id}")
-            return row["cart_id"]
+            if row[1] == 1:
+                raise GuestCartNotFoundError("Guest cart already merged")
+            return {"cart_id": row[0], "guest_id": guest_id}
 
-        cur.execute("INSERT INTO carts (user_id) VALUES (?)", (user_id,))
-        cart_id = cur.lastrowid
-        con.commit()
-        print(f"[DEBUG get_or_create_cart] Created new cart_id={cart_id} for user_id={user_id}")
-        return cart_id
-
-    if guest_id:
-        cur.execute("""
-            SELECT cart_id FROM carts
-            WHERE status = 'active' AND guest_id = ?
-            LIMIT 1
-        """, (guest_id,))
-        row = cur.fetchone()
-        if row:
-            print(f"[DEBUG get_or_create_cart] Found active cart_id={row['cart_id']} for guest_id={guest_id}")
-            return row["cart_id"]
-
-        cur.execute("INSERT INTO carts (guest_id) VALUES (?)", (guest_id,))
-        cart_id = cur.lastrowid
-        con.commit()
-        print(f"[DEBUG get_or_create_cart] Created new cart_id={cart_id} for guest_id={guest_id}")
-        return cart_id
+        conn.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "INSERT INTO carts (guest_id, created_at, converted) VALUES (?, ?, ?)",
+            (guest_id, datetime.utcnow().isoformat(), 0)
+        )
+        cart_id = cursor.lastrowid
+        conn.commit()
+        logging.info({"event": "cart_create", "guest_id": guest_id, "cart_id": cart_id})
+        return {"cart_id": cart_id, "guest_id": guest_id}
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
 
 
-def hydrate_cart_items(cart_id: int) -> List[Dict[str, Any]]:
-    """
-    Return cart items with hydrated product + variant metadata.
-    """
-    con = get_db_connection()
-    cur = con.cursor()
+def get_cart(cart_id):
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT ci.variant_id, pv.product_id, p.name, pv.name, ci.quantity, ci.price, pv.stock
+            FROM cart_items ci
+            JOIN product_variants pv ON ci.variant_id = pv.variant_id
+            JOIN products p ON pv.product_id = p.product_id
+            WHERE ci.cart_id = ?
+        """, (cart_id,))
+        items = [{
+            "variant_id": row[0],
+            "product_id": row[1],
+            "product_name": row[2],
+            "variant_name": row[3],
+            "quantity": row[4],
+            "price": float(row[5]),
+            "stock": row[6]
+        } for row in cursor.fetchall()]
+        return {"cart_id": cart_id, "items": items}
+    except Exception as e:
+        raise DBError(str(e))
+    finally:
+        conn.close()
 
-    cur.execute("""
-        SELECT
-            ci.cart_item_id,
-            ci.variant_id,
-            ci.quantity,
-            ci.price_cents,
-            v.size,
-            v.color,
-            v.sku,
-            v.price_cents AS variant_price,
-            p.name AS product_name,
-            img.image_url,
-            inv.quantity AS stock
-        FROM cart_items ci
-        JOIN product_variants v ON ci.variant_id = v.variant_id
-        JOIN products p ON v.product_id = p.product_id
-        LEFT JOIN product_images img ON img.product_id = p.product_id
-        LEFT JOIN inventory inv ON v.variant_id = inv.variant_id
-        WHERE ci.cart_id = ?
-        GROUP BY ci.cart_item_id
-    """, (cart_id,))
-    rows = cur.fetchall()
 
-    items = []
-    for r in rows:
-        price = r["price_cents"] / 100.0
-        subtotal = (r["price_cents"] * r["quantity"]) / 100.0
-        items.append({
-            "cart_item_id": r["cart_item_id"],
-            "variant_id": r["variant_id"],
-            "product_name": r["product_name"],
-            "variant": {
-                "size": r["size"],
-                "color": r["color"],
-                "sku": r["sku"],
-            },
-            "image_url": r["image_url"],
-            "price": price,
-            "quantity": r["quantity"],
-            "subtotal": subtotal,
-            "stock": r["stock"] if r["stock"] is not None else 0
+def add_to_cart(cart_id, variant_id, quantity):
+    if quantity <= 0:
+        raise InvalidQuantityError("Quantity must be positive")
+    conn = get_db_connection()
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+
+        variant = _get_variant_data(conn, variant_id)
+        if not variant["is_active"]:
+            raise InvalidVariantError("Variant is inactive")
+        if variant["stock"] <= 0:
+            raise InsufficientStockError("Out of stock")
+
+        cursor.execute("SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
+        existing = cursor.fetchone()
+        if existing:
+            new_qty = min(existing[0] + quantity, variant["stock"])
+            cursor.execute("UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND variant_id = ?",
+                           (new_qty, cart_id, variant_id))
+            action = "update"
+        else:
+            new_qty = min(quantity, variant["stock"])
+            cursor.execute(
+                "INSERT INTO cart_items (cart_id, variant_id, quantity, price) VALUES (?, ?, ?, ?)",
+                (cart_id, variant_id, new_qty, variant["price"])
+            )
+            action = "add"
+
+        conn.commit()
+        logging.info({
+            "event": "cart_update",
+            "action": action,
+            "cart_id": cart_id,
+            "variant_id": variant_id,
+            "quantity": new_qty,
+            "price": variant["price"],
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        return get_cart(cart_id)
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
+
+
+def update_cart_item(cart_id, variant_id, quantity):
+    conn = get_db_connection()
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+
+        if quantity <= 0:
+            cursor.execute("DELETE FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
+            conn.commit()
+            return get_cart(cart_id)
+
+        variant = _get_variant_data(conn, variant_id)
+        if not variant["is_active"]:
+            raise InvalidVariantError("Variant is inactive")
+
+        if variant["stock"] <= 0:
+            raise InsufficientStockError("Out of stock")
+
+        new_qty = min(quantity, variant["stock"])
+        cursor.execute("""
+            UPDATE cart_items
+            SET quantity = ?, price = ?
+            WHERE cart_id = ? AND variant_id = ?
+        """, (new_qty, variant["price"], cart_id, variant_id))
+        conn.commit()
+        logging.info({
+            "event": "cart_update",
+            "action": "modify",
+            "cart_id": cart_id,
+            "variant_id": variant_id,
+            "quantity": new_qty,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        return get_cart(cart_id)
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
+
+
+def remove_cart_item(cart_id, variant_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
+        conn.commit()
+        logging.info({"event": "cart_remove", "cart_id": cart_id, "variant_id": variant_id})
+        return get_cart(cart_id)
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
+
+
+def clear_cart(cart_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM cart_items WHERE cart_id = ?", (cart_id,))
+        conn.commit()
+        logging.info({"event": "cart_clear", "cart_id": cart_id})
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
+
+
+# -------------------------------------------------------------
+# Merge Logic
+# -------------------------------------------------------------
+def merge_guest_cart(user_id, guest_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT cart_id, converted FROM carts WHERE guest_id = ?", (guest_id,))
+        guest_cart = cursor.fetchone()
+        if not guest_cart:
+            raise GuestCartNotFoundError("Guest cart not found")
+        if guest_cart[1] == 1:
+            raise GuestCartNotFoundError("Guest cart already merged")
+
+        cursor.execute("SELECT cart_id FROM carts WHERE user_id = ?", (user_id,))
+        user_cart = cursor.fetchone()
+        if not user_cart:
+            cursor.execute("INSERT INTO carts (user_id, created_at) VALUES (?, ?)", (user_id, datetime.utcnow().isoformat()))
+            user_cart_id = cursor.lastrowid
+        else:
+            user_cart_id = user_cart[0]
+
+        cursor.execute("SELECT variant_id, quantity FROM cart_items WHERE cart_id = ?", (guest_cart[0],))
+        guest_items = cursor.fetchall()
+
+        added, updated, clamped, skipped = 0, 0, 0, 0
+
+        for variant_id, qty in guest_items:
+            try:
+                variant = _get_variant_data(conn, variant_id)
+            except InvalidVariantError:
+                skipped += 1
+                continue
+            if not variant["is_active"]:
+                skipped += 1
+                continue
+
+            cursor.execute("SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?", (user_cart_id, variant_id))
+            existing = cursor.fetchone()
+            if existing:
+                new_qty = existing[0] + qty
+                if new_qty > variant["stock"]:
+                    new_qty = variant["stock"]
+                    clamped += 1
+                cursor.execute("UPDATE cart_items SET quantity = ?, price = ? WHERE cart_id = ? AND variant_id = ?",
+                               (new_qty, variant["price"], user_cart_id, variant_id))
+                updated += 1
+            else:
+                final_qty = min(qty, variant["stock"])
+                cursor.execute("INSERT INTO cart_items (cart_id, variant_id, quantity, price) VALUES (?, ?, ?, ?)",
+                               (user_cart_id, variant_id, final_qty, variant["price"]))
+                added += 1
+
+        cursor.execute("UPDATE carts SET converted = 1 WHERE guest_id = ?", (guest_id,))
+        conn.commit()
+
+        merge_result = {
+            "status": "success",
+            "items_added": added,
+            "items_updated": updated,
+            "items_clamped": clamped,
+            "items_skipped": skipped
+        }
+
+        logging.info({
+            "event": "merge_guest_cart",
+            "user_id": user_id,
+            "guest_id": guest_id,
+            "merge_result": merge_result,
+            "timestamp": datetime.utcnow().isoformat()
         })
 
-    print(f"[DEBUG hydrate_cart_items] cart_id={cart_id}, items={len(items)}")
-    return items
-
-
-def get_cart(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> Dict[str, Any]:
-    cart_id = get_or_create_cart(user_id=user_id, guest_id=guest_id)
-    items = hydrate_cart_items(cart_id)
-    print(f"[DEBUG get_cart] user_id={user_id}, guest_id={guest_id}, cart_id={cart_id}, items={len(items)}")
-    return {"cart_id": cart_id, "items": items}
-
-
-def add_cart_item(user_id: Optional[int], guest_id: Optional[str],
-                  variant_id: int, quantity: int) -> Dict[str, Any]:
-    if quantity <= 0:
-        raise ValueError("Quantity must be > 0")
-
-    con = get_db_connection()
-    cur = con.cursor()
-
-    # Check variant existence and stock
-    cur.execute("SELECT price_cents FROM product_variants WHERE variant_id=?", (variant_id,))
-    pv = cur.fetchone()
-    if not pv:
-        raise ValueError("Variant not found")
-
-    cur.execute("SELECT quantity FROM inventory WHERE variant_id=?", (variant_id,))
-    stock_row = cur.fetchone()
-    stock = stock_row["quantity"] if stock_row else 0
-    if quantity > stock:
-        raise ValueError("Quantity exceeds available stock")
-
-    cart_id = get_or_create_cart(user_id=user_id, guest_id=guest_id)
-
-    # If already exists, update quantity
-    cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
-                (cart_id, variant_id))
-    row = cur.fetchone()
-    if row:
-        new_qty = row["quantity"] + quantity
-        if new_qty > stock:
-            raise ValueError("Quantity exceeds available stock")
-        cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
-                    (new_qty, row["cart_item_id"]))
-        print(f"[DEBUG add_cart_item] Updated variant_id={variant_id}, new_qty={new_qty}, cart_id={cart_id}")
-    else:
-        price_cents = pv["price_cents"]
-        cur.execute("""
-            INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
-            VALUES (?, ?, ?, ?)
-        """, (cart_id, variant_id, quantity, price_cents))
-        print(f"[DEBUG add_cart_item] Inserted variant_id={variant_id}, qty={quantity}, cart_id={cart_id}")
-
-    con.commit()
-    return get_cart(user_id, guest_id)
-
-
-def update_cart_item(user_id: Optional[int], guest_id: Optional[str],
-                     cart_item_id: int, quantity: int) -> Dict[str, Any]:
-    if quantity <= 0:
-        raise ValueError("Quantity must be > 0")
-
-    con = get_db_connection()
-    cur = con.cursor()
-
-    cur.execute("""
-        SELECT ci.variant_id, c.user_id, c.guest_id
-        FROM cart_items ci
-        JOIN carts c ON ci.cart_id = c.cart_id
-        WHERE ci.cart_item_id = ?
-    """, (cart_item_id,))
-    row = cur.fetchone()
-    if not row:
-        raise ValueError("Cart item not found")
-
-    if user_id and row["user_id"] != user_id:
-        raise ValueError("Unauthorized cart item")
-    if guest_id and row["guest_id"] != guest_id:
-        raise ValueError("Unauthorized cart item")
-
-    variant_id = row["variant_id"]
-    cur.execute("SELECT quantity FROM inventory WHERE variant_id=?", (variant_id,))
-    stock_row = cur.fetchone()
-    stock = stock_row["quantity"] if stock_row else 0
-    if quantity > stock:
-        raise ValueError("Quantity exceeds available stock")
-
-    cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
-                (quantity, cart_item_id))
-    con.commit()
-    print(f"[DEBUG update_cart_item] cart_item_id={cart_item_id}, qty={quantity}, user_id={user_id}, guest_id={guest_id}")
-
-    return get_cart(user_id=user_id, guest_id=guest_id)
-
-
-def remove_cart_item(user_id: Optional[int], guest_id: Optional[str],
-                     cart_item_id: int) -> Dict[str, Any]:
-    con = get_db_connection()
-    cur = con.cursor()
-
-    cur.execute("""
-        SELECT c.user_id, c.guest_id
-        FROM cart_items ci
-        JOIN carts c ON ci.cart_id = c.cart_id
-        WHERE ci.cart_item_id = ?
-    """, (cart_item_id,))
-    row = cur.fetchone()
-    if not row:
-        raise ValueError("Cart item not found")
-
-    if user_id and row["user_id"] != user_id:
-        raise ValueError("Unauthorized cart item")
-    if guest_id and row["guest_id"] != guest_id:
-        raise ValueError("Unauthorized cart item")
-
-    cur.execute("DELETE FROM cart_items WHERE cart_item_id=?", (cart_item_id,))
-    con.commit()
-    print(f"[DEBUG remove_cart_item] cart_item_id={cart_item_id}, user_id={user_id}, guest_id={guest_id}")
-
-    return get_cart(user_id=user_id, guest_id=guest_id)
-
-
-def merge_guest_cart(guest_id: str, user_id: int):
-    """
-    On login: merge guest cart into user cart with stock validation.
-    """
-    con = get_db_connection()
-    cur = con.cursor()
-
-    # Find guest cart
-    cur.execute("SELECT cart_id FROM carts WHERE guest_id=? AND status='active'", (guest_id,))
-    g = cur.fetchone()
-    if not g:
-        print(f"[DEBUG merge_guest_cart] No active guest cart for guest_id={guest_id}")
-        return
-    guest_cart_id = g["cart_id"]
-
-    # Ensure user cart exists
-    user_cart_id = get_or_create_cart(user_id=user_id)
-
-    # Pull guest items
-    cur.execute("SELECT variant_id, quantity, price_cents FROM cart_items WHERE cart_id=?", (guest_cart_id,))
-    guest_items = cur.fetchall()
-    print(f"[DEBUG merge_guest_cart] guest_id={guest_id}, items={len(guest_items)} → user_id={user_id}")
-
-    for gi in guest_items:
-        variant_id = gi["variant_id"]
-        qty_to_add = gi["quantity"]
-        price_cents = gi["price_cents"]
-
-        # Get available stock
-        cur.execute("SELECT quantity FROM inventory WHERE variant_id=?", (variant_id,))
-        stock_row = cur.fetchone()
-        stock = stock_row["quantity"] if stock_row else 0
-        if stock <= 0:
-            print(f"[DEBUG merge_guest_cart] variant_id={variant_id} has no stock, skipping")
-            continue
-
-        # Does user cart already have this variant?
-        cur.execute("SELECT cart_item_id, quantity FROM cart_items WHERE cart_id=? AND variant_id=?",
-                    (user_cart_id, variant_id))
-        row = cur.fetchone()
-        if row:
-            new_qty = min(stock, row["quantity"] + qty_to_add)
-            cur.execute("UPDATE cart_items SET quantity=? WHERE cart_item_id=?",
-                        (new_qty, row["cart_item_id"]))
-            print(f"[DEBUG merge_guest_cart] Updated variant_id={variant_id}, merged_qty={new_qty}")
-        else:
-            final_qty = min(stock, qty_to_add)
-            if final_qty > 0:
-                cur.execute("""
-                    INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
-                    VALUES (?, ?, ?, ?)
-                """, (user_cart_id, variant_id, final_qty, price_cents))
-                print(f"[DEBUG merge_guest_cart] Inserted variant_id={variant_id}, qty={final_qty}")
-
-    # Retire guest cart
-    cur.execute("UPDATE carts SET status='converted' WHERE cart_id=?", (guest_cart_id,))
-    con.commit()
-    print(f"[DEBUG merge_guest_cart] guest_cart_id={guest_cart_id} marked as converted")
-
-
-# Alias for routes
-get_cart_with_items = get_cart
+        return merge_result
+    except GuestCartNotFoundError:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise MergeConflictError(str(e))
+    finally:
+        conn.close()

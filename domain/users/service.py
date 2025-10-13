@@ -1,185 +1,231 @@
 # domain/users/service.py
-from typing import Optional, Dict, Any
+
+import logging
 import sqlite3
 from datetime import datetime
+from ...db import get_db_connection             # corrected import
+from ...domain.cart import service as cart_service  # corrected import
+
+# -------------------------------------------------------------
+# Exception Classes
+# -------------------------------------------------------------
+class UserNotFoundError(Exception):
+    pass
+
+class DuplicateUserError(Exception):
+    pass
+
+class TokenExpiredError(Exception):
+    pass
+
+class InvalidTokenError(Exception):
+    pass
+
+class DBError(Exception):
+    pass
+
+class GuestCartNotFoundError(Exception):
+    pass
+
+class MergeConflictError(Exception):
+    pass
 
 
-def _row_to_dict(row: sqlite3.Row) -> Optional[Dict[str, Any]]:
-    """Convert sqlite3.Row into plain dict."""
-    return dict(row) if row else None
+# -------------------------------------------------------------
+# Core User Lifecycle Functions
+# -------------------------------------------------------------
+def upsert_user_from_firebase(conn, firebase_uid, email, name=None, avatar_url=None, update_last_login=True):
+    if not firebase_uid or not isinstance(firebase_uid, str):
+        raise InvalidTokenError("Invalid or missing Firebase UID")
+    if not email or "@" not in email:
+        raise InvalidTokenError("Invalid or missing email")
 
+    cursor = conn.cursor()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
 
-# ------------------------------------------------
-# User Management
-# ------------------------------------------------
+        # Check existing by firebase_uid
+        cursor.execute("SELECT user_id, firebase_uid, email, name, is_admin FROM users WHERE firebase_uid = ?", (firebase_uid,))
+        existing = cursor.fetchone()
+        if existing:
+            user = {
+                "user_id": existing[0],
+                "firebase_uid": existing[1],
+                "email": existing[2],
+                "name": existing[3],
+                "is_admin": bool(existing[4])
+            }
+            if update_last_login:
+                cursor.execute("UPDATE users SET last_login = ? WHERE user_id = ?", (datetime.utcnow().isoformat(), user["user_id"]))
+                conn.commit()
+            return user
 
-def ensure_user(
-    firebase_uid: str,
-    email: Optional[str] = None,
-    name: Optional[str] = None,
-    avatar_url: Optional[str] = None,
-    update_last_login: bool = False,
-    guest_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Ensure a user exists for this firebase_uid or email.
-    - If UID exists → return/update that user.
-    - If UID not found but email exists → link UID to that row.
-    - Else → insert new user.
-    Guarantees: never raises UNIQUE constraint on email or UID.
-    Always ensures the user has an active cart.
-    Optionally merges a guest cart into the user’s cart if guest_id is passed.
-    """
-    from db import get_db_connection
-    from domain.cart.service import get_or_create_cart, merge_guest_cart
-
-    con = get_db_connection()
-    con.row_factory = sqlite3.Row
-
-    user = None
-
-    # 1. Try lookup by firebase_uid
-    cur = con.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
-    row = cur.fetchone()
-    if row:
-        updates, params = [], []
-        if name and not row["name"]:
-            updates.append("name = ?")
-            params.append(name)
-        if email and not row["email"]:
-            updates.append("email = ?")
-            params.append(email)
-        if update_last_login:
-            updates.append("last_login = ?")
-            params.append(datetime.utcnow().isoformat())
-        if updates:
-            sql = f"UPDATE users SET {', '.join(updates)} WHERE firebase_uid = ?"
-            params.append(firebase_uid)
-            con.execute(sql, tuple(params))
-            con.commit()
-        cur = con.execute("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
-        user = _row_to_dict(cur.fetchone())
-
-    # 2. If no UID match, try lookup by email
-    if not user and email:
-        cur = con.execute("SELECT * FROM users WHERE email = ?", (email,))
-        row = cur.fetchone()
+        # Check if email exists but UID not linked
+        cursor.execute("SELECT user_id FROM users WHERE email = ? AND firebase_uid IS NULL", (email,))
+        row = cursor.fetchone()
         if row:
-            con.execute(
-                """
-                UPDATE users
-                SET firebase_uid = ?, last_login = ?, name = COALESCE(?, name)
-                WHERE user_id = ?
-                """,
-                (firebase_uid, datetime.utcnow().isoformat(), name, row["user_id"]),
+            user_id = row[0]
+            cursor.execute(
+                "UPDATE users SET firebase_uid = ?, name = COALESCE(name, ?), last_login = ? WHERE user_id = ?",
+                (firebase_uid, name or "New User", datetime.utcnow().isoformat(), user_id)
             )
-            con.commit()
-            cur = con.execute("SELECT * FROM users WHERE user_id = ?", (row["user_id"],))
-            user = _row_to_dict(cur.fetchone())
+            conn.commit()
+            logging.info({"event": "user_link", "firebase_uid": firebase_uid, "email": email, "user_id": user_id})
+        else:
+            # Insert new user
+            cursor.execute(
+                "INSERT INTO users (firebase_uid, email, name, is_admin, last_login) VALUES (?, ?, ?, ?, ?)",
+                (firebase_uid, email, name or "New User", 0, datetime.utcnow().isoformat())
+            )
+            user_id = cursor.lastrowid
+            conn.commit()
+            logging.info({"event": "user_create", "firebase_uid": firebase_uid, "email": email, "user_id": user_id})
 
-    # 3. No UID, no email → insert new
-    if not user:
-        cur = con.execute(
-            """
-            INSERT INTO users (firebase_uid, email, name, created_at, last_login)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (firebase_uid, email, name, datetime.utcnow().isoformat(), datetime.utcnow().isoformat()),
-        )
-        con.commit()
-        cur = con.execute("SELECT * FROM users WHERE user_id = ?", (cur.lastrowid,))
-        user = _row_to_dict(cur.fetchone())
+        # Return unified record
+        return {
+            "user_id": user_id,
+            "firebase_uid": firebase_uid,
+            "email": email,
+            "name": name or "New User",
+            "is_admin": False
+        }
 
-    # Always ensure user has a cart
-    if user and "user_id" in user:
-        try:
-            get_or_create_cart(user_id=user["user_id"])
-        except Exception as e:
-            print(f"[WARN ensure_user] cart creation failed for user_id={user['user_id']}: {e}")
-
-        # Merge guest cart if provided
-        if guest_id:
-            try:
-                merge_guest_cart(guest_id=guest_id, user_id=user["user_id"])
-                print(f"[DEBUG ensure_user] merged guest cart {guest_id} -> user_id={user['user_id']}")
-            except Exception as e:
-                print(f"[WARN ensure_user] merge failed for guest_id={guest_id}: {e}")
-
-    return user
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        raise DuplicateUserError(str(e))
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
 
 
-def get_user_with_profile(con: sqlite3.Connection, firebase_uid: str) -> Optional[Dict[str, Any]]:
-    """
-    Fetch user with profile data merged in.
-    """
-    cur = con.execute(
-        """
-        SELECT u.user_id,
-               u.firebase_uid,
-               u.email,
-               u.name,
-               u.is_admin,
-               u.last_login,
-               u.created_at,
-               u.updated_at,
-               p.dob,
-               p.gender,
-               p.avatar_url
+def ensure_user_cart(user_id):
+    conn = get_db_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.cursor()
+        cursor.execute("SELECT cart_id FROM carts WHERE user_id = ?", (user_id,))
+        existing = cursor.fetchone()
+        if existing:
+            cart_id = existing[0]
+        else:
+            cursor.execute("INSERT INTO carts (user_id, created_at) VALUES (?, ?)", (user_id, datetime.utcnow().isoformat()))
+            cart_id = cursor.lastrowid
+            conn.commit()
+        return {"cart_id": cart_id}
+    except Exception as e:
+        conn.rollback()
+        raise DBError(str(e))
+    finally:
+        conn.close()
+
+
+def merge_guest_cart_if_any(user_id, guest_id):
+    if not guest_id:
+        return None
+    try:
+        merge_result = cart_service.merge_guest_cart(user_id, guest_id)
+        logging.info({
+            "event": "merge_guest_cart",
+            "user_id": user_id,
+            "guest_id": guest_id,
+            "merge_result": merge_result
+        })
+        return merge_result
+    except cart_service.GuestCartNotFoundError:
+        raise GuestCartNotFoundError("Guest cart not found")
+    except cart_service.MergeConflictError:
+        raise MergeConflictError("Conflict during guest cart merge")
+    except Exception as e:
+        raise DBError(str(e))
+
+
+def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id=None, update_last_login=True):
+    user = upsert_user_from_firebase(
+        conn=conn,
+        firebase_uid=firebase_uid,
+        email=email,
+        name=name,
+        avatar_url=avatar_url,
+        update_last_login=update_last_login
+    )
+
+    # Ensure user profile exists
+    ensure_user_profile(conn, user["user_id"], name=name, avatar_url=avatar_url)
+
+    # Ensure user cart
+    ensure_user_cart(user["user_id"])
+
+    # Merge guest cart if applicable
+    merge_result = None
+    if guest_id:
+        merge_result = merge_guest_cart_if_any(user["user_id"], guest_id)
+
+    return user, merge_result
+
+
+# -------------------------------------------------------------
+# Profile Management
+# -------------------------------------------------------------
+def ensure_user_profile(conn, user_id, name=None, avatar_url=None):
+    cursor = conn.cursor()
+    cursor.execute("SELECT profile_id FROM user_profiles WHERE user_id = ?", (user_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return
+
+    cursor.execute(
+        "INSERT INTO user_profiles (user_id, name, dob, gender, avatar_url) VALUES (?, ?, ?, ?, ?)",
+        (user_id, name or "New User", None, "other", avatar_url)
+    )
+    conn.commit()
+    logging.info({"event": "profile_create", "user_id": user_id})
+
+
+def get_user_with_profile(conn, firebase_uid):
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.user_id, u.firebase_uid, u.email, u.name, u.is_admin,
+               p.dob, p.gender, p.avatar_url
         FROM users u
         LEFT JOIN user_profiles p ON u.user_id = p.user_id
         WHERE u.firebase_uid = ?
-        """,
-        (firebase_uid,),
-    )
-    return _row_to_dict(cur.fetchone())
-
-
-def update_profile(
-    con: sqlite3.Connection,
-    firebase_uid: str,
-    name: Optional[str] = None,
-    dob: Optional[str] = None,
-    gender: Optional[str] = None,
-    avatar_url: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Update both users and user_profiles tables.
-    """
-    cur = con.execute("SELECT user_id FROM users WHERE firebase_uid = ?", (firebase_uid,))
-    row = cur.fetchone()
+    """, (firebase_uid,))
+    row = cursor.fetchone()
     if not row:
-        raise ValueError("User not found")
-    user_id = row["user_id"]
+        raise UserNotFoundError("User not found")
 
-    # Update name if provided
-    if name is not None:
-        con.execute(
-            "UPDATE users SET name = ?, updated_at = ? WHERE user_id = ?",
-            (name, datetime.utcnow().isoformat(), user_id),
-        )
+    return {
+        "user_id": row[0],
+        "firebase_uid": row[1],
+        "email": row[2],
+        "name": row[3],
+        "is_admin": bool(row[4]),
+        "dob": row[5],
+        "gender": row[6],
+        "avatar_url": row[7]
+    }
 
-    # Upsert profile
-    cur = con.execute("SELECT user_id FROM user_profiles WHERE user_id = ?", (user_id,))
-    prof_row = cur.fetchone()
-    if prof_row:
-        con.execute(
-            """
-            UPDATE user_profiles
-            SET dob = COALESCE(?, dob),
-                gender = COALESCE(?, gender),
-                avatar_url = COALESCE(?, avatar_url)
-            WHERE user_id = ?
-            """,
-            (dob, gender, avatar_url, user_id),
-        )
-    else:
-        con.execute(
-            """
-            INSERT INTO user_profiles (user_id, dob, gender, avatar_url)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, dob, gender, avatar_url),
-        )
 
-    con.commit()
-    return get_user_with_profile(con, firebase_uid)
+def update_profile(conn, firebase_uid, data):
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users WHERE firebase_uid = ?", (firebase_uid,))
+    row = cursor.fetchone()
+    if not row:
+        raise UserNotFoundError("User not found")
+    user_id = row[0]
+
+    fields = []
+    values = []
+    for k, v in data.items():
+        if k in ["name", "dob", "gender", "avatar_url"]:
+            fields.append(f"{k} = ?")
+            values.append(v)
+    if not fields:
+        return get_user_with_profile(conn, firebase_uid)
+
+    values.append(user_id)
+    query = f"UPDATE user_profiles SET {', '.join(fields)} WHERE user_id = ?"
+    cursor.execute(query, tuple(values))
+    conn.commit()
+    logging.info({"event": "profile_update", "user_id": user_id, "fields": list(data.keys())})
+    return get_user_with_profile(conn, firebase_uid)

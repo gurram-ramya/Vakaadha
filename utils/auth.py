@@ -1,71 +1,182 @@
 # utils/auth.py
+
+import logging
 import os
 from functools import wraps
 from flask import request, jsonify, g
+from datetime import datetime
+from firebase_admin import auth as firebase_auth, credentials
 import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth
-from domain.users import service as user_service
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-cred_path = os.path.join(BASE_DIR, "firebase-adminsdk.json")
-
-if not firebase_admin._apps:
-    if not os.path.exists(cred_path):
-        raise RuntimeError(f"Firebase credential file not found: {cred_path}")
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred)
 
 
-def require_auth(fn):
-    @wraps(fn)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+# -------------------------------------------------------------
+# Firebase Initialization
+# -------------------------------------------------------------
+def initialize_firebase():
+    """
+    Initializes the Firebase Admin SDK once at application startup.
+    This must be called before any token verification.
+    """
+    if firebase_admin._apps:
+        logging.info("Firebase already initialized; skipping re-initialization.")
+        return
 
-        id_token = auth_header.split(" ", 1)[1]
+    try:
+        # Prefer environment variable
+        service_account_path = os.getenv("FIREBASE_CREDENTIALS")
 
-        try:
-            decoded_token = firebase_auth.verify_id_token(id_token)
-        except Exception as e:
-            return jsonify({"error": f"Invalid token: {str(e)}"}), 401
+        if service_account_path and os.path.exists(service_account_path):
+            cred = credentials.Certificate(service_account_path)
+            logging.info(f"Using Firebase credentials from environment: {service_account_path}")
+        else:
+            # Fallback to local service account file
+            from pathlib import Path
+            local_path = Path(__file__).resolve().parents[1] / "firebase-adminsdk.json"
+            cred = credentials.Certificate(str(local_path))
+            logging.info(f"Using local Firebase credentials: {local_path}")
 
-        firebase_uid = decoded_token.get("uid")
-        email = decoded_token.get("email")
-        name = decoded_token.get("name")
+        firebase_admin.initialize_app(cred)
+        logging.info("Firebase Admin SDK initialized successfully.")
 
-        if not firebase_uid:
-            return jsonify({"error": "Invalid Firebase UID"}), 401
+    except Exception as e:
+        logging.critical(f"Firebase initialization failed: {str(e)}")
+        raise RuntimeError("Failed to initialize Firebase Admin SDK.")
 
-        # Optional guest_id for merge (sent during login/register)
-        guest_id = None
-        try:
-            payload = request.get_json(silent=True)
-            if payload and isinstance(payload, dict):
-                guest_id = payload.get("guest_id")
-        except Exception:
-            guest_id = None
 
-        # Ensure user exists (handles cart + guest merge)
-        user = user_service.ensure_user(
-            firebase_uid=firebase_uid,
-            email=email,
-            name=name,
-            update_last_login=True,
-            guest_id=guest_id,
-        )
+# -------------------------------------------------------------
+# Helper: Extract Bearer Token
+# -------------------------------------------------------------
+def extract_token():
+    """
+    Extract Bearer token from the Authorization header.
+    Returns (token, error_code) tuple.
+    """
+    auth_header = request.headers.get("Authorization", None)
+    if not auth_header:
+        return None, "unauthorized_missing_token"
 
-        g.user = {
-            "user_id": user["user_id"],
-            "firebase_uid": firebase_uid,
-            "email": user.get("email"),
-            "name": user.get("name"),
-            "is_admin": user.get("is_admin", 0),
-        }
+    parts = auth_header.split()
+    if parts[0].lower() != "bearer" or len(parts) != 2:
+        return None, "unauthorized_malformed_token"
 
-        # Debug trace
-        print("[DEBUG require_auth] g.user:", g.user)
+    return parts[1], None
 
-        return fn(*args, **kwargs)
 
-    return decorated
+# -------------------------------------------------------------
+# Helper: Standardized Error Response
+# -------------------------------------------------------------
+def auth_error_response(error_code, message):
+    """
+    Returns standardized JSON 401 response for authentication errors.
+    """
+    response = jsonify({"error": error_code, "message": message})
+    response.status_code = 401
+    return response
+
+
+# -------------------------------------------------------------
+# Custom Auth Error Class
+# -------------------------------------------------------------
+class AuthError(Exception):
+    """
+    Represents Firebase authentication failures with specific codes.
+    """
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+# -------------------------------------------------------------
+# Core: Verify Firebase ID Token
+# -------------------------------------------------------------
+def verify_firebase_token(token):
+    """
+    Verifies Firebase ID token and returns decoded claims.
+    Raises AuthError on failure.
+    """
+    try:
+        decoded = firebase_auth.verify_id_token(token, check_revoked=True)
+        return decoded
+    except Exception as e:
+        msg = str(e).lower()
+        if "expired" in msg:
+            raise AuthError("token_expired", "Firebase ID token expired")
+        elif "revoked" in msg:
+            raise AuthError("token_revoked", "Firebase ID token revoked")
+        elif "invalid" in msg:
+            raise AuthError("invalid_token", "Invalid Firebase ID token")
+        else:
+            raise AuthError("auth_verification_failed", str(e))
+
+
+# -------------------------------------------------------------
+# Decorator: Require Authentication
+# -------------------------------------------------------------
+def require_auth(optional=False):
+    """
+    Flask route decorator that enforces Firebase authentication.
+    Sets g.user on success.
+    If optional=True, allows missing/invalid tokens and continues with g.user=None.
+    """
+    def decorator(f):
+        @wraps(f)  # Critical to preserve the original function name for Flask endpoint registration
+        def wrapper(*args, **kwargs):
+            token, error_code = extract_token()
+
+            # No token case
+            if not token:
+                if optional:
+                    g.user = None
+                    logging.info({
+                        "event": "auth_skipped",
+                        "reason": "no_token_provided",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                    return f(*args, **kwargs)
+                return auth_error_response(error_code, "Missing or malformed Authorization header")
+
+            # Validate token
+            try:
+                decoded = verify_firebase_token(token)
+                g.user = {
+                    "firebase_uid": decoded.get("uid"),
+                    "email": decoded.get("email"),
+                    "name": decoded.get("name"),
+                    "email_verified": decoded.get("email_verified", False)
+                }
+
+                logging.info({
+                    "event": "auth_success",
+                    "uid": g.user["firebase_uid"],
+                    "email": g.user["email"],
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+
+                return f(*args, **kwargs)
+
+            except AuthError as e:
+                logging.warning({
+                    "event": "auth_failure",
+                    "error": e.code,
+                    "message": e.message,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                if optional:
+                    g.user = None
+                    return f(*args, **kwargs)
+                return auth_error_response(e.code, e.message)
+
+            except Exception as e:
+                logging.error({
+                    "event": "auth_unexpected_error",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+                if optional:
+                    g.user = None
+                    return f(*args, **kwargs)
+                return auth_error_response("auth_verification_failed", "Unexpected authentication error")
+
+        return wrapper
+    return decorator

@@ -1,174 +1,223 @@
 # routes/cart.py
 
-from flask import Blueprint, request, jsonify, g
-from domain.cart.service import (
-    get_cart_with_items,
-    add_cart_item,
-    update_cart_item,
-    remove_cart_item,
-    merge_guest_cart,
-)
-from utils.auth import require_auth
+import logging
+from flask import Blueprint, request, jsonify, make_response, g
+from datetime import datetime
+from ..domain.cart import service as cart_service
+from ..utils.auth import require_auth
+from uuid import uuid4
 
-bp = Blueprint("cart", __name__, url_prefix="/api/cart")
+cart_bp = Blueprint("cart", __name__)
 
-
-def resolve_identity(req):
-    """
-    Resolve current actor as user or guest.
-    Preference: authenticated user_id if available.
-    """
-    if hasattr(g, "user") and g.user.get("user_id"):
-        uid = g.user["user_id"]
-        print(f"[DEBUG resolve_identity] Authenticated user_id={uid}")
-        return uid, None
-
-    guest_id = req.args.get("guest_id")
-    if not guest_id and req.method in ("POST", "PUT"):
-        data = req.get_json(silent=True) or {}
-        guest_id = data.get("guest_id")
-
-    print(f"[DEBUG resolve_identity] Guest user_id=None, guest_id={guest_id}")
-    return None, guest_id
+# -------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------
+def _validate_request_data(required_fields):
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return None, "Request body must be JSON"
+        for field in required_fields:
+            if field not in data:
+                return None, f"Missing required field: {field}"
+        return data, None
+    except Exception:
+        return None, "Malformed JSON"
 
 
-def require_auth_or_guest(fn):
-    """
-    Middleware: If Authorization is present, validate with require_auth.
-    Else fall back to guest_id query param.
-    """
-    def decorator(*args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            # Force normal require_auth behavior
-            return require_auth(fn)(*args, **kwargs)
-        # No token → guest flow
-        return fn(*args, **kwargs)
-    decorator.__name__ = fn.__name__
-    return decorator
+def _get_guest_id():
+    guest_id = request.cookies.get("guest_id")
+    if guest_id and isinstance(guest_id, str) and len(guest_id) <= 64:
+        return guest_id
+    return None
 
 
-@bp.route("", methods=["GET"])
-@require_auth_or_guest
-def fetch_cart():
-    """
-    Fetch cart contents for either authenticated user or guest.
-    Always returns hydrated items.
-    """
-    user_id, guest_id = resolve_identity(request)
-    if not user_id and not guest_id:
-        print("[DEBUG /cart GET] Missing identifiers")
-        return jsonify({"error": "Missing user_id or guest_id"}), 400
-
-    cart = get_cart_with_items(user_id=user_id, guest_id=guest_id)
-    print(f"[DEBUG /cart GET] resolved user_id={user_id}, guest_id={guest_id}, items={len(cart.get('items', []))}")
-    return jsonify(cart)
+def _set_guest_cookie(response, guest_id):
+    response.set_cookie(
+        "guest_id",
+        guest_id,
+        max_age=604800,  # 7 days
+        httponly=True,
+        secure=True,
+        samesite="Lax"
+    )
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Expose-Headers"] = "Set-Cookie"
+    return response
 
 
-@bp.route("", methods=["POST"])
-def add_item():
-    """
-    Add a product variant to the cart.
-    Body: { "variant_id": int, "quantity": int }
-    """
-    user_id, guest_id = resolve_identity(request)
-    if not user_id and not guest_id:
-        print("[DEBUG /cart POST] Missing identifiers")
-        return jsonify({"error": "Missing user_id or guest_id"}), 400
+def _handle_error(e):
+    mapping = {
+        "InvalidVariantError": (400, "Variant not found"),
+        "InvalidQuantityError": (400, "Quantity must be positive"),
+        "InsufficientStockError": (409, "Out of stock"),
+        "GuestCartNotFoundError": (404, "Guest cart not found"),
+        "MergeConflictError": (500, "Cart merge conflict"),
+        "DBError": (500, "Database operation failed"),
+    }
+    name = e.__class__.__name__
+    code, msg = mapping.get(name, (500, str(e)))
+    return jsonify({"error": name, "message": msg}), code
 
-    data = request.get_json(force=True)
-    variant_id = data.get("variant_id")
-    quantity = data.get("quantity", 1)
 
-    if not variant_id or quantity < 1:
-        return jsonify({"error": "Invalid variant_id or quantity"}), 400
+# -------------------------------------------------------------
+# Routes
+# -------------------------------------------------------------
+@cart_bp.route("/api/cart", methods=["GET"])
+@require_auth(optional=True)
+def get_cart():
+    try:
+        if hasattr(g, "user") and g.user:
+            user_id = g.user["user_id"]
+            result = cart_service.get_or_create_guest_cart(None)
+            guest_id = result["guest_id"]
+            user_cart = cart_service.get_cart_by_user(user_id)
+            if not user_cart:
+                cart_service.ensure_user_cart(user_id)
+                cart_data = {"cart_id": None, "items": []}
+            else:
+                cart_data = cart_service.get_cart(user_cart["cart_id"])
+            response = make_response(jsonify(cart_data))
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            return response
+
+        guest_id = _get_guest_id()
+        result = cart_service.get_or_create_guest_cart(guest_id)
+        guest_id = result["guest_id"]
+        cart_data = cart_service.get_cart(result["cart_id"])
+        response = make_response(jsonify(cart_data))
+        response = _set_guest_cookie(response, guest_id)
+        return response
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+@cart_bp.route("/api/cart", methods=["POST"])
+def add_to_cart():
+    data, err = _validate_request_data(["variant_id", "quantity"])
+    if err:
+        return jsonify({"error": "BadRequest", "message": err}), 400
 
     try:
-        cart = add_cart_item(
-            user_id=user_id,
-            guest_id=guest_id,
-            variant_id=variant_id,
-            quantity=quantity,
-        )
-        print(f"[DEBUG /cart POST] Added variant={variant_id}, qty={quantity}, user_id={user_id}, guest_id={guest_id}")
-    except ValueError as e:
-        print(f"[WARN /cart POST] {e}")
-        return jsonify({"error": str(e)}), 400
+        variant_id = int(data["variant_id"])
+        quantity = int(data["quantity"])
+    except Exception:
+        return jsonify({"error": "InvalidInput", "message": "variant_id and quantity must be integers"}), 400
 
-    return jsonify(cart), 201
+    guest_id = _get_guest_id()
+    try:
+        cart_info = cart_service.get_or_create_guest_cart(guest_id)
+        cart_id = cart_info["cart_id"]
+        guest_id = cart_info["guest_id"]
+
+        cart_data = cart_service.add_to_cart(cart_id, variant_id, quantity)
+        response = make_response(jsonify(cart_data))
+        response = _set_guest_cookie(response, guest_id)
+
+        logging.info({
+            "route": "/api/cart",
+            "action": "add",
+            "variant_id": variant_id,
+            "quantity": quantity,
+            "guest_id": guest_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        return response
+    except Exception as e:
+        return _handle_error(e)
 
 
-@bp.route("/<int:cart_item_id>", methods=["PUT"])
-def update_item(cart_item_id):
-    """
-    Update quantity of a cart item.
-    Body: { "quantity": int }
-    """
-    user_id, guest_id = resolve_identity(request)
-    if not user_id and not guest_id:
-        print("[DEBUG /cart PUT] Missing identifiers")
-        return jsonify({"error": "Missing user_id or guest_id"}), 400
-
-    data = request.get_json(force=True)
-    quantity = data.get("quantity")
-
-    if not isinstance(quantity, int) or quantity < 1:
-        return jsonify({"error": "Invalid quantity"}), 400
+@cart_bp.route("/api/cart/update", methods=["POST"])
+def update_cart_item():
+    data, err = _validate_request_data(["variant_id", "quantity"])
+    if err:
+        return jsonify({"error": "BadRequest", "message": err}), 400
 
     try:
-        cart = update_cart_item(
-            user_id=user_id,
-            guest_id=guest_id,
-            cart_item_id=cart_item_id,
-            quantity=quantity,
-        )
-        print(f"[DEBUG /cart PUT] Updated cart_item={cart_item_id}, qty={quantity}, user_id={user_id}, guest_id={guest_id}")
-    except ValueError as e:
-        print(f"[WARN /cart PUT] {e}")
-        return jsonify({"error": str(e)}), 400
+        variant_id = int(data["variant_id"])
+        quantity = int(data["quantity"])
+    except Exception:
+        return jsonify({"error": "InvalidInput", "message": "variant_id and quantity must be integers"}), 400
 
-    return jsonify(cart)
+    guest_id = _get_guest_id()
+    try:
+        cart_info = cart_service.get_or_create_guest_cart(guest_id)
+        cart_id = cart_info["cart_id"]
+        guest_id = cart_info["guest_id"]
+
+        cart_data = cart_service.update_cart_item(cart_id, variant_id, quantity)
+        response = make_response(jsonify(cart_data))
+        response = _set_guest_cookie(response, guest_id)
+
+        logging.info({
+            "route": "/api/cart/update",
+            "action": "update",
+            "variant_id": variant_id,
+            "quantity": quantity,
+            "guest_id": guest_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        return response
+    except Exception as e:
+        return _handle_error(e)
 
 
-@bp.route("/<int:cart_item_id>", methods=["DELETE"])
-def delete_item(cart_item_id):
-    """
-    Remove a cart item.
-    """
-    user_id, guest_id = resolve_identity(request)
-    if not user_id and not guest_id:
-        print("[DEBUG /cart DELETE] Missing identifiers")
-        return jsonify({"error": "Missing user_id or guest_id"}), 400
+@cart_bp.route("/api/cart/remove", methods=["POST"])
+def remove_cart_item():
+    data, err = _validate_request_data(["variant_id"])
+    if err:
+        return jsonify({"error": "BadRequest", "message": err}), 400
 
     try:
-        cart = remove_cart_item(
-            user_id=user_id,
-            guest_id=guest_id,
-            cart_item_id=cart_item_id,
-        )
-        print(f"[DEBUG /cart DELETE] Removed cart_item={cart_item_id}, user_id={user_id}, guest_id={guest_id}")
-    except ValueError as e:
-        print(f"[WARN /cart DELETE] {e}")
-        return jsonify({"error": str(e)}), 400
+        variant_id = int(data["variant_id"])
+    except Exception:
+        return jsonify({"error": "InvalidInput", "message": "variant_id must be integer"}), 400
 
-    return jsonify(cart)
+    guest_id = _get_guest_id()
+    try:
+        cart_info = cart_service.get_or_create_guest_cart(guest_id)
+        cart_id = cart_info["cart_id"]
+        guest_id = cart_info["guest_id"]
+
+        cart_data = cart_service.remove_cart_item(cart_id, variant_id)
+        response = make_response(jsonify(cart_data))
+        response = _set_guest_cookie(response, guest_id)
+
+        logging.info({
+            "route": "/api/cart/remove",
+            "action": "remove",
+            "variant_id": variant_id,
+            "guest_id": guest_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        return response
+    except Exception as e:
+        return _handle_error(e)
 
 
-@bp.route("/merge", methods=["POST"])
-@require_auth
-def merge_cart():
-    """
-    Merge a guest cart into the authenticated user's cart.
-    Body: { "guest_id": str }
-    """
-    data = request.get_json(force=True)
-    user_id = g.user["user_id"]
-    guest_id = data.get("guest_id")
+@cart_bp.route("/api/cart/clear", methods=["POST"])
+def clear_cart():
+    guest_id = _get_guest_id()
+    try:
+        cart_info = cart_service.get_or_create_guest_cart(guest_id)
+        cart_id = cart_info["cart_id"]
+        guest_id = cart_info["guest_id"]
 
-    if not guest_id:
-        return jsonify({"error": "Missing guest_id"}), 400
+        cart_service.clear_cart(cart_id)
+        response = make_response(jsonify({"status": "cleared", "cart_id": cart_id, "items": []}))
+        response = _set_guest_cookie(response, guest_id)
 
-    merge_guest_cart(guest_id, user_id)
-    print(f"[DEBUG /cart/merge] guest_id={guest_id} merged into user_id={user_id}")
+        logging.info({
+            "route": "/api/cart/clear",
+            "action": "clear",
+            "guest_id": guest_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
 
-    return jsonify(get_cart_with_items(user_id=user_id))
+        return response
+    except Exception as e:
+        return _handle_error(e)
