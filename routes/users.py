@@ -1,10 +1,10 @@
 # routes/users.py
 from flask import Blueprint, request, jsonify, g, make_response
-from ..utils.auth import require_auth
-from ..domain.users import service as user_service
-from ..domain.cart import service as cart_service
-from ..db import get_db_connection
-import logging
+from utils.auth import require_auth
+from domain.users import service as user_service
+from domain.cart import service as cart_service
+from db import get_db_connection
+
 
 users_bp = Blueprint("users", __name__)
 

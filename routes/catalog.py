@@ -121,8 +121,9 @@
 
 # routes/catalog.py
 from flask import Blueprint, jsonify, g
-from ..db import get_db_connection
-from ..domain.catalog import service as catalog_service
+from db import get_db_connection
+from utils.auth import require_auth
+from domain.catalog import service as catalog_service
 import logging
 
 catalog_bp = Blueprint("catalog", __name__, url_prefix="/api")

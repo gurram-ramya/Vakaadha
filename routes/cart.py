@@ -3,9 +3,10 @@
 import logging
 from flask import Blueprint, request, jsonify, make_response, g
 from datetime import datetime
-from ..domain.cart import service as cart_service
-from ..utils.auth import require_auth
+from domain.cart import service as cart_service
+from utils.auth import require_auth
 from uuid import uuid4
+
 
 cart_bp = Blueprint("cart", __name__)
 

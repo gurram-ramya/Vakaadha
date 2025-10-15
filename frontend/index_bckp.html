@@ -72,185 +72,128 @@
 
   <!-- Scripts -->
 
-  <script>
+    <!-- Scripts -->
+
+    <script>
     function loadProducts() {
-      fetch("/api/products")
+        fetch("/api/products")
         .then(res => res.json())
         .then(products => {
-          const grid = document.getElementById("productGrid");
-          grid.innerHTML = "";
+            const grid = document.getElementById("productGrid");
+            grid.innerHTML = "";
 
-          products.forEach(prod => {
+            products.forEach(prod => {
             const price = "₹" + (prod.price_cents / 100).toFixed(0);
 
             // Build sizes
             let sizesHtml = "";
             if (prod.variants && prod.variants.length > 0) {
-              sizesHtml = `
+                sizesHtml = `
                 <div class="sizes">
-                  ${prod.variants.map(v => `<button class="size-btn">${v.size}</button>`).join("")}
+                    ${prod.variants.map(v => `<button class="size-btn">${v.size}</button>`).join("")}
                 </div>`;
             }
 
             const card = document.createElement("div");
             card.className = "product-card";
             card.innerHTML = `
-              <div class="product-actions">
+                <div class="product-actions">
                 <button class="wishlist-btn"><i class="far fa-heart"></i></button>
                 <button class="share-btn"><i class="fas fa-share-alt"></i></button>
-              </div>
-              <img src="Images/${prod.image_url}" alt="${prod.name}">
-              <h3>${prod.name}</h3>
-              <p class="price">${price}</p>
-              ${sizesHtml}
-              <div class="card-actions">
+                </div>
+                <img src="Images/${prod.image_url}" alt="${prod.name}">
+                <h3>${prod.name}</h3>
+                <p class="price">${price}</p>
+                ${sizesHtml}
+                <div class="card-actions">
                 <button class="btn add-to-cart">Add to Cart</button>
                 <button class="btn buy-now">Buy Now</button>
-              </div>
+                </div>
             `;
 
             // attach handler here, with prod in closure
             card.querySelector(".add-to-cart").addEventListener("click", () => {
-              let variant;
-              const activeSize = card.querySelector(".size-btn.active");
-              if (activeSize) {
+                let variant;
+                const activeSize = card.querySelector(".size-btn.active");
+                if (activeSize) {
                 variant = prod.variants.find(v => v.size === activeSize.textContent);
-              }
-              if (!variant && prod.variants.length > 0) {
-                variant = prod.variants[0];
-              }
-              if (!variant) {
-                alert("No variant found");
+                }
+
+                if (prod.variants && prod.variants.length > 0) {
+                if (!variant) variant = prod.variants[0];
+                } else {
+                alert("This product has no available variants");
                 return;
-              }
-              addToCart(variant.variant_id, 1);
+                }
+
+                addToCart(variant.variant_id, 1);
             });
 
             grid.appendChild(card);
-          });
+
+            // size button toggle
+            card.querySelectorAll(".size-btn").forEach(btn => {
+                btn.addEventListener("click", () => {
+                card.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                });
+            });
+            });
         })
         .catch(err => console.error("Error loading products:", err));
     }
 
-    document.addEventListener("DOMContentLoaded", loadProducts);
-  </script>
+    document.addEventListener("DOMContentLoaded", () => {
+        loadProducts();
+        updateNavbarCounts();
+    });
+    </script>
 
-
-
-  <script>
+    <script>
     // --- keep this as-is ---
     function getOrCreateGuestId() {
-      let gid = localStorage.getItem("guest_id");
-      if (!gid) {
+        let gid = localStorage.getItem("guest_id");
+        if (!gid) {
         gid = crypto.randomUUID();
         localStorage.setItem("guest_id", gid);
-      }
-      return gid;
+        }
+        return gid;
     }
 
     async function addToCart(variantId, quantity = 1) {
-      const guestId = getOrCreateGuestId();
-      try {
+        const guestId = getOrCreateGuestId();
+        try {
         const res = await fetch(`/api/cart?guest_id=${guestId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ variant_id: variantId, quantity })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ variant_id: variantId, quantity })
         });
         if (!res.ok) throw new Error("Failed to add item");
         const cart = await res.json();
         console.log("Cart updated:", cart);
         alert("Item successfully added to cart!");
-      } catch (err) {
+        updateNavbarCounts();
+        } catch (err) {
         console.error("Add to cart error:", err);
         alert("Could not add to cart");
-      }
+        }
     }
-  </script>
 
-  <script>
-    // --- replace your old DOMContentLoaded + loadProducts patch with this ---
-    document.addEventListener("DOMContentLoaded", () => {
-      const grid = document.getElementById("productGrid");
-      const observer = new MutationObserver(() => {
-        grid.querySelectorAll(".add-to-cart").forEach((btn) => {
-          if (!btn.dataset.bound) {
-            btn.dataset.bound = "true";
-            btn.addEventListener("click", () => {
-              const productCard = btn.closest(".product-card");
-              const variantSizeBtn =
-                productCard.querySelector(".size-btn.active") ||
-                productCard.querySelector(".size-btn");
+    // function refreshCartCount() {
+    //     const guestId = localStorage.getItem("guest_id");
+    //     if (!guestId) return;
+    //     fetch(`/api/cart?guest_id=${guestId}`)
+    //     .then(res => res.json())
+    //     .then(data => {
+    //         const badge = document.getElementById("cartCount");
+    //         if (badge) badge.textContent = data.items.length;
+    //     })
+    //     .catch(err => console.error("Cart count error:", err));
+    // }
+    </script>
 
-              if (!variantSizeBtn) {
-                alert("Please select a size");
-                return;
-              }
 
-              const productIndex = Array.from(grid.children).indexOf(productCard);
-              const product = window.__loadedProducts[productIndex];
-              const variant = product.variants.find(
-                (v) => v.size === variantSizeBtn.textContent
-              );
 
-              if (!variant) {
-                alert("Variant not found");
-                return;
-              }
-
-              // FIX: correct field name from API
-              addToCart(variant.variant_id, 1);
-            });
-          }
-        });
-      });
-      observer.observe(grid, { childList: true });
-    });
-
-    const originalLoadProducts = loadProducts;
-    loadProducts = function () {
-      fetch("/api/products")
-        .then((res) => res.json())
-        .then((products) => {
-          window.__loadedProducts = products;
-
-          // Re-render grid manually
-          const grid = document.getElementById("productGrid");
-          grid.innerHTML = "";
-
-          products.forEach((prod) => {
-            const price = "₹" + (prod.price_cents / 100).toFixed(0);
-
-            let sizesHtml = "";
-            if (prod.variants && prod.variants.length > 0) {
-              sizesHtml = `
-                <div class="sizes">
-                  ${prod.variants
-                    .map((v) => `<button class="size-btn">${v.size}</button>`)
-                    .join("")}
-                </div>`;
-            }
-
-            const card = document.createElement("div");
-            card.className = "product-card";
-            card.innerHTML = `
-              <div class="product-actions">
-                <button class="wishlist-btn"><i class="far fa-heart"></i></button>
-                <button class="share-btn"><i class="fas fa-share-alt"></i></button>
-              </div>
-              <img src="Images/${prod.image_url}" alt="${prod.name}">
-              <h3>${prod.name}</h3>
-              <p class="price">${price}</p>
-              ${sizesHtml}
-              <div class="card-actions">
-                <button class="btn add-to-cart">Add to Cart</button>
-                <button class="btn buy-now">Buy Now</button>
-              </div>
-            `;
-            grid.appendChild(card);
-          });
-        });
-    };
-  </script>
 
 
   <script src="./script.js"></script>

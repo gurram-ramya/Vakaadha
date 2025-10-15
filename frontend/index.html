@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VAKAADHA</title>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="index.css"/>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
-  <script src="./navbar.js"></script>
+  <link rel="stylesheet" href="index.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet" />
 </head>
+
 <body>
   <!-- HEADER -->
   <header class="navbar">
     <a href="index.html" class="logo">VAKAADHA</a>
-    <input type="checkbox" id="menu-toggle"/>
+    <input type="checkbox" id="menu-toggle" />
     <label for="menu-toggle" class="menu-icon">&#9776;</label>
     <nav class="nav-links">
       <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
@@ -30,13 +30,11 @@
           <i class="fas fa-user"></i> <span id="user-display"></span>
         </a>
         <div class="dropdown-content">
-          <a href="profile.html" id="auth-link">Login / Signup</a>
-          <div id="logged-in-links" class="hidden">
-            <a href="orders.html">My Orders</a>
-            <a href="wishlist.html">Wishlist</a>
-            <a href="addresses.html">Addresses</a>
-            <a href="#" id="logout">Logout</a>
-          </div>
+          <a href="profile.html" id="loginLink">Login / Signup</a>
+          <a href="orders.html" id="ordersLink">My Orders</a>
+          <a href="wishlist.html">Wishlist</a>
+          <a href="addresses.html">Addresses</a>
+          <a href="#" id="navbar-logout">Logout</a>
         </div>
       </div>
     </nav>
@@ -56,6 +54,13 @@
     <div class="product-row" id="productGrid"></div>
   </section>
 
+  <!-- Floating Background Icons -->
+  <div class="floating-icons">
+    <i class="fa-solid fa-shirt"></i>
+    <i class="fa-solid fa-shirt"></i>
+    <i class="fa-solid fa-shirt"></i>
+  </div>
+
   <!-- Share Modal -->
   <div id="shareModal" class="modal" aria-hidden="true">
     <div class="modal-content">
@@ -70,132 +75,106 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Toast -->
+  <div id="toast" style="
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+    "></div>
 
-    <!-- Scripts -->
+  <!-- ABOUT & POLICIES FOOTER -->
+  <div class="contact-policy">
+    <!-- INFO SECTION -->
+    <section class="info-section" data-aos="fade-up">
+      <div class="info-left">
+        <div class="about-buttons">
+          <button type="button" onclick="openModal('aboutModal')"><h2>About Us</h2></button>
+        </div>
+      </div>
 
-    <script>
-    function loadProducts() {
-        fetch("/api/products")
-        .then(res => res.json())
-        .then(products => {
-            const grid = document.getElementById("productGrid");
-            grid.innerHTML = "";
+      <div class="info-right">
+        <h2>Follow Us On</h2>
+        <div class="social-icons">
+          <a href="https://x.com" target="_blank" rel="noopener"><i class="fa-brands fa-x-twitter"></i></a>
+          <a href="https://instagram.com" target="_blank" rel="noopener"><i class="fab fa-instagram"></i></a>
+          <a href="https://facebook.com" target="_blank" rel="noopener"><i class="fab fa-facebook"></i></a>
+          <a href="https://youtube.com" target="_blank" rel="noopener"><i class="fab fa-youtube"></i></a>
+          <a href="https://wa.me/7893153335" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i></a>
+          <a href="tel:+917893153335" target="_blank" rel="noopener" style="font-size: 1.5rem;"><i class="fa-solid fa-phone"></i></a>
+          <a href="mailto:contact.vakaadha@gmail.com"><i class="fa-solid fa-envelope"></i></a>
+        </div>
+      </div>
+    </section>
 
-            products.forEach(prod => {
-            const price = "₹" + (prod.price_cents / 100).toFixed(0);
+    <!-- POLICIES SECTION -->
+    <section class="policies-section" data-aos="fade-up">
+      <div class="policy-links">
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="refund-policy.html">Refund & Return Policy</a>
+        <a href="terms-of-service.html">Terms of Service</a>
+        <a href="shipping-policy.html">Shipping Policy</a>
+      </div>
+    </section>
+  </div>
 
-            // Build sizes
-            let sizesHtml = "";
-            if (prod.variants && prod.variants.length > 0) {
-                sizesHtml = `
-                <div class="sizes">
-                    ${prod.variants.map(v => `<button class="size-btn">${v.size}</button>`).join("")}
-                </div>`;
-            }
+  <!-- About Modal -->
+  <div id="aboutModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('aboutModal')">&times;</span>
+      <h2>About Vakaadha</h2>
+      <p>
+        VAKAADHA is a homegrown brand dedicated to timeless craftsmanship, curated design, and mindful living.
+      </p>
+      <div class="about-highlights">
+        <div class="highlight-card">
+          <h3>Handcrafted Quality</h3>
+          <p>Each piece is made with care and attention to detail.</p>
+        </div>
+        <div class="highlight-card">
+          <h3>Ethical Production</h3>
+          <p>We value sustainability and fair working practices.</p>
+        </div>
+      </div>
+      <div class="contact-info">
+        <div class="info-item">
+          <i class="fa-solid fa-envelope"></i><a href="mailto:contact.vakaadha@gmail.com">contact.vakaadha@gmail.com</a>
+        </div>
+        <div class="info-item">
+          <i class="fa-solid fa-phone"></i><a href="tel:+917893153335">+91 78931 53335</a>
+        </div>
+      </div>
+    </div>
+  </div>
 
-            const card = document.createElement("div");
-            card.className = "product-card";
-            card.innerHTML = `
-                <div class="product-actions">
-                <button class="wishlist-btn"><i class="far fa-heart"></i></button>
-                <button class="share-btn"><i class="fas fa-share-alt"></i></button>
-                </div>
-                <img src="Images/${prod.image_url}" alt="${prod.name}">
-                <h3>${prod.name}</h3>
-                <p class="price">${price}</p>
-                ${sizesHtml}
-                <div class="card-actions">
-                <button class="btn add-to-cart">Add to Cart</button>
-                <button class="btn buy-now">Buy Now</button>
-                </div>
-            `;
-
-            // attach handler here, with prod in closure
-            card.querySelector(".add-to-cart").addEventListener("click", () => {
-                let variant;
-                const activeSize = card.querySelector(".size-btn.active");
-                if (activeSize) {
-                variant = prod.variants.find(v => v.size === activeSize.textContent);
-                }
-
-                if (prod.variants && prod.variants.length > 0) {
-                if (!variant) variant = prod.variants[0];
-                } else {
-                alert("This product has no available variants");
-                return;
-                }
-
-                addToCart(variant.variant_id, 1);
-            });
-
-            grid.appendChild(card);
-
-            // size button toggle
-            card.querySelectorAll(".size-btn").forEach(btn => {
-                btn.addEventListener("click", () => {
-                card.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
-                btn.classList.add("active");
-                });
-            });
-            });
-        })
-        .catch(err => console.error("Error loading products:", err));
+  <!-- Simple modal helpers -->
+  <script>
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.style.display = "block";
     }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        loadProducts();
-        updateNavbarCounts();
-    });
-    </script>
-
-    <script>
-    // --- keep this as-is ---
-    function getOrCreateGuestId() {
-        let gid = localStorage.getItem("guest_id");
-        if (!gid) {
-        gid = crypto.randomUUID();
-        localStorage.setItem("guest_id", gid);
-        }
-        return gid;
+    function closeModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.style.display = "none";
     }
+    window.onclick = (event) => {
+      const modals = document.querySelectorAll(".modal");
+      modals.forEach((modal) => {
+        if (event.target === modal) modal.style.display = "none";
+      });
+    };
+  </script>
 
-    async function addToCart(variantId, quantity = 1) {
-        const guestId = getOrCreateGuestId();
-        try {
-        const res = await fetch(`/api/cart?guest_id=${guestId}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ variant_id: variantId, quantity })
-        });
-        if (!res.ok) throw new Error("Failed to add item");
-        const cart = await res.json();
-        console.log("Cart updated:", cart);
-        alert("Item successfully added to cart!");
-        updateNavbarCounts();
-        } catch (err) {
-        console.error("Add to cart error:", err);
-        alert("Could not add to cart");
-        }
-    }
-
-    // function refreshCartCount() {
-    //     const guestId = localStorage.getItem("guest_id");
-    //     if (!guestId) return;
-    //     fetch(`/api/cart?guest_id=${guestId}`)
-    //     .then(res => res.json())
-    //     .then(data => {
-    //         const badge = document.getElementById("cartCount");
-    //         if (badge) badge.textContent = data.items.length;
-    //     })
-    //     .catch(err => console.error("Cart count error:", err));
-    // }
-    </script>
-
-
-
-
-
+  <!-- ✅ Load Scripts in Correct Order -->
+  <script src="./navbar.js"></script>
+  <script src="./api/client.js"></script>
   <script src="./script.js"></script>
 </body>
 </html>

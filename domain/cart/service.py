@@ -4,7 +4,7 @@ import sqlite3
 import logging
 from uuid import uuid4
 from datetime import datetime
-from ...db import get_db_connection  # corrected import path
+from db import get_db_connection  # ✅ fixed absolute import
 
 # -------------------------------------------------------------
 # Exception Classes

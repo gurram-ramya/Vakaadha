@@ -3,8 +3,8 @@
 import logging
 import sqlite3
 from datetime import datetime
-from ...db import get_db_connection             # corrected import
-from ...domain.cart import service as cart_service  # corrected import
+from db import get_db_connection             # ✅ fixed absolute import
+from domain.cart import service as cart_service  # ✅ fixed absolute import
 
 # -------------------------------------------------------------
 # Exception Classes

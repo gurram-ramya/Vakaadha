@@ -2,9 +2,9 @@
 
 import logging
 from flask import Blueprint, jsonify, request, g
-from ..utils.auth import require_auth
-from ..db import get_db_connection
-from ..domain.wishlist import service as wishlist_service
+from utils.auth import require_auth
+from db import get_db_connection
+from domain.wishlist import service as wishlist_service
 
 wishlist_bp = Blueprint("wishlist", __name__, url_prefix="/api/wishlist")
 

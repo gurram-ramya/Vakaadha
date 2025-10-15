@@ -1,0 +1,223 @@
+ECOMMERCE DEVELOPMENT ROADMAP
+
+PHASE 1: Foundation Layer (Identity + Catalog Core)
+Goal: Establish user identity, authentication, and product data structure.
+Outcome: A basic but functional storefront where users can log in and view products.
+
+1. User & Authentication Service
+Why first: Everything else (wishlist, cart, orders) depends on user identity.
+Build:
+- Firebase/Auth0 or JWT login
+- User table (email, firebase_uid, created_at)
+- Profile management (optional: name, avatar)
+- @require_auth decorator (token verification)
+Dependencies: None
+Feeds: Wishlist, Cart, Orders, Reviews, Loyalty, Admin
+
+2. Product Catalog Service
+Why second: The storefront must know what to sell.
+Build:
+- Product table (id, name, description, category_id)
+- Product variants table (SKU, price_cents, stock)
+- Product images table
+- Category/brand models
+- /api/products, /api/products/:id, /api/categories
+Dependencies: None
+Feeds: Wishlist, Cart, Orders, Search, Analytics
+
+3. Database & Media Foundation
+Why: Enables data persistence and image hosting.
+Build:
+- SQLite/PostgreSQL integration
+- Image upload logic or link to CDN (S3, Cloudinary)
+- Static asset serving (frontend images)
+
+PHASE 2: User Interaction Layer (Cart, Wishlist, Profile)
+Goal: Enable customer interactions: save favorites, add to cart, view profile.
+Outcome: A storefront that behaves like a functional shopping site.
+
+4. Cart Service
+Why: Central to any eCommerce flow; customers expect to add products to cart.
+Build:
+- Guest vs. Authenticated cart
+- Merge logic on login
+- /api/cart, /api/cart/merge, /api/cart/count
+- Stock validation and pricing recalculation
+Dependencies: Auth, Product Catalog
+
+5. Wishlist Service
+Why: Improves retention and engagement.
+Build:
+- /api/wishlist, /api/wishlist/merge, /api/wishlist/count
+- Guest localStorage sync logic
+- Server-side persistence per user
+Dependencies: Auth, Product Catalog
+
+6. User Profile & Address Service
+Why: Needed before checkout and personalization.
+Build:
+- /api/users/me, /api/users/me/profile
+- /api/address CRUD routes
+- Address validation, default flags
+Dependencies: Auth
+
+PHASE 3: Transaction Layer (Orders + Payments + Checkout)
+Goal: Allow full purchase flow and order lifecycle management.
+Outcome: Shoppable platform with order history, confirmations, and payments.
+
+7. Checkout Service
+Why: Connects cart → payment → order creation.
+Build:
+- Checkout session API (/api/checkout/start)
+- Validate stock & pricing
+- Calculate tax/shipping/discounts
+- Create provisional order record
+Dependencies: Cart, User Address, Product Catalog
+
+8. Payment Gateway Integration
+Why: Enables order confirmation and transaction tracking.
+Build:
+- Integration with Razorpay, Stripe, PayPal
+- /api/payments/intent, /api/payments/callback
+- Payment status verification
+- Refund initiation endpoint
+Dependencies: Checkout, Orders
+
+9. Order Management Service
+Why: Core for tracking, support, and admin operations.
+Build:
+- /api/orders, /api/orders/:id
+- Order lines table (product_id, price, qty)
+- Order status updates (placed, shipped, delivered)
+- Cancellation and returns
+Dependencies: Payment, Auth, Product Catalog
+
+PHASE 4: Fulfillment & Logistics
+Goal: Enable shipping, delivery, returns, and real-world product movement.
+
+10. Shipping & Fulfillment Service
+Build:
+- Shipping methods (standard, express)
+- Address mapping → shipping zone
+- Integration with carrier APIs
+- Generate tracking IDs
+- Update order statuses automatically
+Dependencies: Orders, Address
+
+11. Returns (RMA) Service
+Build:
+- /api/returns
+- Product condition checks
+- Refund or replacement workflows
+Dependencies: Orders, Payment
+
+PHASE 5: Customer Engagement Layer
+Goal: Retain customers through interaction, feedback, and communication.
+
+12. Reviews & Ratings Service
+Build:
+- /api/reviews CRUD
+- Verified purchase flag
+- Spam detection and moderation
+Dependencies: Auth, Product Catalog, Orders
+
+13. Notifications Service
+Build:
+- Email, SMS, and push notifications
+- Triggers for order status, payment success, etc.
+- Preference center (opt-in/out)
+Dependencies: Orders, Payment
+
+14. Loyalty & Referral Service
+Build:
+- Reward points table
+- /api/loyalty to fetch and redeem points
+- Referral codes and tracking
+Dependencies: Auth, Orders
+
+PHASE 6: Marketing, Analytics, and Discovery
+Goal: Increase reach, optimize conversions, and improve customer insights.
+
+15. Search & Recommendation Service
+Build:
+- Full-text search
+- Product suggestions (“people also bought…”)
+- Recently viewed, trending
+Dependencies: Product Catalog, Analytics
+
+16. Promotions & Discounts Service
+Build:
+- Coupon codes
+- Category/brand-level discounts
+- Cart-level price rules
+Dependencies: Cart, Checkout, Orders
+
+17. Analytics & Reporting Service
+Build:
+- Track user sessions, purchases, product views
+- Funnel analytics (view → cart → purchase)
+- Sales, retention, stock insights
+- Admin dashboard metrics
+Dependencies: All user & order data
+
+PHASE 7: Operations & Administration
+Goal: Provide control to manage catalog, users, and operational efficiency.
+
+18. Admin Dashboard Service
+Build:
+- Role-based access (admin, staff)
+- Manage products, orders, users
+- Sales and refund reports
+- Promotion management
+Dependencies: All core services
+
+19. Customer Support Service
+Build:
+- Ticket management
+- Order issue resolution (refunds, missing items)
+- Chat integration
+- Auto-replies and SLA tracking
+Dependencies: Orders, Users
+
+PHASE 8: Infrastructure & Scalability Layer
+Goal: Prepare for production-grade load and maintainability.
+
+20. Caching & Performance
+Build:
+- Redis for cart, product, and wishlist caching
+- CDN (Cloudflare, AWS CloudFront) for assets
+- Lazy loading for product images
+
+21. Logging & Monitoring
+Build:
+- Structured logs for every domain
+- Alerting (Datadog, Grafana)
+- Audit trail for admin actions
+
+22. Security Hardening
+Build:
+- HTTPS, CORS enforcement
+- Rate limiting, CSRF protection
+- Token rotation and revocation
+
+Execution Sequence Overview
+Phase      Layer            Focus                        Dependencies
+1          Foundation       Auth + Catalog                None
+2          Interaction      Cart, Wishlist, Profile       Auth, Catalog
+3          Transaction      Checkout, Orders, Payment     Cart, Address
+4          Fulfillment      Shipping, Returns             Orders
+5          Engagement       Reviews, Loyalty, Notifications Orders, Auth
+6          Marketing        Search, Promotions, Analytics Catalog, Orders
+7          Admin            Dashboard, Support            All prior
+8          Infrastructure   Caching, Logging, Security    All prior
+
+Recommended Build Order Summary
+Auth + Users
+Catalog + Products
+Cart + Wishlist
+Checkout + Payment + Orders
+Addresses + Shipping
+Notifications + Reviews + Loyalty
+Search + Analytics + Promotions
+Admin Dashboard + Customer Support
+Infrastructure & Security Layer

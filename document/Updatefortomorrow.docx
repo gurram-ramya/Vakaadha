@@ -2,40 +2,6 @@ Here is the structured list of what still needs to be integrated. I’ve grouped
 
 ---
 
-## 1. **Catalog (Products)**
-
-* ✅ Fetch products dynamically (done).
-* Add support for multiple product images (carousel/gallery per product).
-* Product detail page (deep link from product card).
-* Filtering and sorting (by size, price, category).
-* Pagination or “load more” support.
-
----
-
-## 2. **Cart Service**
-
-* API endpoints to:
-
-  * Add item to cart.
-  * Remove item from cart.
-  * Update quantity.
-  * Fetch current cart contents.
-* Frontend cart page (`cart.html`) to render items, total price, checkout button.
-* Cart persistence (per user session or DB).
-
----
-
-## 3. **Wishlist Service**
-
-* API endpoints to:
-
-  * Add/remove items to wishlist.
-  * Fetch wishlist items.
-* Frontend integration (`wishlist.html`) to show saved items.
-* Sync wishlist with logged-in user account.
-
----
-
 ## 4. **Orders / Checkout**
 
 * API endpoints to:
@@ -111,8 +77,7 @@ Here is the structured list of what still needs to be integrated. I’ve grouped
 
 ### Suggested Order of Implementation:
 
-1. **Cart Service**
-2. **Wishlist Service**
+
 3. **Orders & Checkout**
 4. **Users / Authentication**
 5. **Addresses**

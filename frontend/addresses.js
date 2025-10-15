@@ -1,150 +1,240 @@
+// addresses.js
+import { apiRequest } from "./api/client.js";
+
 (function () {
-  const ADDRESSES_KEY = "addresses";
-  const SELECTED_ADDRESS_KEY = "selectedAddress";
-  const SELECTED_ADDRESS_INDEX_KEY = "selectedAddressIndex";
+  if (window.__addresses_js_bound__) return;
+  window.__addresses_js_bound__ = true;
 
-  function readAddresses() {
-    try { return JSON.parse(localStorage.getItem(ADDRESSES_KEY) || "[]"); }
-    catch { return []; }
+  const ENDPOINT = "/api/addresses";
+
+  const els = {
+    container: document.getElementById("address-list"),
+    addBtn: document.getElementById("add-address-btn"),
+    form: document.getElementById("address-form"),
+    name: document.getElementById("addr-name"),
+    line1: document.getElementById("addr-line1"),
+    line2: document.getElementById("addr-line2"),
+    city: document.getElementById("addr-city"),
+    state: document.getElementById("addr-state"),
+    pincode: document.getElementById("addr-pincode"),
+    phone: document.getElementById("addr-phone"),
+    cancelBtn: document.getElementById("cancel-address"),
+    submitBtn: document.getElementById("save-address"),
+    toast: document.getElementById("toast"),
+  };
+
+  let editingId = null;
+
+  // -------------------------------
+  // Toast Helper
+  // -------------------------------
+  function toast(msg, bad = false, ms = 2200) {
+    if (!els.toast) return;
+    els.toast.textContent = msg;
+    els.toast.style.background = bad ? "#b00020" : "#333";
+    els.toast.style.opacity = "1";
+    els.toast.style.visibility = "visible";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => {
+      els.toast.style.opacity = "0";
+      els.toast.style.visibility = "hidden";
+    }, ms);
   }
-  function writeAddresses(addresses) {
-    localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
-  }
 
-  let addresses = readAddresses();
-  let selectedIndex = JSON.parse(sessionStorage.getItem(SELECTED_ADDRESS_INDEX_KEY) || "null");
+  // -------------------------------
+  // Render Address List
+  // -------------------------------
+  function renderAddresses(list = []) {
+    if (!els.container) return;
 
-  const listEl = document.getElementById("address-list");
-  const addBtn = document.getElementById("addAddressBtn");
-  const formEl = document.getElementById("addressForm");
-  const cancelBtn = document.getElementById("cancelForm");
-  const proceedBtn = document.getElementById("proceedToPayment");
-
-  function render() {
-    if (!listEl) return;
-    if (!addresses.length) {
-      listEl.innerHTML = "<p>No saved addresses. Please add one.</p>";
+    if (!list.length) {
+      els.container.innerHTML = `<p class="empty">No saved addresses. Add one below.</p>`;
       return;
     }
 
-    listEl.innerHTML = addresses.map((addr, i) => `
-      <div class="address-entry ${i === selectedIndex ? "selected" : ""}" data-index="${i}">
-        <label class="address-label">
-          <input type="radio" name="selectedAddress" value="${i}" ${i === selectedIndex ? "checked" : ""}/>
-          <div class="address-details">
-            <p><b>${addr.name}</b></p>
-            <p>${addr.street}, ${addr.city} - ${addr.zip}</p>
-          </div>
-        </label>
-        <div class="actions">
-          <button class="edit-btn" data-index="${i}">Edit</button>
-          <button class="remove-btn" data-index="${i}">Remove</button>
+    els.container.innerHTML = list
+      .map(
+        (a) => `
+      <div class="address-card ${a.is_default ? "default" : ""}">
+        <div class="address-info">
+          <strong>${a.name}</strong><br>
+          ${a.line1}<br>
+          ${a.line2 ? a.line2 + "<br>" : ""}
+          ${a.city}, ${a.state} - ${a.pincode}<br>
+          Phone: ${a.phone}
         </div>
-      </div>
-    `).join("");
-  }
-
-  // Add new address
-  if (addBtn) {
-    addBtn.addEventListener("click", () => {
-      formEl.style.display = "block";
-      formEl.reset();
-      formEl.dataset.editIndex = ""; // reset edit mode
-    });
-  }
-
-  // Cancel form
-  if (cancelBtn) {
-    cancelBtn.addEventListener("click", () => {
-      formEl.style.display = "none";
-    });
-  }
-
-  // Save address
-  if (formEl) {
-    formEl.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const newAddr = {
-        name: document.getElementById("addrName").value,
-        street: document.getElementById("addrStreet").value,
-        city: document.getElementById("addrCity").value,
-        zip: document.getElementById("addrZip").value,
-      };
-
-      const editIndex = formEl.dataset.editIndex;
-      if (editIndex !== "" && editIndex !== undefined) {
-        addresses[editIndex] = newAddr;
-      } else {
-        addresses.push(newAddr);
-        selectedIndex = addresses.length - 1; // auto-select last added
-      }
-
-      writeAddresses(addresses);
-      sessionStorage.setItem(SELECTED_ADDRESS_INDEX_KEY, selectedIndex);
-      sessionStorage.setItem(SELECTED_ADDRESS_KEY, JSON.stringify(newAddr));
-
-      render();
-      formEl.style.display = "none";
-    });
-  }
-
-  // Handle edit/remove/select
-  if (listEl) {
-    listEl.addEventListener("click", (e) => {
-      if (e.target.classList.contains("remove-btn")) {
-        const idx = e.target.dataset.index;
-        if (confirm("Remove this address?")) {
-          addresses.splice(idx, 1);
-          if (selectedIndex == idx) {
-            selectedIndex = null;
-            sessionStorage.removeItem(SELECTED_ADDRESS_INDEX_KEY);
-            sessionStorage.removeItem(SELECTED_ADDRESS_KEY);
+        <div class="address-actions">
+          ${
+            a.is_default
+              ? `<button class="default-btn" disabled>Default</button>`
+              : `<button class="set-default-btn" data-id="${a.address_id}">Set Default</button>`
           }
-          writeAddresses(addresses);
-          render();
-        }
-      }
-
-      if (e.target.classList.contains("edit-btn")) {
-        const idx = e.target.dataset.index;
-        const addr = addresses[idx];
-        document.getElementById("addrName").value = addr.name;
-        document.getElementById("addrStreet").value = addr.street;
-        document.getElementById("addrCity").value = addr.city;
-        document.getElementById("addrZip").value = addr.zip;
-        formEl.dataset.editIndex = idx;
-        formEl.style.display = "block";
-      }
-    });
-
-    listEl.addEventListener("change", (e) => {
-      if (e.target.type === "radio") {
-        selectedIndex = +e.target.value;
-        sessionStorage.setItem(SELECTED_ADDRESS_INDEX_KEY, selectedIndex);
-        sessionStorage.setItem(SELECTED_ADDRESS_KEY, JSON.stringify(addresses[selectedIndex]));
-        render();
-      }
-    });
+          <button class="edit-btn" data-id="${a.address_id}">Edit</button>
+          <button class="delete-btn" data-id="${a.address_id}">Delete</button>
+        </div>
+      </div>`
+      )
+      .join("");
   }
 
-  // Proceed to payment
-  if (proceedBtn) {
-    proceedBtn.addEventListener("click", () => {
-      if (selectedIndex === null || selectedIndex === undefined || !addresses[selectedIndex]) {
-        alert("Please select an address before proceeding to payment.");
-        return;
-      }
-
-      // Save chosen address
-      sessionStorage.setItem(SELECTED_ADDRESS_KEY, JSON.stringify(addresses[selectedIndex]));
-
-      // Redirect to payment page
-      window.location.href = "payment.html";
-    });
+  // -------------------------------
+  // Load Addresses from Backend
+  // -------------------------------
+  async function loadAddresses() {
+    try {
+      const data = await apiRequest(ENDPOINT);
+      if (Array.isArray(data)) renderAddresses(data);
+      else renderAddresses([]);
+    } catch (err) {
+      console.warn("Failed to load addresses:", err);
+      toast("Failed to load addresses", true);
+      renderAddresses([]);
+    }
   }
 
-  // Init
-  document.addEventListener("DOMContentLoaded", () => {
-    render();
+  // -------------------------------
+  // Save (Add or Update) Address
+  // -------------------------------
+  async function saveAddress(e) {
+    e.preventDefault();
+    if (!els.form) return;
+    els.submitBtn.disabled = true;
+
+    const payload = {
+      name: els.name.value.trim(),
+      line1: els.line1.value.trim(),
+      line2: els.line2.value.trim(),
+      city: els.city.value.trim(),
+      state: els.state.value.trim(),
+      pincode: els.pincode.value.trim(),
+      phone: els.phone.value.trim(),
+    };
+
+    try {
+      if (editingId) {
+        await apiRequest(`${ENDPOINT}/${editingId}`, {
+          method: "PUT",
+          body: payload,
+        });
+        toast("Address updated");
+      } else {
+        await apiRequest(ENDPOINT, {
+          method: "POST",
+          body: payload,
+        });
+        toast("Address added");
+      }
+      editingId = null;
+      els.form.reset();
+      els.form.classList.add("hidden");
+      loadAddresses();
+    } catch (err) {
+      console.error("Save address failed:", err);
+      toast("Failed to save address", true);
+    } finally {
+      els.submitBtn.disabled = false;
+    }
+  }
+
+  // -------------------------------
+  // Delete Address
+  // -------------------------------
+  async function deleteAddress(id) {
+    if (!confirm("Delete this address?")) return;
+    try {
+      await apiRequest(`${ENDPOINT}/${id}`, { method: "DELETE" });
+      toast("Address removed");
+      loadAddresses();
+    } catch (err) {
+      console.error("Delete failed:", err);
+      toast("Failed to delete address", true);
+    }
+  }
+
+  // -------------------------------
+  // Set Default Address
+  // -------------------------------
+  async function setDefaultAddress(id) {
+    try {
+      await apiRequest(`${ENDPOINT}/${id}/default`, { method: "POST" });
+      toast("Default address set");
+      loadAddresses();
+    } catch (err) {
+      console.error("Set default failed:", err);
+      toast("Failed to set default", true);
+    }
+  }
+
+  // -------------------------------
+  // Edit Address (Prefill form)
+  // -------------------------------
+  function editAddress(data) {
+    editingId = data.address_id;
+    els.name.value = data.name || "";
+    els.line1.value = data.line1 || "";
+    els.line2.value = data.line2 || "";
+    els.city.value = data.city || "";
+    els.state.value = data.state || "";
+    els.pincode.value = data.pincode || "";
+    els.phone.value = data.phone || "";
+    els.form.classList.remove("hidden");
+    els.name.focus();
+  }
+
+  // -------------------------------
+  // Event Delegation for Actions
+  // -------------------------------
+  document.addEventListener("click", async (e) => {
+    const delBtn = e.target.closest(".delete-btn");
+    const editBtn = e.target.closest(".edit-btn");
+    const defBtn = e.target.closest(".set-default-btn");
+
+    if (delBtn) {
+      const id = delBtn.dataset.id;
+      deleteAddress(id);
+    } else if (editBtn) {
+      const id = editBtn.dataset.id;
+      try {
+        const data = await apiRequest(`${ENDPOINT}/${id}`);
+        editAddress(data);
+      } catch (err) {
+        console.error("Fetch address for edit failed:", err);
+      }
+    } else if (defBtn) {
+      const id = defBtn.dataset.id;
+      setDefaultAddress(id);
+    }
+  });
+
+  // -------------------------------
+  // Wire Add and Cancel Buttons
+  // -------------------------------
+  els.addBtn?.addEventListener("click", () => {
+    editingId = null;
+    els.form.reset();
+    els.form.classList.remove("hidden");
+    els.name.focus();
+  });
+
+  els.cancelBtn?.addEventListener("click", () => {
+    els.form.reset();
+    els.form.classList.add("hidden");
+    editingId = null;
+  });
+
+  els.form?.addEventListener("submit", saveAddress);
+
+  // -------------------------------
+  // Init on DOM Ready
+  // -------------------------------
+  document.addEventListener("DOMContentLoaded", async () => {
+    const user = await window.auth.getCurrentUser();
+    if (!user) {
+      toast("Please sign in to manage addresses", true);
+      renderAddresses([]);
+      return;
+    }
+    loadAddresses();
+    if (window.updateNavbarCounts) window.updateNavbarCounts();
   });
 })();

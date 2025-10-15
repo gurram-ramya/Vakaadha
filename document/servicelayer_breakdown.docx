@@ -1,0 +1,232 @@
+This list serves as a reference architecture. It reflects what senior backend and solution architects use when designing enterprise-grade eCommerce platforms (e.g., Amazon, Myntra, Nike).
+
+1. Core Foundational Services
+
+1.1 User & Identity Service
+- User registration and authentication (email, phone, social logins)
+- Password reset, email verification
+- Role-based access (admin, customer, vendor)
+- Profile management (name, DOB, gender, avatar)
+- Session & token lifecycle management (JWT, Firebase, OAuth2)
+- Account deactivation, GDPR compliance (data deletion/export)
+
+1.2 Product Catalog Service
+- Product master table (name, description, brand, category, tags)
+- Product variants (size, color, SKU)
+- Product pricing, currency conversion
+- Product availability & visibility rules
+- SEO metadata, product URLs
+- Product media (images, videos)
+- Category hierarchy, collections
+- Brand, material, season metadata
+
+1.3 Inventory Service
+- SKU-level stock tracking
+- Multi-warehouse or location-based inventory
+- Stock reservation & release during checkout
+- Real-time stock updates (low-stock alerts, out-of-stock handling)
+
+1.4 Cart Service
+- Add/update/remove items
+- Guest carts (temporary) vs. user carts (persistent)
+- Merge logic after login
+- Quantity validation (against stock)
+- Price recalculation (for dynamic pricing)
+- Promotions/discount preview in cart
+
+1.5 Wishlist Service
+- Add/remove products from wishlist
+- Guest vs. authenticated wishlist
+- Merge on login
+- Multi-list support (favorites, gifts)
+- Share wishlist (public link, email, social)
+- Sync across devices
+
+2. Transaction & Order Services
+
+2.1 Checkout Service
+- Address selection
+- Payment selection (COD, online)
+- Price breakdown (subtotal, tax, shipping, discount)
+- Validation of stock and pricing
+- Order summary confirmation step
+
+2.2 Payment Gateway Service
+- Integration with providers (Stripe, Razorpay, PayPal)
+- Transaction records, refunds, status callbacks
+- Payment retries & expiration handling
+- Secure tokenized storage (PCI DSS compliance)
+- Reconciliation logs
+
+2.3 Order Management Service
+- Order creation, confirmation, cancellation, returns
+- Order line items linked to products & pricing
+- Order status tracking (placed, shipped, delivered)
+- Order history, invoice generation
+- Refund workflow (partial/full)
+- Communication triggers (emails, SMS, push notifications)
+
+3. Customer Services
+
+3.1 Address Book Service
+- Add/update/delete addresses
+- Default billing & shipping address
+- Pincode validation, address autocomplete
+- Internationalization (country/state formats)
+
+3.2 Reviews & Ratings Service
+- Product reviews (verified purchase flag)
+- Ratings breakdown (1–5 stars)
+- Moderation & spam detection
+- Review replies (for brand engagement)
+
+3.3 Loyalty & Rewards Service
+- Reward points system (earn, redeem)
+- Tier levels (silver, gold, platinum)
+- Birthday/anniversary perks
+- Referral program tracking
+
+3.4 Notifications Service
+- Email notifications (order updates, promotions)
+- Push notifications (mobile/web)
+- In-app notification center
+- SMS gateway integration
+- Preference management (opt-in/out)
+
+4. Logistics & Fulfillment Services
+
+4.1 Shipping Service
+- Integration with carriers (Shiprocket, FedEx, UPS)
+- Shipping methods (standard, express)
+- Tracking number assignment
+- Real-time status updates
+- Estimated delivery calculation
+
+4.2 Returns (RMA) Service
+- Return/replace requests
+- Refund or store credit issuance
+- Reverse logistics tracking
+- Approval workflows
+
+4.3 Warehouse Management Service
+- Stock intake and dispatch
+- Bin-level tracking
+- Barcode/QR management
+- Inventory reconciliation reports
+
+5. Marketing & Discovery Services
+
+5.1 Search & Discovery Service
+- Full-text search with filters
+- Search suggestions, autocomplete
+- Sorting (price, popularity, rating)
+- Personalized recommendations
+- AI-powered product similarity search
+
+5.2 Promotions & Discounts Service
+- Coupon codes, promo rules
+- Category/brand-specific discounts
+- First-order discounts
+- Bundled offers, “buy X get Y”
+- Cart-level promotions
+
+5.3 Analytics & Tracking Service
+- Product view tracking
+- Conversion funnels
+- Cart abandonment analytics
+- Heatmaps & click tracking
+
+5.4 CMS (Content Management System)
+- Home banners, landing pages
+- Blog/news updates
+- Custom pages for marketing campaigns
+- Static content management (FAQs, T&Cs)
+
+6. Administrative & Support Services
+
+6.1 Admin Dashboard Service
+- Manage products, users, orders, promotions
+- Role-based permissions (admin, moderator)
+- Real-time metrics (sales, users, stock)
+- Support tools (refunds, order edits)
+
+6.2 Customer Support Service
+- Ticket system (issue tracking)
+- Live chat integration
+- FAQ automation (chatbot-ready)
+- Escalation handling
+
+6.3 Audit & Logging Service
+- Record all key user/admin actions
+- Error logs, access logs
+- Security audit trails
+- Integration with monitoring (Elastic, Datadog)
+
+7. Technical & Cross-Cutting Services
+
+7.1 Authentication Gateway
+- Centralized user token validation
+- API key management for microservices
+- Session management (HTTP-only cookies, refresh tokens)
+
+7.2 Database & Cache Layer
+- PostgreSQL/MySQL for relational data
+- Redis for session & caching
+- Elasticsearch for product search
+- CDN for image delivery
+
+7.3 File/Media Service
+- Upload and serve product images/videos
+- Compression, thumbnailing
+- Cloud storage (AWS S3, Google Cloud Storage)
+
+7.4 Configuration & Feature Flag Service
+- Manage runtime flags for experiments (A/B testing)
+- Toggle features safely in production
+
+7.5 Security Service
+- Rate limiting, IP blocking
+- CSRF/XSS protection
+- CAPTCHA integration
+- Token revocation and refresh
+- CORS policy enforcement
+
+8. Advanced / Enterprise-Level Extensions
+
+8.1 Recommendation Engine
+- Collaborative filtering
+- Personalized home feed
+- Recently viewed, trending now
+
+8.2 Subscription Service
+- Product subscriptions (monthly refills)
+- Subscription billing and renewal logic
+- Auto-shipping and payment retry
+
+8.3 Multi-Vendor Marketplace Service
+- Seller onboarding
+- Product approval workflow
+- Commission tracking
+- Vendor dashboards
+
+8.4 Fraud Detection & Risk Management
+- Transaction anomaly detection
+- Device fingerprinting
+- Suspicious behavior alerts
+
+8.5 Internationalization Service
+- Multi-currency pricing
+- Regional catalogs
+- Language localization (i18n, l10n)
+- Taxation rules per country
+
+Summary: Typical Domain/Service Layer Breakdown
+Layer                Example Services
+User & Identity       Users, Auth, Profile, Sessions
+Product Catalog       Products, Variants, Media, Categories
+Sales                 Cart, Wishlist, Checkout, Orders, Payments
+Customer              Addresses, Reviews, Loyalty, Notifications
+Logistics             Shipping, Returns, Warehouse
+Marketing             Promotions, Search, CMS, Analytics
+Admin                 Dashboard, Support, Audit Logs
+Infrastructure        Auth Gateway, DB, Cache, File, Security

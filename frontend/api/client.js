@@ -92,98 +92,220 @@
 // Unified API + Auth + Guest handling
 // ==============================
 
-// frontend/api/client.js
-export const API_BASE = ""; // same-origin
-const STORAGE_KEY = "loggedInUser";
-const GUEST_KEY = "guest_id";
 
-// ---- Auth helpers ----
-export function getAuth() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-  } catch {
-    return null;
+// ===================================================================================
+
+
+// // frontend/api/client.js
+// export const API_BASE = ""; // same-origin
+// const STORAGE_KEY = "loggedInUser";
+// const GUEST_KEY = "guest_id";
+
+// // ---- Auth helpers ----
+// export function getAuth() {
+//   try {
+//     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+//   } catch {
+//     return null;
+//   }
+// }
+
+// export function setAuth(obj) {
+//   if (!obj) {
+//     localStorage.removeItem(STORAGE_KEY);
+//     return;
+//   }
+//   localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+// }
+
+// export function clearAuth() {
+//   localStorage.removeItem(STORAGE_KEY);
+// }
+
+// export function getToken() {
+//   return getAuth()?.idToken || null;
+// }
+
+// export function getUserId() {
+//   return getAuth()?.user_id || null;
+// }
+
+// // ---- Guest ID helpers ----
+// export function getGuestId() {
+//   let gid = localStorage.getItem(GUEST_KEY);
+//   if (!gid) {
+//     gid = crypto.randomUUID();
+//     localStorage.setItem(GUEST_KEY, gid);
+//   }
+//   return gid;
+// }
+
+// export function resetGuestId() {
+//   localStorage.removeItem(GUEST_KEY);
+//   const newId = crypto.randomUUID();
+//   localStorage.setItem(GUEST_KEY, newId);
+//   return newId;
+// }
+
+// // ---- Core request wrapper ----
+// export async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
+//   const token = getToken();
+//   const h = {
+//     ...(body ? { "Content-Type": "application/json" } : {}),
+//     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+//     ...headers,
+//   };
+
+//   let url = API_BASE + endpoint;
+//   if (!token && !url.includes("guest_id")) {
+//     const sep = url.includes("?") ? "&" : "?";
+//     url = `${url}${sep}guest_id=${getGuestId()}`;
+//   }
+
+//   console.log("[DEBUG client.js] request", { url, method, headers: h, body });
+
+//   const res = await fetch(url, {
+//     method,
+//     headers: h,
+//     body: body ? JSON.stringify(body) : undefined,
+//     credentials: "same-origin",
+//   });
+
+//   let data;
+//   try {
+//     data = await res.json();
+//   } catch {
+//     data = null;
+//   }
+
+//   if (!res.ok) {
+//     console.error("[ERROR client.js]", { status: res.status, data });
+//     throw new Error(data?.error || `API error ${res.status}`);
+//   }
+//   return data;
+// }
+
+// export const apiClient = {
+//   get: (e) => apiRequest(e),
+//   post: (e, b) => apiRequest(e, { method: "POST", body: b }),
+//   put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
+//   delete: (e) => apiRequest(e, { method: "DELETE" }),
+// };
+
+
+//==========================================================
+
+
+// frontend/api/client.js — classic global version for Flask runtime
+
+(function () {
+  const API_BASE = ""; // same-origin
+  const STORAGE_KEY = "loggedInUser";
+  const GUEST_KEY = "guest_id";
+
+  // ---- Auth helpers ----
+  function getAuth() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    } catch {
+      return null;
+    }
   }
-}
 
-export function setAuth(obj) {
-  if (!obj) {
+  function setAuth(obj) {
+    if (!obj) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  }
+
+  function clearAuth() {
     localStorage.removeItem(STORAGE_KEY);
-    return;
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-}
 
-export function clearAuth() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-export function getToken() {
-  return getAuth()?.idToken || null;
-}
-
-export function getUserId() {
-  return getAuth()?.user_id || null;
-}
-
-// ---- Guest ID helpers ----
-export function getGuestId() {
-  let gid = localStorage.getItem(GUEST_KEY);
-  if (!gid) {
-    gid = crypto.randomUUID();
-    localStorage.setItem(GUEST_KEY, gid);
+  function getToken() {
+    return getAuth()?.idToken || null;
   }
-  return gid;
-}
 
-export function resetGuestId() {
-  localStorage.removeItem(GUEST_KEY);
-  const newId = crypto.randomUUID();
-  localStorage.setItem(GUEST_KEY, newId);
-  return newId;
-}
+  function getUserId() {
+    return getAuth()?.user_id || null;
+  }
 
-// ---- Core request wrapper ----
-export async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
-  const token = getToken();
-  const h = {
-    ...(body ? { "Content-Type": "application/json" } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...headers,
+  // ---- Guest ID helpers ----
+  function getGuestId() {
+    let gid = localStorage.getItem(GUEST_KEY);
+    if (!gid) {
+      gid = crypto.randomUUID();
+      localStorage.setItem(GUEST_KEY, gid);
+    }
+    return gid;
+  }
+
+  function resetGuestId() {
+    localStorage.removeItem(GUEST_KEY);
+    const newId = crypto.randomUUID();
+    localStorage.setItem(GUEST_KEY, newId);
+    return newId;
+  }
+
+  // ---- Core request wrapper ----
+  async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
+    const token = getToken();
+    const h = {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    };
+
+    let url = API_BASE + endpoint;
+    if (!token && !url.includes("guest_id")) {
+      const sep = url.includes("?") ? "&" : "?";
+      url = `${url}${sep}guest_id=${getGuestId()}`;
+    }
+
+    console.log("[DEBUG client.js] request", { url, method, headers: h, body });
+
+    const res = await fetch(url, {
+      method,
+      headers: h,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: "same-origin",
+    });
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok) {
+      console.error("[ERROR client.js]", { status: res.status, data });
+      throw new Error(data?.error || `API error ${res.status}`);
+    }
+    return data;
+  }
+
+  // ---- Convenience API client ----
+  const apiClient = {
+    get: (e) => apiRequest(e),
+    post: (e, b) => apiRequest(e, { method: "POST", body: b }),
+    put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
+    delete: (e) => apiRequest(e, { method: "DELETE" }),
   };
 
-  let url = API_BASE + endpoint;
-  if (!token && !url.includes("guest_id")) {
-    const sep = url.includes("?") ? "&" : "?";
-    url = `${url}${sep}guest_id=${getGuestId()}`;
-  }
+  // ---- Expose all globally ----
+  window.API_BASE = API_BASE;
+  window.apiRequest = apiRequest;
+  window.apiClient = apiClient;
+  window.getAuth = getAuth;
+  window.setAuth = setAuth;
+  window.clearAuth = clearAuth;
+  window.getToken = getToken;
+  window.getUserId = getUserId;
+  window.getGuestId = getGuestId;
+  window.resetGuestId = resetGuestId;
 
-  console.log("[DEBUG client.js] request", { url, method, headers: h, body });
-
-  const res = await fetch(url, {
-    method,
-    headers: h,
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: "same-origin",
-  });
-
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    data = null;
-  }
-
-  if (!res.ok) {
-    console.error("[ERROR client.js]", { status: res.status, data });
-    throw new Error(data?.error || `API error ${res.status}`);
-  }
-  return data;
-}
-
-export const apiClient = {
-  get: (e) => apiRequest(e),
-  post: (e, b) => apiRequest(e, { method: "POST", body: b }),
-  put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
-  delete: (e) => apiRequest(e, { method: "DELETE" }),
-};
+  console.log("[client.js] loaded globally ✅");
+})();
