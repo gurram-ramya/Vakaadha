@@ -196,17 +196,16 @@
 //==========================================================
 
 
-// frontend/api/client.js — classic global version for Flask runtime
-
+// frontend/api/client.js — improved persistent guest + auth API client
 (function () {
-  const API_BASE = ""; // same-origin
-  const STORAGE_KEY = "loggedInUser";
+  const API_BASE = ""; // same-origin Flask API
+  const AUTH_KEY = "loggedInUser";
   const GUEST_KEY = "guest_id";
 
-  // ---- Auth helpers ----
+  /* ---------------- Auth helpers ---------------- */
   function getAuth() {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      return JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
     } catch {
       return null;
     }
@@ -214,14 +213,14 @@
 
   function setAuth(obj) {
     if (!obj) {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(AUTH_KEY);
       return;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    localStorage.setItem(AUTH_KEY, JSON.stringify(obj));
   }
 
   function clearAuth() {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(AUTH_KEY);
   }
 
   function getToken() {
@@ -232,12 +231,13 @@
     return getAuth()?.user_id || null;
   }
 
-  // ---- Guest ID helpers ----
+  /* ---------------- Guest ID helpers ---------------- */
   function getGuestId() {
     let gid = localStorage.getItem(GUEST_KEY);
     if (!gid) {
       gid = crypto.randomUUID();
       localStorage.setItem(GUEST_KEY, gid);
+      console.info("[client.js] Generated new guest_id", gid);
     }
     return gid;
   }
@@ -246,31 +246,31 @@
     localStorage.removeItem(GUEST_KEY);
     const newId = crypto.randomUUID();
     localStorage.setItem(GUEST_KEY, newId);
+    console.info("[client.js] Reset guest_id", newId);
     return newId;
   }
 
-  // ---- Core request wrapper ----
+  /* ---------------- Core request wrapper ---------------- */
   async function apiRequest(endpoint, { method = "GET", headers = {}, body } = {}) {
     const token = getToken();
+    const guestId = getGuestId();
+
     const h = {
       ...(body ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     };
 
+    // Always include guest_id for anonymous or mixed sessions
     let url = API_BASE + endpoint;
-    if (!token && !url.includes("guest_id")) {
-      const sep = url.includes("?") ? "&" : "?";
-      url = `${url}${sep}guest_id=${getGuestId()}`;
-    }
-
-    console.log("[DEBUG client.js] request", { url, method, headers: h, body });
+    const sep = url.includes("?") ? "&" : "?";
+    if (!url.includes("guest_id")) url += `${sep}guest_id=${guestId}`;
 
     const res = await fetch(url, {
       method,
       headers: h,
       body: body ? JSON.stringify(body) : undefined,
-      credentials: "same-origin",
+      credentials: "include", // allow cookies for guest_id
     });
 
     let data;
@@ -281,13 +281,14 @@
     }
 
     if (!res.ok) {
-      console.error("[ERROR client.js]", { status: res.status, data });
-      throw new Error(data?.error || `API error ${res.status}`);
+      console.error("[API ERROR]", { url, status: res.status, data });
+      throw new Error(data?.error || `API ${res.status}`);
     }
+
     return data;
   }
 
-  // ---- Convenience API client ----
+  /* ---------------- Convenience wrappers ---------------- */
   const apiClient = {
     get: (e) => apiRequest(e),
     post: (e, b) => apiRequest(e, { method: "POST", body: b }),
@@ -295,8 +296,7 @@
     delete: (e) => apiRequest(e, { method: "DELETE" }),
   };
 
-  // ---- Expose all globally ----
-  window.API_BASE = API_BASE;
+  /* ---------------- Global exposure ---------------- */
   window.apiRequest = apiRequest;
   window.apiClient = apiClient;
   window.getAuth = getAuth;
@@ -307,5 +307,5 @@
   window.getGuestId = getGuestId;
   window.resetGuestId = resetGuestId;
 
-  console.log("[client.js] loaded globally ✅");
+  console.log("[client.js] loaded ✅ guest carts persist across sessions");
 })();

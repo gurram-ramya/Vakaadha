@@ -1,12 +1,11 @@
-
-# New version
-# db.py
+# db.py — final production version
 """
 SQLite connection helper for Flask (per-request).
 
 Features:
 - One connection per request (stored in flask.g)
-- Proper teardown, PRAGMAs, WAL for better local concurrency
+- Auto-reconnect if connection closed mid-request
+- Proper teardown, PRAGMAs, WAL for better concurrency
 - Dict-like rows via sqlite3.Row
 - Convenience helpers (query_one, query_all, query_scalar, exists, execute, executemany)
 - transaction() context manager for atomic operations
@@ -23,20 +22,9 @@ from typing import Any, Iterable, Optional, Sequence
 
 from flask import current_app, g
 
-
-# Backwards-compatible alias expected by service.py files
-def get_db():
-    return get_db_connection()
-
-# def close_db_connection(e=None):
-#     """Close the database connection if it exists."""
-#     db = g.pop("db", None)
-#     if db is not None:
-#         db.close()
-
-
-
-# --------- Low-level: open a new connection ---------
+# =============================================================
+# Low-level Connection
+# =============================================================
 
 def _connect(db_path: str) -> sqlite3.Connection:
     """
@@ -47,11 +35,11 @@ def _connect(db_path: str) -> sqlite3.Connection:
     con = sqlite3.connect(
         db_path,
         detect_types=sqlite3.PARSE_DECLTYPES,
-        check_same_thread=True,  # one connection per request
+        check_same_thread=False,  # allow usage across Flask threads
     )
     con.row_factory = sqlite3.Row
 
-    # Apply recommended PRAGMAs (per-connection)
+    # Apply PRAGMAs for performance and reliability
     pragmas = [
         ("PRAGMA foreign_keys = ON;", ()),
         ("PRAGMA journal_mode = WAL;", ()),
@@ -63,36 +51,52 @@ def _connect(db_path: str) -> sqlite3.Connection:
         try:
             con.execute(stmt, params)
         except sqlite3.Error:
-            # Do not crash if a PRAGMA isn't supported in the environment
+            # Ignore unsupported PRAGMAs (older SQLite builds)
             pass
 
     return con
 
 
-# --------- Flask integration hooks ---------
+# =============================================================
+# Flask Integration
+# =============================================================
 
 def get_db_connection() -> sqlite3.Connection:
     """
-    Get the per-request connection (create if missing).
-    Usage: con = get_db_connection(); cur = con.cursor(); ...
+    Get (and cache) the per-request connection.
+    Automatically reconnects if connection was closed.
     """
-    if "db" not in g:
-        db_path = current_app.config.get("DATABASE_PATH", "vakaadha.db")
+    db_path = current_app.config.get("DATABASE_PATH", "vakaadha.db")
+
+    # If there's no connection or it was closed, open a new one
+    if "db" not in g or not _is_connection_open(g.get("db")):
         g.db = _connect(db_path)
     return g.db
+
+
+def _is_connection_open(con: Optional[sqlite3.Connection]) -> bool:
+    """Return True if the connection is open."""
+    if con is None:
+        return False
+    try:
+        con.execute("SELECT 1;")
+        return True
+    except sqlite3.ProgrammingError:
+        return False
+    except sqlite3.Error:
+        return False
 
 
 def close_db_connection(_: Optional[BaseException] = None) -> None:
     """
     Close and remove the per-request connection if present.
-    Flask calls this on teardown_appcontext automatically.
+    Flask calls this automatically on app teardown.
     """
     con: Optional[sqlite3.Connection] = g.pop("db", None)
     if con is not None:
         try:
             con.close()
         except Exception:
-            # Never raise during teardown
             pass
 
 
@@ -106,42 +110,35 @@ def init_db_for_app(app) -> None:
     app.teardown_appcontext(close_db_connection)
 
 
-# --------- Convenience helpers ---------
+# Backwards-compatible alias
+def get_db():
+    return get_db_connection()
+
+
+# =============================================================
+# Convenience Helpers
+# =============================================================
 
 def query_one(sql: str, params: Sequence[Any] | None = None) -> Optional[sqlite3.Row]:
-    """
-    Execute a SELECT that should return at most one row.
-    Returns sqlite3.Row or None.
-    """
     con = get_db_connection()
     cur = con.execute(sql, params or [])
     return cur.fetchone()
 
 
 def query_all(sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.Row]:
-    """
-    Execute a SELECT and return all rows as a list of sqlite3.Row.
-    """
     con = get_db_connection()
     cur = con.execute(sql, params or [])
     return cur.fetchall()
 
 
 def query_scalar(sql: str, params: Sequence[Any] | None = None) -> Any:
-    """
-    Execute a SELECT and return the first column of the first row, or None.
-    """
     row = query_one(sql, params)
     if row is None:
         return None
-    # sqlite3.Row supports index access
     return row[0]
 
 
 def exists(sql: str, params: Sequence[Any] | None = None) -> bool:
-    """
-    Return True if the given SELECT returns at least one row.
-    """
     return query_one(sql, params) is not None
 
 
@@ -176,11 +173,11 @@ def transaction():
         with transaction() as con:
             con.execute(...)
             con.execute(...)
-    On exception: ROLLBACK; else: COMMIT.
+    Rolls back on error, commits otherwise.
     """
     con = get_db_connection()
     try:
-        con.execute("BEGIN")
+        con.execute("BEGIN IMMEDIATE")
         yield con
         con.commit()
     except Exception:
@@ -188,7 +185,9 @@ def transaction():
         raise
 
 
-# --------- Utilities ---------
+# =============================================================
+# Utilities
+# =============================================================
 
 def paginate(page: int, page_size: int) -> tuple[int, int]:
     """
@@ -196,70 +195,73 @@ def paginate(page: int, page_size: int) -> tuple[int, int]:
     Returns (limit, offset).
     """
     page = max(1, int(page or 1))
-    page_size = max(1, min(int(page_size or 24), 200))  # cap page_size
+    page_size = max(1, min(int(page_size or 24), 200))
     offset = (page - 1) * page_size
     return page_size, offset
 
 
 def to_dict(row: sqlite3.Row | None) -> Optional[dict[str, Any]]:
-    """
-    Convert sqlite3.Row to a plain dict.
-    """
+    """Convert a sqlite3.Row to a dict."""
     return {k: row[k] for k in row.keys()} if row else None
 
 
 def to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
-    """
-    Convert an iterable of sqlite3.Row to a list of dicts.
-    """
+    """Convert iterable of sqlite3.Row to list of dicts."""
     return [{k: r[k] for k in r.keys()} for r in rows]
 
 
-# --------- Optional: FTS5-aware product text search ---------
+# =============================================================
+# Optional: FTS5-aware Search
+# =============================================================
 
 def _fts_available(con: Optional[sqlite3.Connection] = None) -> bool:
     """
     Check whether the products_fts virtual table exists.
     """
     con = con or get_db_connection()
-    row = con.execute(
-        "SELECT 1 FROM sqlite_master WHERE name='products_fts' AND (type='table' OR sql LIKE 'CREATE VIRTUAL TABLE%')"
-    ).fetchone()
-    return row is not None
+    try:
+        row = con.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE name='products_fts' "
+            "AND (type='table' OR sql LIKE 'CREATE VIRTUAL TABLE%')"
+        ).fetchone()
+        return row is not None
+    except sqlite3.Error:
+        return False
 
 
-def search_products_text(
-    q: str, limit: int = 24, offset: int = 0
-) -> list[sqlite3.Row]:
+def search_products_text(q: str, limit: int = 24, offset: int = 0) -> list[sqlite3.Row]:
     """
-    Full-text search over products; prefers FTS5 if available,
-    otherwise falls back to LIKE on name/description/long_description.
-
+    Full-text search over products using FTS5 if available,
+    falling back to LIKE search otherwise.
     Returns rows with at least: product_id, name, description.
     """
     con = get_db_connection()
     limit = max(1, min(int(limit or 24), 200))
     offset = max(0, int(offset or 0))
 
-    if _fts_available(con):
-        # Use FTS5; order by bm25() if available (typical in FTS5 builds)
-        # rowid of products_fts is products.product_id
-        sql = """
-        SELECT p.product_id, p.name, p.description, p.category
-        FROM products_fts f
-        JOIN products p ON p.product_id = f.rowid
-        WHERE f MATCH ?
-        ORDER BY bm25(f)
-        LIMIT ? OFFSET ?;
-        """
-        return query_all(sql, (q, limit, offset))
-    else:
-        like = f"%{q}%"
-        sql = """
-        SELECT p.product_id, p.name, p.description, p.category
-        FROM products p
-        LEFT JOIN product_details pd ON pd.product_id = p.product_id
-        WHERE p.name LIKE ? OR IFNULL(p.description,'') LIKE ? OR IFNULL(pd.long_description,'') LIKE ?
-        LIMIT ? OFFSET ?;
-        """
-        return query_all(sql, (like, like, like, limit, offset))
+    try:
+        if _fts_available(con):
+            sql = """
+            SELECT p.product_id, p.name, p.description, p.category
+            FROM products_fts f
+            JOIN products p ON p.product_id = f.rowid
+            WHERE f MATCH ?
+            ORDER BY bm25(f)
+            LIMIT ? OFFSET ?;
+            """
+            return query_all(sql, (q, limit, offset))
+        else:
+            like = f"%{q}%"
+            sql = """
+            SELECT p.product_id, p.name, p.description, p.category
+            FROM products p
+            LEFT JOIN product_details pd ON pd.product_id = p.product_id
+            WHERE p.name LIKE ?
+               OR IFNULL(p.description,'') LIKE ?
+               OR IFNULL(pd.long_description,'') LIKE ?
+            LIMIT ? OFFSET ?;
+            """
+            return query_all(sql, (like, like, like, limit, offset))
+    except Exception:
+        return []

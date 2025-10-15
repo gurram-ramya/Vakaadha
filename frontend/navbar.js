@@ -125,8 +125,7 @@
 //   };
 // })();
 
-
-// navbar.js
+// navbar.js — unified for guest + user carts
 import { apiRequest } from "./api/client.js";
 
 (function () {
@@ -136,45 +135,44 @@ import { apiRequest } from "./api/client.js";
   const CART_ENDPOINT = "/api/cart";
   const WISHLIST_COUNT_ENDPOINT = "/api/wishlist/count";
 
-  // -----------------------------
-  // Fetch Cart Count
-  // -----------------------------
+  // =============================================================
+  // Fetch Cart Count — supports both guest + logged-in users
+  // =============================================================
   async function fetchCartCount() {
-    const token = localStorage.getItem("auth_token");
-    if (!token) return 0;
-
     try {
-      const data = await apiRequest(CART_ENDPOINT);
+      const data = await apiRequest(CART_ENDPOINT, { method: "GET" });
+
+      // ✅ backend returns { cart_id, items }
       if (!data || !Array.isArray(data.items)) return 0;
+
+      // ✅ sum of item quantities
       return data.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     } catch (err) {
-      if (err?.status === 401) console.info("Cart count skipped (guest).");
-      else console.warn("Cart count update failed:", err);
+      console.warn("Cart count update failed:", err);
       return 0;
     }
   }
 
-  // -----------------------------
-  // Fetch Wishlist Count
-  // -----------------------------
+  // =============================================================
+  // Fetch Wishlist Count (only if user logged in)
+  // =============================================================
   async function fetchWishlistCount() {
     const token = localStorage.getItem("auth_token");
     if (!token) return 0;
 
     try {
-      const res = await apiRequest(WISHLIST_COUNT_ENDPOINT);
+      const res = await apiRequest(WISHLIST_COUNT_ENDPOINT, { method: "GET" });
       if (!res || typeof res.count !== "number") return 0;
       return res.count;
     } catch (err) {
-      if (err?.status === 401) console.info("Wishlist count skipped (guest).");
-      else console.warn("Wishlist count update failed:", err);
+      console.warn("Wishlist count update failed:", err);
       return 0;
     }
   }
 
-  // -----------------------------
+  // =============================================================
   // Update Navbar Counts
-  // -----------------------------
+  // =============================================================
   async function updateNavbarCounts() {
     const cartEl = document.getElementById("cartCount");
     const wishEl = document.getElementById("wishlistCount");
@@ -195,9 +193,9 @@ import { apiRequest } from "./api/client.js";
     }
   }
 
-  // -----------------------------
-  // Update Navbar User
-  // -----------------------------
+  // =============================================================
+  // Update Navbar User Info
+  // =============================================================
   function updateNavbarUser(user) {
     const loginLink = document.getElementById("loginLink");
     const profileLink = document.getElementById("profileLink");
@@ -206,16 +204,17 @@ import { apiRequest } from "./api/client.js";
 
     const isAuth = !!(user && (user.name || user.email));
 
-    if (userDisplay) userDisplay.textContent = isAuth ? (user.name || user.email || "") : "";
+    if (userDisplay)
+      userDisplay.textContent = isAuth ? (user.name || user.email || "") : "";
 
     if (loginLink) loginLink.style.display = isAuth ? "none" : "inline-block";
     if (profileLink) profileLink.style.display = isAuth ? "inline-block" : "none";
     if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
   }
 
-  // -----------------------------
+  // =============================================================
   // Wire Logout Handler
-  // -----------------------------
+  // =============================================================
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
@@ -231,9 +230,9 @@ import { apiRequest } from "./api/client.js";
     });
   }
 
-  // -----------------------------
+  // =============================================================
   // Initialize Navbar
-  // -----------------------------
+  // =============================================================
   document.addEventListener("DOMContentLoaded", async () => {
     try {
       const user = await window.auth.getCurrentUser();
@@ -242,13 +241,11 @@ import { apiRequest } from "./api/client.js";
       updateNavbarUser(null);
     }
 
-    updateNavbarCounts();
+    await updateNavbarCounts();
     wireLogout();
-  });
 
-  // -----------------------------
-  // Expose Globals
-  // -----------------------------
-  window.updateNavbarCounts = updateNavbarCounts;
-  window.updateNavbarUser = updateNavbarUser;
+    // Expose globally for product.js & script.js
+    window.updateNavbarCounts = updateNavbarCounts;
+    window.updateNavbarUser = updateNavbarUser;
+  });
 })();
