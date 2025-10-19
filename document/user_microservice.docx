@@ -1,0 +1,154 @@
+Here is the full content converted to **plain paragraph text** with clean alignment and spacing — no tables, emojis, bullets, or special symbols. You can paste this directly into a Word (.docx) file in VS Code without formatting errors.
+
+---
+
+Vakaadha User Service V2 (Revised Architecture)
+
+Author: System Design Team (Vakaadha)
+Version: 2.1
+Scope: Unified identity, profile, session, and guest merge service powering all Vakaadha modules.
+
+Purpose
+
+The User Service is the foundational identity layer of the Vakaadha platform, enabling consistent authentication, identity resolution, and account data across all domains including cart, wishlist, orders, addresses, and payments. It ensures each action on the platform can be securely tied to a verified user or guest identity and supports seamless guest-to-user transitions.
+
+Key Responsibilities
+
+Centralized user identity management.
+Session and token lifecycle control using Firebase onboarding and internal JWT runtime.
+Guest-to-user merge for cart, wishlist, and analytics.
+Profile and address management.
+Cross-service identity API for cart, order, and payment modules.
+Event-driven architecture for analytics, personalization, and audit trails.
+
+Core Responsibilities
+
+Identity Management: Maintain unique users, link Firebase UIDs, and manage guest associations.
+Authentication: Verify Firebase tokens during login, issue and validate internal JWTs.
+Profile Management: Handle CRUD operations for user information and preferences.
+Address Management: Manage shipping and billing addresses.
+Session Management: Track active sessions per device with revocation and refresh control.
+Merge Logic: Merge guest carts and wishlists into authenticated users atomically.
+Cross-Service Integration: Provide minimal user metadata to internal services via signed JWTs.
+
+Architectural Overview
+
+Service Topology
+
+Frontend (JavaScript) uses Firebase Authentication and guest identifiers, communicating via REST and HTTPS with the User Service built in FastAPI. The User Service includes components such as auth.py, users.py, sessions, addresses, internal, and events. It connects downstream through service JWT and mTLS to Cart, Order, and Wishlist microservices.
+
+Authentication Flow
+
+1. Firebase authenticates and issues an ID token.
+2. The endpoint /api/v1/auth/register verifies this token and issues an internal JWT.
+3. The internal JWT becomes the only runtime credential.
+4. Guest data is merged into user records.
+5. All subsequent requests use the internal JWT for authorization.
+
+Route Map (API Contracts)
+
+Authentication Endpoints:
+POST /api/v1/auth/register – verifies Firebase token, merges guest data, issues internal JWT (public access).
+POST /api/v1/auth/logout – revokes current session (authenticated access).
+POST /api/v1/auth/refresh – issues new access token using refresh token (authenticated access).
+GET /api/v1/auth/session – returns active session metadata (authenticated access).
+
+User Profile Endpoints:
+GET /api/v1/users/me – returns unified user profile and flags (authenticated access).
+PUT /api/v1/users/me/profile – updates profile fields including name, date of birth, gender, and avatar (authenticated access).
+GET /internal/v1/users/<user_id> – returns minimal user info for internal consumers (service JWT access).
+
+Address Management Endpoints:
+GET /api/v1/users/me/addresses – lists saved addresses.
+POST /api/v1/users/me/addresses – adds a new address.
+PUT /api/v1/users/me/addresses/<id> – updates an address.
+DELETE /api/v1/users/me/addresses/<id> – deletes an address.
+
+Session Management Endpoints:
+GET /api/v1/sessions – lists all active sessions for a user.
+POST /api/v1/sessions/revoke – revokes a specific session.
+POST /api/v1/sessions/revoke_all – revokes all sessions for a user.
+
+Internal Endpoints (Service-to-Service):
+GET /internal/v1/users/<user_id> – retrieves minimal user info.
+GET /internal/v1/users/by-firebase/<uid> – looks up a user by Firebase UID.
+POST /internal/v1/users/events – receives user lifecycle events.
+
+Data Schema
+
+Users Table:
+Contains columns user_id (UUID primary key), firebase_uid (unique), email (unique), name, phone, is_admin, deleted_at, created_at, updated_at, and last_login. Indexed by firebase_uid and email.
+
+User Profiles Table:
+Contains profile_id (UUID primary key), user_id (foreign key, unique), date of birth, gender (male, female, other), avatar URL, preferences (JSON), and updated_at.
+
+User Addresses Table:
+Contains address_id (UUID primary key), user_id (foreign key), name, phone, address line, city, state, postal code, country, is_default, created_at, and updated_at. Indexed by user_id and is_default.
+
+Sessions Table:
+Contains session_id (UUID primary key), user_id (foreign key), token_hash (SHA256 of JWT ID), device, IP address, created_at, expires_at, and revoked flag.
+
+Merge Logic Flow (Saga Pattern)
+
+Trigger occurs at /api/v1/auth/register.
+The service verifies the Firebase token once, upserts user and profile data, and emits a guest.merge.requested event.
+Downstream services such as cart and wishlist listen asynchronously and perform their merges.
+After completion, they emit guest.merge.completed.
+The User Service receives confirmations and emits user.cart.merged.
+Finally, it responds with 200 OK along with an internal JWT and session info.
+This ensures atomicity even if downstream merges fail.
+
+Authentication and Authorization
+
+Firebase Verification is used only during registration or login, with results cached for five minutes in Redis.
+Internal JWT is the primary runtime credential, signed using RS256. The payload includes user_id, session_id, roles, expiration, and issued timestamps. Access tokens last 30 minutes and refresh tokens last seven days.
+The @require_auth decorator validates the token signature, checks session status in Redis, rejects expired or revoked tokens, and injects the authenticated user context.
+
+Event Model
+
+Outgoing Events with idempotency include user.created, user.updated, user.cart.merged, user.session.created, user.session.revoked, and user.deleted.
+Each event includes identifiers such as user_id, event_id, and payload data.
+Delivery guarantees are at-least-once, with a dead-letter queue for failed deliveries.
+Kafka is used as the primary transport with Redis Streams as fallback.
+
+Security and Compliance
+
+Token Algorithm uses RS256 with a public-private key pair.
+HTTPS is enforced using TLS 1.3.
+Field encryption uses AES-256 with envelope encryption via KMS.
+Rate limiting applies per endpoint.
+Audit logs are structured and exported to ELK.
+PII handling uses field-level encryption with 90-day key rotation.
+GDPR compliance is achieved through soft deletes and anonymization cascades.
+RBAC is enforced via JWT roles.
+Internal security includes mTLS and service-level JWTs.
+Anti-abuse mechanisms use device fingerprinting and throttling.
+
+Scalability and Infrastructure
+
+The framework is FastAPI with asynchronous and type-safe handling.
+Database uses PostgreSQL (RDS or CloudSQL).
+Redis is used for caching and session storage with AOF persistence.
+Kafka is used as the queue system with a dead-letter queue.
+Deployment uses Docker and Kubernetes with rolling deployments.
+Monitoring uses Prometheus and Grafana.
+Logging uses the ELK stack.
+CI/CD pipelines use GitHub Actions with Helm.
+
+Future Enhancements
+
+Planned improvements include a user preferences microservice for personalization, multi-device session synchronization via events, federated identity integration with Apple, Google, and Meta through OAuth2, regional data replication with read replicas, and behavioral analytics streaming to a data lake.
+
+Expected Outcomes
+
+The revised User Service V2 delivers a clear trust hierarchy using Firebase only for onboarding and internal JWT for runtime.
+It provides a stateless, horizontally scalable identity service.
+Guest-to-user merges are atomic using saga-based handling.
+It is designed for distributed multi-region readiness.
+It offers enterprise-grade security through RBAC, encryption, and audit trails.
+Observability is built in with Prometheus metrics and ELK logging.
+It provides modular integration with cart, wishlist, and order systems.
+
+---
+
+This version contains only plain, linear text suitable for Word processors — no indentation, bullets, symbols, or table layouts.
