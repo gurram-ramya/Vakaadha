@@ -1,15 +1,18 @@
 # __init__.py
-
-# __init__.py
 import logging
 from flask import Flask, g, jsonify, send_from_directory
 from flask_cors import CORS
 from pathlib import Path
 from sqlite3 import Error as DBError
-
-# ✅ Local imports for dev mode
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from db import get_db_connection
 from utils.auth import initialize_firebase
+import uuid, time
+import psutil, os, time
+from utils.cache import user_cache, profile_cache, firebase_token_cache
+
+
 
 # -------------------------------------------------------------
 # Paths
@@ -19,13 +22,18 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 DB_PATH = BASE_DIR.parent / "vakaadha.db"
 
 # -------------------------------------------------------------
+# Global Rate Limiter (instance only)
+# -------------------------------------------------------------
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["1000 per day", "100 per hour"]
+)
+
+# -------------------------------------------------------------
 # Flask Application Factory
 # -------------------------------------------------------------
 def create_app():
-    # Initialize Firebase once
-    initialize_firebase()
-
-    # Create Flask app and set static folder to frontend/
+    # Create Flask app
     app = Flask(
         __name__,
         static_folder=str(FRONTEND_DIR),
@@ -33,7 +41,12 @@ def create_app():
     )
 
     # ---------------------------------------------------------
-    # CORS Configuration
+    # Initialize Firebase (after app creation for context safety)
+    # ---------------------------------------------------------
+    initialize_firebase()
+
+    # ---------------------------------------------------------
+    # Apply CORS
     # ---------------------------------------------------------
     CORS(
         app,
@@ -48,7 +61,12 @@ def create_app():
     )
 
     # ---------------------------------------------------------
-    # Logging Setup
+    # Initialize rate limiter
+    # ---------------------------------------------------------
+    limiter.init_app(app)
+
+    # ---------------------------------------------------------
+    # Logging
     # ---------------------------------------------------------
     logging.basicConfig(
         level=logging.INFO,
@@ -56,8 +74,37 @@ def create_app():
     )
     logging.info("✅ Vakaadha Flask App initialized")
 
+
     # ---------------------------------------------------------
-    # Database Lifecycle
+    # Request Context & Logging Middleware
+    # ---------------------------------------------------------
+    @app.before_request
+    def attach_request_id():
+        """Attach a unique request ID and start time to every request."""
+        g.request_id = str(uuid.uuid4())
+        g.start_time = time.time()
+
+    @app.after_request
+    def log_request(response):
+        """Structured JSON-style access log for each request."""
+        duration = time.time() - g.get("start_time", time.time())
+        log_payload = {
+            "event": "request_completed",
+            "method": request.method,
+            "path": request.path,
+            "status": response.status_code,
+            "duration_ms": round(duration * 1000, 2),
+            "ip": request.remote_addr,
+            "user": getattr(g, "user", None) and g.user.get("firebase_uid"),
+            "guest_id": getattr(g, "guest_id", None),
+            "request_id": g.request_id,
+        }
+        logging.info(log_payload)
+        response.headers["X-Request-ID"] = g.request_id
+        return response
+
+    # ---------------------------------------------------------
+    # Database lifecycle
     # ---------------------------------------------------------
     @app.before_request
     def before_request():
@@ -73,6 +120,18 @@ def create_app():
         db = getattr(g, "db", None)
         if db is not None:
             db.close()
+
+    # ---------------------------------------------------------
+    # Security Headers
+    # ---------------------------------------------------------
+    @app.after_request
+    def add_security_headers(response):
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     # ---------------------------------------------------------
     # Error Handlers
@@ -91,12 +150,47 @@ def create_app():
         logging.error(f"Database error: {error}")
         return jsonify({"error": "database_error"}), 500
 
+    @app.errorhandler(Exception)
+    def unhandled_exception(e):
+        logging.exception({
+            "event": "unhandled_exception",
+            "error": str(e),
+            "user": getattr(g, "user", None) and g.user.get("firebase_uid"),
+            "guest_id": getattr(g, "guest_id", None),
+            "request_id": getattr(g, "request_id", "unknown"),
+        })
+        return jsonify({"error": "internal_error", "request_id": getattr(g, "request_id", "unknown")}), 500
+
+
     # ---------------------------------------------------------
-    # Health Endpoint
+    # Health Check
     # ---------------------------------------------------------
     @app.route("/api/health", methods=["GET"])
     def health_check():
         return jsonify({"status": "ok"}), 200
+
+    # ---------------------------------------------------------
+    # Metrics Endpoint
+    # ---------------------------------------------------------
+
+    @app.route("/api/metrics", methods=["GET"])
+    def metrics():
+        """Expose minimal runtime metrics for monitoring."""
+        process = psutil.Process(os.getpid())
+        metrics = {
+            "status": "ok",
+            "pid": os.getpid(),
+            "uptime_seconds": round(time.time() - process.create_time(), 2),
+            "memory_mb": round(process.memory_info().rss / 1024 / 1024, 2),
+            "cache": {
+                "user_cache": len(user_cache),
+                "profile_cache": len(profile_cache),
+                "firebase_token_cache": len(firebase_token_cache),
+            },
+            "request_id": getattr(g, "request_id", None),
+        }
+        return jsonify(metrics), 200
+
 
     # ---------------------------------------------------------
     # Blueprints (API)
@@ -118,20 +212,23 @@ def create_app():
     logging.info("Blueprints registered: users, cart, catalog, orders, addresses, wishlist")
 
     # ---------------------------------------------------------
-    # Frontend Routes (Serve HTML, JS, CSS)
+    # Apply rate limits to sensitive routes AFTER registration
+    # ---------------------------------------------------------
+    limiter.limit("10 per minute")(app.view_functions["users.register_user"])
+    limiter.limit("5 per minute")(app.view_functions["users.logout_user"])
+
+    # ---------------------------------------------------------
+    # Frontend Static Routes
     # ---------------------------------------------------------
     @app.route("/")
     def serve_index():
-        """Serve homepage (frontend/index.html)"""
         return send_from_directory(FRONTEND_DIR, "index.html")
 
     @app.route("/<path:path>")
     def serve_static_file(path):
-        """Serve static files from frontend directory"""
         full_path = FRONTEND_DIR / path
         if full_path.exists():
             return send_from_directory(FRONTEND_DIR, path)
-        # fallback for deep links
         return send_from_directory(FRONTEND_DIR, "index.html")
 
     return app

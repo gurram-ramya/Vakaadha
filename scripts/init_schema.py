@@ -9,7 +9,7 @@ DDL_CORE = """
 PRAGMA foreign_keys = ON;
 
 -- =========================
--- USERS & PROFILES
+-- USERS, PROFILES & PREFERENCES
 -- =========================
 CREATE TABLE IF NOT EXISTS users (
   user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,13 +23,46 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS user_profiles (
-  profile_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id      INTEGER NOT NULL UNIQUE,
-  dob          TEXT,
-  gender       TEXT,
-  avatar_url   TEXT,
-  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+  profile_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL UNIQUE,
+  dob           TEXT,
+  gender        TEXT,
+  avatar_url    TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
+-- =========================
+-- USER PREFERENCES
+-- =========================
+CREATE TABLE IF NOT EXISTS user_preferences (
+  preference_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER NOT NULL,
+  key            TEXT NOT NULL,
+  value          TEXT,
+  created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  UNIQUE(user_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_preferences_user ON user_preferences(user_id);
+
+-- =========================
+-- USER PAYMENT METHODS
+-- =========================
+CREATE TABLE IF NOT EXISTS user_payment_methods (
+  payment_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER NOT NULL,
+  provider       TEXT NOT NULL,               -- e.g., 'stripe', 'razorpay', 'paypal'
+  token          TEXT NOT NULL,               -- opaque token from payment gateway
+  last4          TEXT,                        -- last 4 digits for display
+  expiry         TEXT,                        -- e.g. '12/27'
+  is_default     INTEGER NOT NULL DEFAULT 0,
+  created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON user_payment_methods(user_id);
+
 
 -- =========================
 -- ADDRESSES

@@ -1,35 +1,30 @@
 # utils/auth.py
-
 import logging
 import os
 from functools import wraps
-from flask import request, jsonify, g
+from flask import request, jsonify, g, make_response
 from datetime import datetime
+from uuid import uuid4
 from firebase_admin import auth as firebase_auth, credentials
 import firebase_admin
+from utils.cache import cached, firebase_token_cache, lock
+
 
 
 # -------------------------------------------------------------
 # Firebase Initialization
 # -------------------------------------------------------------
 def initialize_firebase():
-    """
-    Initializes the Firebase Admin SDK once at application startup.
-    This must be called before any token verification.
-    """
     if firebase_admin._apps:
         logging.info("Firebase already initialized; skipping re-initialization.")
         return
 
     try:
-        # Prefer environment variable
         service_account_path = os.getenv("FIREBASE_CREDENTIALS")
-
         if service_account_path and os.path.exists(service_account_path):
             cred = credentials.Certificate(service_account_path)
             logging.info(f"Using Firebase credentials from environment: {service_account_path}")
         else:
-            # Fallback to local service account file
             from pathlib import Path
             local_path = Path(__file__).resolve().parents[1] / "firebase-adminsdk.json"
             cred = credentials.Certificate(str(local_path))
@@ -37,20 +32,54 @@ def initialize_firebase():
 
         firebase_admin.initialize_app(cred)
         logging.info("Firebase Admin SDK initialized successfully.")
-
     except Exception as e:
         logging.critical(f"Firebase initialization failed: {str(e)}")
         raise RuntimeError("Failed to initialize Firebase Admin SDK.")
 
 
 # -------------------------------------------------------------
-# Helper: Extract Bearer Token
+# Guest Identity Handling
+# -------------------------------------------------------------
+def resolve_guest_context():
+    """
+    Ensures every request has a guest_id (for anonymous users).
+    Stores it in flask.g and marks whether it was newly created.
+    """
+    gid = request.cookies.get("guest_id")
+    if gid and len(gid) <= 64:
+        g.guest_id = gid
+        g.new_guest = False
+        return gid
+
+    # Create new guest_id
+    gid = str(uuid4())
+    g.guest_id = gid
+    g.new_guest = True
+    return gid
+
+
+def _set_guest_cookie(resp, guest_id):
+    """
+    Apply secure cookie parameters and attach guest_id cookie to response.
+    """
+    is_https = request.is_secure or os.getenv("FORCE_SECURE_COOKIE") == "1"
+    resp.set_cookie(
+        "guest_id",
+        guest_id,
+        max_age=7 * 24 * 3600,  # 7 days TTL
+        httponly=True,
+        secure=is_https,
+        samesite="Lax",
+    )
+    resp.headers["Access-Control-Allow-Credentials"] = "true"
+    resp.headers["Access-Control-Expose-Headers"] = "Set-Cookie"
+    return resp
+
+
+# -------------------------------------------------------------
+# Token Extraction and Verification
 # -------------------------------------------------------------
 def extract_token():
-    """
-    Extract Bearer token from the Authorization header.
-    Returns (token, error_code) tuple.
-    """
     auth_header = request.headers.get("Authorization", None)
     if not auth_header:
         return None, "unauthorized_missing_token"
@@ -62,38 +91,26 @@ def extract_token():
     return parts[1], None
 
 
-# -------------------------------------------------------------
-# Helper: Standardized Error Response
-# -------------------------------------------------------------
 def auth_error_response(error_code, message):
-    """
-    Returns standardized JSON 401 response for authentication errors.
-    """
     response = jsonify({"error": error_code, "message": message})
     response.status_code = 401
     return response
 
 
-# -------------------------------------------------------------
-# Custom Auth Error Class
-# -------------------------------------------------------------
 class AuthError(Exception):
-    """
-    Represents Firebase authentication failures with specific codes.
-    """
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
         self.message = message
 
 
-# -------------------------------------------------------------
-# Core: Verify Firebase ID Token
-# -------------------------------------------------------------
+
+
+@cached(cache=firebase_token_cache, lock=lock)
 def verify_firebase_token(token):
     """
-    Verifies Firebase ID token and returns decoded claims.
-    Raises AuthError on failure.
+    Verify a Firebase ID token with short-term caching.
+    Cached tokens reduce repeated Firebase Admin SDK calls.
     """
     try:
         decoded = firebase_auth.verify_id_token(token, check_revoked=True)
@@ -115,44 +132,46 @@ def verify_firebase_token(token):
 # -------------------------------------------------------------
 def require_auth(optional=False):
     """
-    Flask route decorator that enforces Firebase authentication.
-    Sets g.user on success.
-    If optional=True, allows missing/invalid tokens and continues with g.user=None.
+    Decorator enforcing Firebase authentication, while always resolving guest_id.
     """
     def decorator(f):
-        @wraps(f)  # Critical to preserve the original function name for Flask endpoint registration
+        @wraps(f)
         def wrapper(*args, **kwargs):
+            # Ensure guest context always exists
+            resolve_guest_context()
+
             token, error_code = extract_token()
 
-            # No token case
+            # No token provided
             if not token:
                 if optional:
                     g.user = None
                     logging.info({
                         "event": "auth_skipped",
                         "reason": "no_token_provided",
+                        "guest_id": g.guest_id,
                         "timestamp": datetime.utcnow().isoformat()
                     })
                     return f(*args, **kwargs)
                 return auth_error_response(error_code, "Missing or malformed Authorization header")
 
-            # Validate token
+            # Validate token via Firebase
             try:
                 decoded = verify_firebase_token(token)
                 g.user = {
                     "firebase_uid": decoded.get("uid"),
                     "email": decoded.get("email"),
                     "name": decoded.get("name"),
-                    "email_verified": decoded.get("email_verified", False)
+                    "email_verified": decoded.get("email_verified", False),
                 }
 
                 logging.info({
                     "event": "auth_success",
                     "uid": g.user["firebase_uid"],
-                    "email": g.user["email"],
-                    "timestamp": datetime.utcnow().isoformat()
+                    "guest_id": g.guest_id,
+                    # "ip": request.remote_addr,
+                    "timestamp": datetime.utcnow().isoformat(),
                 })
-
                 return f(*args, **kwargs)
 
             except AuthError as e:
@@ -160,7 +179,8 @@ def require_auth(optional=False):
                     "event": "auth_failure",
                     "error": e.code,
                     "message": e.message,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "guest_id": g.guest_id,
+                    "timestamp": datetime.utcnow().isoformat(),
                 })
                 if optional:
                     g.user = None
@@ -171,7 +191,8 @@ def require_auth(optional=False):
                 logging.error({
                     "event": "auth_unexpected_error",
                     "error": str(e),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "guest_id": g.guest_id,
+                    "timestamp": datetime.utcnow().isoformat(),
                 })
                 if optional:
                     g.user = None

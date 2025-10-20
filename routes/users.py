@@ -4,6 +4,8 @@ from utils.auth import require_auth
 from domain.users import service as user_service
 from domain.cart import service as cart_service
 from db import get_db_connection
+from utils.auth import _set_guest_cookie
+from uuid import uuid4
 
 
 users_bp = Blueprint("users", __name__)
@@ -25,12 +27,13 @@ def error_response(code, error, message=None):
 @users_bp.route("/api/auth/register", methods=["POST"], endpoint="register_user")
 @require_auth()
 def register_user():
+    from utils.auth import _set_guest_cookie  # imported here to avoid circular import
     try:
         conn = get_db_connection()
         data = request.get_json(silent=True) or {}
 
-        # Extract guest_id from cookie or body
-        guest_id = request.cookies.get("guest_id") or data.get("guest_id")
+        # Extract guest_id from context or cookie
+        guest_id = getattr(g, "guest_id", None) or request.cookies.get("guest_id") or data.get("guest_id")
 
         # Ensure user exists and merge guest cart if applicable
         user, merge_result = user_service.ensure_user_with_merge(
@@ -43,14 +46,14 @@ def register_user():
             update_last_login=True,
         )
 
-        # Log merge metadata for auditing
         logging.info({
             "event": "cart_merge",
             "firebase_uid": g.user["firebase_uid"],
             "guest_id": guest_id,
-            "merge_result": merge_result
+            "merge_result": merge_result,
         })
 
+        # Cookie rotation: clear old guest cookie and issue new one
         response = jsonify({
             "user": {
                 "user_id": user["user_id"],
@@ -58,12 +61,19 @@ def register_user():
                 "email": user["email"],
                 "name": user["name"],
                 "is_admin": user.get("is_admin", False),
-                "email_verified": g.user.get("email_verified", False)
+                "email_verified": g.user.get("email_verified", False),
             },
-            "merge": merge_result or None
+            "merge": merge_result or None,
         })
+        resp = make_response(response)
 
-        return response, 200
+        # Delete old guest cookie
+        if request.cookies.get("guest_id"):
+            resp.delete_cookie("guest_id")
+
+        # Set a new guest cookie for post-login continuity
+        _set_guest_cookie(resp, str(uuid4()))
+        return resp, 200
 
     except user_service.TokenExpiredError:
         return error_response(401, "token_expired", "Firebase token expired")
@@ -160,12 +170,21 @@ def update_user_profile():
 # POST /api/auth/logout
 # Placeholder for cookie/session cleanup
 # -------------------------------------------------------------
-@users_bp.route("/api/auth/logout", methods=["POST"], endpoint="logout")
-def logout():
-    response = make_response("", 204)
+@users_bp.route("/api/auth/logout", methods=["POST"])
+@require_auth(optional=True)
+def logout_user():
+    resp = jsonify({"status": "logged_out"})
+    # Remove old cookie
     if request.cookies.get("guest_id"):
-        response.delete_cookie("guest_id")
-    return response
+        resp.delete_cookie("guest_id")
+    # Rotate with a new anonymous guest_id for post-logout browsing
+    _set_guest_cookie(resp, str(uuid4()))
+    logging.info({
+        "event": "user_logout",
+        "firebase_uid": getattr(g.user, "firebase_uid", None),
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    return resp, 200
 
 
 # -------------------------------------------------------------
@@ -179,3 +198,62 @@ def deprecated_merge_endpoint():
         "message": "Guest cart is now auto-merged during authentication",
         "use": "/api/auth/register"
     }), 410
+
+# ==============================================================
+# USER PREFERENCES ROUTES
+# ==============================================================
+
+from domain.users import preferences_service, payments_service
+
+@users_bp.route("/api/users/me/preferences", methods=["GET"])
+@require_auth()
+def get_user_preferences():
+    prefs = preferences_service.list_preferences(g.user["user_id"])
+    return jsonify({"preferences": prefs}), 200
+
+@users_bp.route("/api/users/me/preferences", methods=["PUT"])
+@require_auth()
+def update_user_preferences():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "InvalidInput", "message": "Expected JSON key-value map"}), 400
+
+    for key, value in data.items():
+        preferences_service.set_preference(g.user["user_id"], key, str(value))
+    return jsonify({"status": "updated"}), 200
+
+
+# ==============================================================
+# USER PAYMENT METHODS ROUTES
+# ==============================================================
+
+@users_bp.route("/api/users/me/payments", methods=["GET"])
+@require_auth()
+def list_user_payments():
+    payments = payments_service.list_payment_methods(g.user["user_id"])
+    return jsonify({"payment_methods": payments}), 200
+
+@users_bp.route("/api/users/me/payments", methods=["POST"])
+@require_auth()
+def add_user_payment():
+    data = request.get_json(silent=True) or {}
+    required = ["provider", "token"]
+    for f in required:
+        if f not in data:
+            return jsonify({"error": "BadRequest", "message": f"Missing field: {f}"}), 400
+
+    payments_service.add_payment_method(
+        user_id=g.user["user_id"],
+        provider=data["provider"],
+        token=data["token"],
+        last4=data.get("last4"),
+        expiry=data.get("expiry"),
+        is_default=bool(data.get("is_default", False)),
+    )
+    return jsonify({"status": "added"}), 201
+
+@users_bp.route("/api/users/me/payments/<int:payment_id>", methods=["DELETE"])
+@require_auth()
+def delete_user_payment(payment_id):
+    payments_service.delete_payment_method(g.user["user_id"], payment_id)
+    return jsonify({"status": "deleted"}), 200
