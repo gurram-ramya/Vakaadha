@@ -41,6 +41,7 @@
     const html = cart.items
       .map((item) => {
         const img = item.image_url || "Images/default.jpg";
+        const name = item.product_name || item.name || "Product";  // ✅ fix name
         const price = (item.price_cents / 100).toFixed(2);
         const subtotal = ((item.price_cents * item.quantity) / 100).toFixed(2);
         let lockBadge = "";
@@ -52,10 +53,10 @@
         return `
           <div class="cart-item" data-id="${item.cart_item_id}">
             <div class="cart-item-left">
-              <img src="${img}" alt="${item.name || "Product"}" />
+              <img src="${img}" alt="${name}" /> <!-- ✅ fixed -->
             </div>
             <div class="cart-item-right">
-              <h3>${item.name || "Product"}</h3>
+              <h3>${name}</h3> <!-- ✅ fixed -->
               <p class="variant">${item.size || ""} ${item.color || ""}</p>
               <p class="price">₹${price}</p>
               ${lockBadge}
@@ -106,6 +107,11 @@
   async function loadCart() {
     try {
       const cart = await CartAPI.get();
+      if (!cart || cart.error) {
+        showEmpty();
+        toast("Unable to load cart", true);
+        return;
+      }
       if (cart?.expired || cart?.status === 410) {
         toast("Your cart session expired", true);
         showEmpty();
@@ -123,6 +129,8 @@
     }
   }
 
+
+
   // ----------------------------
   // Quantity update
   // ----------------------------
@@ -131,6 +139,7 @@
       if (quantity <= 0) return removeItem(id);
       await CartAPI.patch({ cart_item_id: id, quantity });
       await refresh();
+      updateNavbarCounts?.(true); // ADD THIS LINE ✅
     } catch (err) {
       handleError(err, "Failed to update quantity");
     }
@@ -144,10 +153,12 @@
       await CartAPI.remove(id);
       toast("Item removed");
       await refresh();
+      updateNavbarCounts?.(true); // ADD THIS LINE ✅
     } catch (err) {
       handleError(err, "Failed to remove item");
     }
   }
+
 
   // ----------------------------
   // Clear cart
@@ -157,11 +168,11 @@
       await CartAPI.clear();
       toast("Cart cleared");
       await refresh();
+      updateNavbarCounts?.(true); // ADD THIS LINE ✅
     } catch (err) {
       handleError(err, "Failed to clear cart");
     }
   }
-
   // ----------------------------
   // Error handler
   // ----------------------------

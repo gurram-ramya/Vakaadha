@@ -1,6 +1,5 @@
 # __init__.py
 import logging
-from flask import Flask, g, jsonify, send_from_directory
 from flask_cors import CORS
 from pathlib import Path
 from sqlite3 import Error as DBError
@@ -11,7 +10,7 @@ from utils.auth import initialize_firebase
 import uuid, time
 import psutil, os, time
 from utils.cache import user_cache, profile_cache, firebase_token_cache
-
+from flask import Flask, g, jsonify, send_from_directory, request
 
 
 # -------------------------------------------------------------
@@ -88,6 +87,11 @@ def create_app():
     def log_request(response):
         """Structured JSON-style access log for each request."""
         duration = time.time() - g.get("start_time", time.time())
+
+        user_info = None
+        if isinstance(getattr(g, "user", None), dict):
+            user_info = g.user.get("email") or g.user.get("firebase_uid")
+
         log_payload = {
             "event": "request_completed",
             "method": request.method,
@@ -95,13 +99,15 @@ def create_app():
             "status": response.status_code,
             "duration_ms": round(duration * 1000, 2),
             "ip": request.remote_addr,
-            "user": getattr(g, "user", None) and g.user.get("firebase_uid"),
+            "user": user_info,
             "guest_id": getattr(g, "guest_id", None),
             "request_id": g.request_id,
         }
+
         logging.info(log_payload)
         response.headers["X-Request-ID"] = g.request_id
         return response
+
 
     # ---------------------------------------------------------
     # Database lifecycle
@@ -198,18 +204,20 @@ def create_app():
     from routes.users import users_bp
     from routes.cart import cart_bp
     from routes.catalog import catalog_bp
-    from routes.orders import orders_bp
+    from routes.orders import order_bp
     from routes.addresses import addresses_bp
-    from routes.wishlist import wishlist_bp
+    from routes.wishlist import bp as wishlist_bp
+    from routes.payments_service import payments_bp
 
     app.register_blueprint(users_bp)
     app.register_blueprint(cart_bp)
     app.register_blueprint(catalog_bp)
-    app.register_blueprint(orders_bp)
+    app.register_blueprint(order_bp)
     app.register_blueprint(addresses_bp)
     app.register_blueprint(wishlist_bp)
+    app.register_blueprint(payments_bp)
 
-    logging.info("Blueprints registered: users, cart, catalog, orders, addresses, wishlist")
+    logging.info("Blueprints registered: users, cart, catalog, orders, addresses, wishlist, payments")
 
     # ---------------------------------------------------------
     # Apply rate limits to sensitive routes AFTER registration

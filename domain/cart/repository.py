@@ -177,14 +177,23 @@ def check_cart_expired(cart_row: Dict[str, Any]) -> bool:
     """Return True if guest cart TTL expired."""
     if not cart_row:
         return True
-    ttl = cart_row.get("ttl_expires_at")
+
+    # Fix: sqlite3.Row doesn’t have .get()
+    ttl = None
+    if isinstance(cart_row, sqlite3.Row):
+        ttl = cart_row["ttl_expires_at"] if "ttl_expires_at" in cart_row.keys() else None
+    else:
+        ttl = cart_row.get("ttl_expires_at")
+
     if not ttl:
         return False
+
     try:
         exp = datetime.fromisoformat(ttl)
         return datetime.utcnow() > exp
     except Exception:
         return False
+
 
 
 # ----------------------------

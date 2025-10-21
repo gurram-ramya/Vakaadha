@@ -2,7 +2,9 @@
 // navbar.js — Phase 2 Final (with caching + 410 handling)
 // ============================================================
 
-import { apiRequest } from "./api/client.js";
+// import { apiRequest } from "./api/client.js";
+
+console.log("[navbar.js] apiRequest available?", typeof window.apiRequest);
 
 (function () {
   if (window.__navbar_js_bound__) return;

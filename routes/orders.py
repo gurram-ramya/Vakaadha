@@ -7,7 +7,7 @@
 # create a new order, and returns the order_id for the next payment step.
 
 from flask import Blueprint, request, jsonify
-from domain.order import service as order_service
+from domain.orders import service as order_service
 from domain.users import service as user_service
 
 order_bp = Blueprint("order", __name__)

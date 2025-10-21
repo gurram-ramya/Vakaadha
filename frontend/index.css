@@ -1302,3 +1302,9 @@ body {
 .share-options button:hover {
   background: #ddd;
 }
+
+/* Toast (common across pages) */
+#toast {
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+  pointer-events: none;
+}

@@ -1,208 +1,155 @@
-// wishlist.js
+// frontend\wishlist.js
+// wishlist.js — Final Version
+
+import { apiRequest } from "./api/client.js";
+
 (function () {
-  const CART_KEY = "vakaadha_cart_v1";
-  const WISHLIST_KEY = "vakaadha_wishlist_v1";
+  const wishlistContainer = document.getElementById("wishlist-items");
+  const guestPrompt = document.getElementById("wishlist-guest");
 
-  async function getToken() {
-    const user = firebase.auth().currentUser;
-    return user ? await user.getIdToken() : null;
+  // ----------------------------
+  // Toast Helper
+  // ----------------------------
+  function toast(msg, bad = false, ms = 2200) {
+    const toastEl = document.getElementById("toast");
+    if (!toastEl) return alert(msg);
+    toastEl.textContent = msg;
+    toastEl.style.background = bad ? "#b00020" : "#333";
+    toastEl.style.opacity = "1";
+    toastEl.style.visibility = "visible";
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => {
+      toastEl.style.opacity = "0";
+      toastEl.style.visibility = "hidden";
+    }, ms);
   }
 
-  function readLocal() {
-    try { return JSON.parse(localStorage.getItem(WISHLIST_KEY) || "[]"); }
-    catch { return []; }
+  // ----------------------------
+  // Fetch Wishlist
+  // ----------------------------
+  async function loadWishlist() {
+    try {
+      const items = await apiRequest("/api/wishlist");
+      renderWishlist(items);
+      if (guestPrompt) guestPrompt.style.display = "none";
+    } catch (err) {
+      console.warn("Failed to load wishlist:", err);
+      if (err.status === 401 || err.status === 410) {
+        // User not logged in — show guest prompt
+        wishlistContainer.innerHTML = "";
+        if (guestPrompt) guestPrompt.style.display = "block";
+      } else {
+        toast("Error loading wishlist", true);
+      }
+    } finally {
+      window.updateNavbarCounts?.(true);
+    }
   }
-  function writeLocal(val) { localStorage.setItem(WISHLIST_KEY, JSON.stringify(val || [])); }
 
-  function updateNavbarCountsSafe() {
-    if (typeof window.updateNavbarCounts === "function") window.updateNavbarCounts();
-  }
-
-  // -----------------------------------------------------------
-  // Rendering
-  // -----------------------------------------------------------
-  function renderWishlistItems(items) {
-    const container = document.getElementById("wishlist-items");
-    if (!container) return;
-
+  // ----------------------------
+  // Render Wishlist Items
+  // ----------------------------
+  function renderWishlist(items = []) {
+    if (!wishlistContainer) return;
     if (!items.length) {
-      container.innerHTML = `<p>Your wishlist is empty. <a href="index.html">Shop now</a></p>`;
-      updateNavbarCountsSafe();
+      wishlistContainer.innerHTML = `
+        <p class="empty">
+          Your wishlist is empty. <a href="index.html">Shop now</a>
+        </p>`;
       return;
     }
 
-    container.innerHTML = items
-      .map((item, index) => `
-        <div class="wishlist-card">
-          <img src="${item.image_url || item.image || 'images/placeholder.png'}" alt="${item.name}">
-          <h3>${item.name}</h3>
-          <p>₹${item.price}</p>
-          <div class="wishlist-actions">
-            <button class="move-to-cart-btn" data-index="${index}">Move to Cart</button>
-            <button class="remove-from-wishlist-btn" data-index="${index}">Remove</button>
+    wishlistContainer.innerHTML = items
+      .map(
+        (item) => `
+        <div class="wishlist-card" data-id="${item.wishlist_item_id}">
+          <div class="wishlist-img">
+            <img src="${item.image_url || "Images/placeholder.png"}" alt="${item.name || "Product"}">
           </div>
-        </div>
-      `)
+          <div class="wishlist-info">
+            <h3>${item.name || "Product"}</h3>
+            <p class="price">₹${item.price ? Number(item.price).toFixed(0) : "—"}</p>
+            <p class="status ${item.available ? "in-stock" : "out-of-stock"}">
+              ${item.available ? "In Stock" : "Out of Stock"}
+            </p>
+          </div>
+          <div class="wishlist-actions">
+            <button class="move-to-cart" 
+                    data-variant-id="${item.variant_id}" 
+                    ${item.available ? "" : "disabled"}>
+              Move to Bag
+            </button>
+            <button class="remove-item">Remove</button>
+          </div>
+        </div>`
+      )
       .join("");
-    updateNavbarCountsSafe();
   }
 
-  // -----------------------------------------------------------
-  // Guest Wishlist Handlers
-  // -----------------------------------------------------------
-  function renderLocalWishlist() {
-    const wishlist = readLocal();
-    renderWishlistItems(wishlist);
-  }
-
-  function removeLocalWishlist(index) {
-    const wishlist = readLocal();
-    if (index < 0 || index >= wishlist.length) return;
-    wishlist.splice(index, 1);
-    writeLocal(wishlist);
-    renderLocalWishlist();
-  }
-
-  function moveToCartLocal(index) {
-    const wishlist = readLocal();
-    const cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-    if (index < 0 || index >= wishlist.length) return;
-
-    const item = wishlist[index];
-    item.qty = 1;
-
-    const exists = cart.find(c => String(c.id) === String(item.id));
-    if (exists) exists.qty = (Number(exists.qty) || 1) + 1;
-    else cart.push({ ...item, qty: 1 });
-
-    wishlist.splice(index, 1);
-    writeLocal(wishlist);
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-
-    renderLocalWishlist();
-  }
-
-  // -----------------------------------------------------------
-  // Authenticated Wishlist Handlers
-  // -----------------------------------------------------------
-  async function fetchAndRenderWishlist(token) {
+  // ----------------------------
+  // Remove Wishlist Item
+  // ----------------------------
+  async function removeItem(wishlistItemId) {
     try {
-      const res = await fetch("/api/wishlist", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Failed to fetch wishlist");
-      const items = await res.json();
-      renderWishlistItems(items);
-    } catch (err) {
-      console.error("Error loading wishlist:", err);
-      renderLocalWishlist();
-    }
-  }
-
-  async function removeServerWishlist(index) {
-    try {
-      const token = await getToken();
-      const res = await fetch("/api/wishlist", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const items = await res.json();
-      const item = items[index];
-      if (!item) return;
-
-      await fetch(`/api/wishlist/${item.product_id}`, {
+      await apiRequest(`/api/wishlist/${wishlistItemId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
-      await fetchAndRenderWishlist(token);
+      toast("Removed from wishlist ❤️‍🔥");
+      await loadWishlist();
     } catch (err) {
-      console.error("Error removing wishlist item:", err);
+      console.error("Failed to remove wishlist item:", err);
+      toast("Failed to remove item", true);
     }
   }
 
-  async function moveToCartServer(index) {
+  // ----------------------------
+  // Move to Cart
+  // ----------------------------
+  async function moveToCart(variantId, wishlistItemId) {
     try {
-      const token = await getToken();
-      const res = await fetch("/api/wishlist", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const items = await res.json();
-      const item = items[index];
-      if (!item) return;
-
-      await fetch(`/api/cart`, {
+      await apiRequest("/api/wishlist/move-to-cart", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ product_id: item.product_id, qty: 1 }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ variant_id: variantId }),
       });
-
-      await fetch(`/api/wishlist/${item.product_id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      await fetchAndRenderWishlist(token);
+      toast("Moved to bag 🛍️");
+      await removeItem(wishlistItemId);
+      window.updateNavbarCounts?.(true);
     } catch (err) {
-      console.error("Error moving wishlist item to cart:", err);
+      if (err.status === 409) toast("Out of stock", true);
+      else if (err.status === 401 || err.status === 410)
+        toast("Login required to move item", true);
+      else toast("Failed to move item to cart", true);
+      console.error("Move-to-cart failed:", err);
     }
   }
 
-  // -----------------------------------------------------------
-  // Merge Guest Wishlist → Server on Login
-  // -----------------------------------------------------------
-  async function mergeGuestWishlist(token) {
-    const guest = readLocal();
-    if (!guest.length) return;
-
-    const payload = guest.map(item => ({ product_id: item.id || item.product_id }));
-    await fetch("/api/wishlist/merge", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ items: payload }),
-    });
-    localStorage.removeItem(WISHLIST_KEY);
-  }
-
-  // -----------------------------------------------------------
-  // Auth State Initialization
-  // -----------------------------------------------------------
-  firebase.auth().onAuthStateChanged(async (user) => {
-    if (user) {
-      const token = await user.getIdToken();
-      await mergeGuestWishlist(token);
-      await fetchAndRenderWishlist(token);
-    } else {
-      renderLocalWishlist();
-    }
-  });
-
-  // -----------------------------------------------------------
+  // ----------------------------
   // Event Delegation
-  // -----------------------------------------------------------
+  // ----------------------------
   document.addEventListener("click", async (e) => {
-    if (e.target.closest(".remove-from-wishlist-btn")) {
-      const idx = +e.target.closest(".remove-from-wishlist-btn").dataset.index;
-      const user = firebase.auth().currentUser;
-      if (user) await removeServerWishlist(idx);
-      else removeLocalWishlist(idx);
+    const removeBtn = e.target.closest(".remove-item");
+    const moveBtn = e.target.closest(".move-to-cart");
+
+    if (removeBtn) {
+      const card = removeBtn.closest(".wishlist-card");
+      const wishlistItemId = card?.dataset?.id;
+      if (wishlistItemId) await removeItem(wishlistItemId);
     }
 
-    if (e.target.closest(".move-to-cart-btn")) {
-      const idx = +e.target.closest(".move-to-cart-btn").dataset.index;
-      const user = firebase.auth().currentUser;
-      if (user) await moveToCartServer(idx);
-      else moveToCartLocal(idx);
+    if (moveBtn) {
+      const card = moveBtn.closest(".wishlist-card");
+      const wishlistItemId = card?.dataset?.id;
+      const variantId = moveBtn.dataset.variantId;
+      if (variantId) await moveToCart(variantId, wishlistItemId);
     }
   });
 
+  // ----------------------------
+  // Init
+  // ----------------------------
   document.addEventListener("DOMContentLoaded", () => {
-    const user = firebase.auth().currentUser;
-    if (user) user.getIdToken().then(fetchAndRenderWishlist);
-    else renderLocalWishlist();
+    loadWishlist();
   });
 })();
+

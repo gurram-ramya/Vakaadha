@@ -98,6 +98,71 @@
       .replace(/>/g, "&gt;");
   }
 
+  // ============================================================
+  // Wishlist Integration — Connected to /api/wishlist
+  // ============================================================
+
+  
+  // Attach wishlist handlers to heart icons
+  function wireWishlistButtons() {
+    document.querySelectorAll(".wishlist-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const productId = btn.dataset.productId;
+        const variantId = btn.dataset.variantId;
+
+        if (!productId || !variantId) {
+          showToast("Product info missing.");
+          return;
+        }
+
+        try {
+          if (btn.classList.contains("active")) {
+            // Remove from wishlist
+            await removeFromWishlist(productId, variantId);
+            btn.classList.remove("active");
+            showToast("Removed from wishlist ❤️‍🔥");
+          } else {
+            // Add to wishlist
+            await addToWishlist(productId, variantId);
+            btn.classList.add("active");
+            showToast("Added to wishlist ❤️");
+          }
+          if (window.updateNavbarCounts) {
+            window.updateNavbarCounts(true);
+          }
+        } catch (err) {
+          console.error("Wishlist toggle failed:", err);
+          showToast("Login required to save to wishlist");
+        }
+      });
+    });
+  }
+
+  async function addToWishlist(productId, variantId) {
+    return apiRequest("/api/wishlist", {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, variant_id: variantId }),
+    });
+  }
+
+  async function removeFromWishlist(productId, variantId) {
+    // Optional: implement a backend lookup if you have IDs, or use DELETE by variant
+    return apiRequest(`/api/wishlist`, {
+      method: "DELETE",
+      body: JSON.stringify({ product_id: productId, variant_id: variantId }),
+    });
+  }
+
+  // Re-wire wishlist icons after rendering products
+  document.addEventListener("DOMContentLoaded", async () => {
+    await loadProducts();
+    wireWishlistButtons();
+    window.updateNavbarCounts?.(true);
+  });
+
+
+
   // ----------------------------
   // Add to Cart (410 handling)
   // ----------------------------
@@ -138,24 +203,24 @@
     return Number(active.getAttribute("data-variant-id"));
   }
 
-  // ----------------------------
-  // Wishlist add
-  // ----------------------------
-  async function handleWishlist(productCard) {
-    const productId = productCard?.dataset?.id;
-    if (!productId) return;
-    try {
-      await window.apiRequest("/api/wishlist", {
-        method: "POST",
-        body: { product_id: Number(productId) },
-      });
-      toast("Added to wishlist");
-      window.updateNavbarCounts?.(true);
-    } catch (err) {
-      console.warn("Wishlist add failed:", err);
-      toast("Login required for wishlist", true);
-    }
-  }
+  // // ----------------------------
+  // // Wishlist add
+  // // ----------------------------
+  // async function handleWishlist(productCard) {
+  //   const productId = productCard?.dataset?.id;
+  //   if (!productId) return;
+  //   try {
+  //     await window.apiRequest("/api/wishlist", {
+  //       method: "POST",
+  //       body: { product_id: Number(productId) },
+  //     });
+  //     toast("Added to wishlist");
+  //     window.updateNavbarCounts?.(true);
+  //   } catch (err) {
+  //     console.warn("Wishlist add failed:", err);
+  //     toast("Login required for wishlist", true);
+  //   }
+  // }
 
   // ----------------------------
   // Share Modal
@@ -202,7 +267,7 @@
       handleAddToCart(buyBtn.closest(".product-card")).then(
         () => (window.location.href = "cart.html")
       );
-    if (wishBtn) handleWishlist(wishBtn.closest(".product-card"));
+    // if (wishBtn) handleWishlist(wishBtn.closest(".product-card"));
     if (shareBtn) openShare(shareBtn.closest(".product-card"));
   });
 

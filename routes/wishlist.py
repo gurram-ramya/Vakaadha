@@ -1,150 +1,132 @@
 # routes/wishlist.py
 
+"""
+Vakaadha — Wishlist API Routes
+==============================
+
+Endpoints:
+GET    /api/wishlist
+POST   /api/wishlist
+DELETE /api/wishlist/<wishlist_item_id>
+DELETE /api/wishlist/clear
+POST   /api/wishlist/move-to-cart
+GET    /api/wishlist/count
+"""
+
 import logging
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, request, jsonify, g, make_response
 from utils.auth import require_auth
-from db import get_db_connection
+from utils.auth import resolve_guest_context, _set_guest_cookie
 from domain.wishlist import service as wishlist_service
 
-wishlist_bp = Blueprint("wishlist", __name__, url_prefix="/api/wishlist")
+bp = Blueprint("wishlist", __name__, url_prefix="/api/wishlist")
+
 
 # -------------------------------------------------------------
-# GET /api/wishlist
-# Return full wishlist with enriched product data
+# Helpers
 # -------------------------------------------------------------
-@wishlist_bp.route("", methods=["GET"])
-@require_auth()
+# def _resolve_identity():
+#     """Resolve current identity for user or guest context."""
+#     user_id = getattr(g, "user", None)
+#     user_id = user_id["user_id"] if isinstance(user_id, dict) and "user_id" in user_id else user_id
+#     guest_id = _get_guest_id(request)
+#     return user_id, guest_id
+
+
+def _resolve_identity():
+    """Resolve current identity for user or guest context."""
+    user_id = getattr(g, "user", None)
+    user_id = user_id["user_id"] if isinstance(user_id, dict) and "user_id" in user_id else user_id
+
+    guest_id = getattr(g, "guest_id", None)
+    if not guest_id:
+        guest_id = resolve_guest_context()  # ensures guest_id exists
+
+    return user_id, guest_id
+
+# -------------------------------------------------------------
+# Routes
+# -------------------------------------------------------------
+@bp.route("", methods=["GET"])
+@require_auth(optional=True)
 def get_wishlist():
-    try:
-        conn = get_db_connection()
-        user_id = g.user["user_id"]
-
-        wishlist_items = wishlist_service.get_user_wishlist(conn, user_id)
-        return jsonify(wishlist_items), 200
-
-    except Exception as e:
-        logging.exception("Error in GET /api/wishlist")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+    """Return full wishlist."""
+    user_id, guest_id = _resolve_identity()
+    data = wishlist_service.get_wishlist(user_id=user_id, guest_id=guest_id)
+    resp = make_response(jsonify(data), 200)
+    if not guest_id and not user_id:
+        guest_id = _set_guest_cookie(resp)
+    return resp
 
 
-# -------------------------------------------------------------
-# GET /api/wishlist/count
-# Return wishlist item count
-# -------------------------------------------------------------
-@wishlist_bp.route("/count", methods=["GET"])
-@require_auth()
-def get_wishlist_count():
-    try:
-        conn = get_db_connection()
-        user_id = g.user["user_id"]
-
-        count = wishlist_service.get_user_wishlist_count(conn, user_id)
-        return jsonify({"count": count}), 200
-
-    except Exception as e:
-        logging.exception("Error in GET /api/wishlist/count")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-
-# -------------------------------------------------------------
-# POST /api/wishlist
-# Add a product to wishlist
-# -------------------------------------------------------------
-@wishlist_bp.route("", methods=["POST"])
-@require_auth()
+@bp.route("", methods=["POST"])
+@require_auth(optional=True)
 def add_to_wishlist():
+    """Add product/variant to wishlist."""
+    user_id, guest_id = _resolve_identity()
+    body = request.get_json(force=True) or {}
+    product_id = body.get("product_id")
+    variant_id = body.get("variant_id")
+
+    if not (product_id and variant_id):
+        return jsonify({"error": "Missing product_id or variant_id"}), 400
+
     try:
-        conn = get_db_connection()
-        user_id = g.user["user_id"]
-
-        data = request.get_json(silent=True) or {}
-        product_id = data.get("product_id")
-
-        if not product_id:
-            return jsonify({"error": "invalid_request", "message": "Missing product_id"}), 400
-
-        result = wishlist_service.add_to_wishlist(conn, user_id, product_id)
-        conn.commit()
-
-        logging.info({
-            "event": "wishlist_add",
-            "user_id": user_id,
-            "product_id": product_id
-        })
-
-        return jsonify(result), 201
-
+        result = wishlist_service.add_to_wishlist(product_id, variant_id, user_id, guest_id)
+        resp = make_response(jsonify(result), 201)
+        if not user_id and not guest_id:
+            _set_guest_cookie(resp)
+        return resp
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
-        logging.exception("Error in POST /api/wishlist")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        logging.exception("[wishlist] add_to_wishlist failed")
+        return jsonify({"error": "Internal Server Error"}), 500
 
 
-# -------------------------------------------------------------
-# DELETE /api/wishlist/<product_id>
-# Remove product from wishlist
-# -------------------------------------------------------------
-@wishlist_bp.route("/<int:product_id>", methods=["DELETE"])
-@require_auth()
-def remove_from_wishlist(product_id):
+@bp.route("/<int:wishlist_item_id>", methods=["DELETE"])
+@require_auth(optional=True)
+def remove_wishlist_item(wishlist_item_id):
+    """Remove a single wishlist item."""
+    user_id, guest_id = _resolve_identity()
     try:
-        conn = get_db_connection()
-        user_id = g.user["user_id"]
-
-        result = wishlist_service.remove_from_wishlist(conn, user_id, product_id)
-        conn.commit()
-
-        logging.info({
-            "event": "wishlist_remove",
-            "user_id": user_id,
-            "product_id": product_id
-        })
-
-        return jsonify(result), 200
-
+        result = wishlist_service.remove_from_wishlist(wishlist_item_id, user_id, guest_id)
+        return jsonify(result)
     except Exception as e:
-        logging.exception("Error in DELETE /api/wishlist/<product_id>")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        logging.exception("[wishlist] remove failed")
+        return jsonify({"error": str(e)}), 500
 
 
-# -------------------------------------------------------------
-# POST /api/wishlist/merge
-# Merge guest wishlist into user account
-# -------------------------------------------------------------
-@wishlist_bp.route("/merge", methods=["POST"])
-@require_auth()
-def merge_wishlist():
-    try:
-        conn = get_db_connection()
-        user_id = g.user["user_id"]
+@bp.route("/clear", methods=["DELETE"])
+@require_auth(optional=True)
+def clear_wishlist():
+    """Clear entire wishlist."""
+    user_id, guest_id = _resolve_identity()
+    result = wishlist_service.clear_wishlist(user_id, guest_id)
+    return jsonify(result)
 
-        data = request.get_json(silent=True) or {}
-        items = data.get("items", [])
 
-        if not isinstance(items, list):
-            return jsonify({"error": "invalid_request", "message": "items must be a list"}), 400
+@bp.route("/move-to-cart", methods=["POST"])
+@require_auth(optional=True)
+def move_to_cart():
+    """Move a wishlist item to cart."""
+    user_id, guest_id = _resolve_identity()
+    body = request.get_json(force=True) or {}
+    variant_id = body.get("variant_id")
 
-        result = wishlist_service.merge_guest_wishlist(conn, user_id, items)
-        conn.commit()
+    if not variant_id:
+        return jsonify({"error": "Missing variant_id"}), 400
 
-        logging.info({
-            "event": "wishlist_merge",
-            "user_id": user_id,
-            "items_added": result.get("items_added", 0),
-            "items_skipped": result.get("items_skipped", 0)
-        })
+    result = wishlist_service.move_to_cart(variant_id, user_id, guest_id)
+    if result.get("status") == "error" and result.get("code") == 409:
+        return jsonify(result), 409
+    return jsonify(result), 200
 
-        return jsonify(result), 200
 
-    except Exception as e:
-        logging.exception("Error in POST /api/wishlist/merge")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+@bp.route("/count", methods=["GET"])
+@require_auth(optional=True)
+def wishlist_count():
+    """Return wishlist count for navbar polling."""
+    user_id, guest_id = _resolve_identity()
+    count = wishlist_service.get_count(user_id, guest_id)
+    return jsonify({"count": count})
