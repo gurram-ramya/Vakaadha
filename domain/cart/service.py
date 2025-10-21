@@ -1,26 +1,30 @@
-# domain/cart/service.py — final production-safe version
-import sqlite3
+# domain/cart/service.py — Vakaadha Cart Service 2.0
 import logging
+from datetime import datetime, timedelta
 from uuid import uuid4
-from datetime import datetime
+from typing import Optional
 from db import get_db_connection
+from domain.cart import repository as repo
 
 # =============================================================
 # Exception Classes
 # =============================================================
-class GuestCartNotFoundError(Exception):
+class GuestCartExpired(Exception):
     pass
 
-class MergeConflictError(Exception):
+class CartNotFoundError(Exception):
     pass
 
 class InvalidVariantError(Exception):
     pass
 
+class InvalidQuantityError(Exception):
+    pass
+
 class InsufficientStockError(Exception):
     pass
 
-class InvalidQuantityError(Exception):
+class MergeConflictError(Exception):
     pass
 
 class DBError(Exception):
@@ -28,316 +32,225 @@ class DBError(Exception):
 
 
 # =============================================================
-# Helpers
+# Utility Functions
 # =============================================================
-def _get_variant_data(conn, variant_id: int):
-    """Fetch product variant with stock and price."""
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT pv.variant_id,
-               pv.product_id,
-               pv.size,
-               pv.color,
-               pv.price_cents,
-               p.name AS product_name,
-               IFNULL(i.quantity, 0) AS stock
-        FROM product_variants pv
-        JOIN products p ON pv.product_id = p.product_id
-        LEFT JOIN inventory i ON i.variant_id = pv.variant_id
-        WHERE pv.variant_id = ?
-    """, (variant_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        raise InvalidVariantError("Variant not found")
-
-    return {
-        "variant_id": row[0],
-        "product_id": row[1],
-        "size": row[2],
-        "color": row[3],
-        "price_cents": int(row[4]),
-        "price": float(row[4]) / 100.0,
-        "product_name": row[5],
-        "stock": int(row[6]),
-        "is_active": True,
-    }
+def _now():
+    return datetime.utcnow()
 
 
-# =============================================================
-# Core Cart Operations
-# =============================================================
-def get_or_create_guest_cart(guest_id: str):
-    """Return or create a guest cart."""
-    conn = get_db_connection()
+def _safe_int(v):
     try:
-        cursor = conn.cursor()
-        if not guest_id:
-            guest_id = str(uuid4())
+        return int(v)
+    except Exception:
+        return None
 
-        cursor.execute("SELECT cart_id, status FROM carts WHERE guest_id = ?", (guest_id,))
-        row = cursor.fetchone()
 
-        if row:
-            if row["status"] == "converted":
-                raise GuestCartNotFoundError("Guest cart already merged")
-            return {"cart_id": row["cart_id"], "guest_id": guest_id}
+def _record_audit(conn, cart_id, user_id, guest_id, event_type, message):
+    try:
+        repo.insert_audit_event(conn, cart_id, user_id, guest_id, event_type, message)
+    except Exception as e:
+        logging.warning(f"[AUDIT_LOG_FAILED] {e}")
 
-        conn.execute("BEGIN IMMEDIATE")
-        cursor.execute("""
-            INSERT INTO carts (guest_id, status, created_at)
-            VALUES (?, 'active', datetime('now'))
-        """, (guest_id,))
-        cart_id = cursor.lastrowid
-        conn.commit()
 
-        logging.info({
-            "event": "cart_create",
-            "guest_id": guest_id,
-            "cart_id": cart_id
-        })
+# =============================================================
+# Cart Ensurers
+# =============================================================
+def ensure_cart_for_guest(guest_id: str):
+    """
+    Ensures a guest cart exists and enforces TTL.
+    Raises GuestCartExpired if TTL has passed.
+    """
+    if not guest_id:
+        guest_id = str(uuid4())
+
+    conn = get_db_connection()
+    with conn:
+        cart_row = repo.get_cart_by_guest_id(conn, guest_id)
+        if cart_row:
+            if repo.check_cart_expired(cart_row):
+                repo.mark_cart_expired(conn, cart_row["cart_id"])
+                _record_audit(conn, cart_row["cart_id"], None, guest_id, "expire", "Guest cart TTL expired")
+                raise GuestCartExpired("GuestCartExpired")
+            return {"cart_id": cart_row["cart_id"], "guest_id": guest_id}
+
+        # Create new cart
+        cart_id = repo.create_guest_cart(conn, guest_id, ttl_days=7)
+        _record_audit(conn, cart_id, None, guest_id, "create", "Guest cart created")
         return {"cart_id": cart_id, "guest_id": guest_id}
-    except Exception as e:
-        conn.rollback()
-        raise DBError(str(e))
 
 
-def get_cart(cart_id: int):
-    """Return the full contents of a cart."""
+def ensure_cart_for_user(user_id: int):
+    """Ensures an active cart exists for user."""
     conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT ci.variant_id,
-                   pv.product_id,
-                   p.name AS product_name,
-                   pv.size,
-                   pv.color,
-                   ci.quantity,
-                   ci.price_cents,
-                   IFNULL(i.quantity, 0) AS stock
-            FROM cart_items ci
-            JOIN product_variants pv ON ci.variant_id = pv.variant_id
-            JOIN products p ON pv.product_id = p.product_id
-            LEFT JOIN inventory i ON i.variant_id = pv.variant_id
-            WHERE ci.cart_id = ?
-        """, (cart_id,))
-        items = [{
-            "variant_id": r["variant_id"],
-            "product_id": r["product_id"],
-            "product_name": r["product_name"],
-            "size": r["size"],
-            "color": r["color"],
-            "quantity": r["quantity"],
-            "price": float(r["price_cents"]) / 100.0,
-            "stock": r["stock"],
-        } for r in cursor.fetchall()]
-        return {"cart_id": cart_id, "items": items}
-    except Exception as e:
-        raise DBError(str(e))
+    with conn:
+        cart_row = repo.get_cart_by_user_id(conn, user_id)
+        if cart_row:
+            return {"cart_id": cart_row["cart_id"], "user_id": user_id}
+        cart_id = repo.create_user_cart(conn, user_id)
+        _record_audit(conn, cart_id, user_id, None, "create", "User cart created")
+        return {"cart_id": cart_id, "user_id": user_id}
 
 
-def add_to_cart(cart_id: int, variant_id: int, quantity: int):
-    """Add or increment an item in the cart."""
+# =============================================================
+# Core Cart Retrieval
+# =============================================================
+def fetch_cart(cart_id: int):
+    """Return full cart with items + totals. Raises GuestCartExpired if expired."""
+    conn = get_db_connection()
+    with conn:
+        items = repo.get_cart_items(conn, cart_id)
+        totals = repo.compute_cart_totals(conn, cart_id)
+        return {
+            "cart_id": cart_id,
+            "items": [
+                {
+                    "cart_item_id": i["cart_item_id"],
+                    "variant_id": i["variant_id"],
+                    "product_id": i["product_id"],
+                    "product_name": i["product_name"],
+                    "size": i["size"],
+                    "color": i["color"],
+                    "quantity": i["quantity"],
+                    "price": float(i["price_cents"]) / 100.0,
+                    "price_cents": i["price_cents"],
+                    "stock": i["stock"],
+                    "locked_price_until": i["locked_price_until"],
+                }
+                for i in items
+            ],
+            "totals": {
+                "subtotal": float(totals["subtotal_cents"]) / 100.0,
+                "total": float(totals["total_cents"]) / 100.0,
+            },
+        }
+
+
+# =============================================================
+# Add / Update / Remove Items
+# =============================================================
+def add_item(cart_id: int, variant_id: int, quantity: int):
+    """Add a product variant to the cart."""
     if quantity <= 0:
         raise InvalidQuantityError("Quantity must be positive")
 
     conn = get_db_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.cursor()
-
-        variant = _get_variant_data(conn, variant_id)
+    with conn:
+        variant = repo.get_variant_with_price_and_stock(conn, variant_id)
+        if not variant:
+            raise InvalidVariantError("Variant not found")
         if variant["stock"] <= 0:
             raise InsufficientStockError("Out of stock")
 
-        price_cents = variant["price_cents"]
+        repo.add_or_update_cart_item(
+            conn,
+            cart_id,
+            variant_id,
+            min(quantity, variant["stock"]),
+            variant["price_cents"],
+        )
+        _record_audit(conn, cart_id, None, None, "update", f"Added variant {variant_id} (qty={quantity})")
 
-        cursor.execute("SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
-        existing = cursor.fetchone()
-
-        if existing:
-            new_qty = min(existing["quantity"] + quantity, variant["stock"])
-            cursor.execute("""
-                UPDATE cart_items
-                SET quantity = ?, price_cents = ?, updated_at = datetime('now')
-                WHERE cart_id = ? AND variant_id = ?
-            """, (new_qty, price_cents, cart_id, variant_id))
-            action = "update"
-        else:
-            new_qty = min(quantity, variant["stock"])
-            cursor.execute("""
-                INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
-                VALUES (?, ?, ?, ?)
-            """, (cart_id, variant_id, new_qty, price_cents))
-            action = "add"
-
-        conn.commit()
-
-        logging.info({
-            "event": "cart_update",
-            "action": action,
-            "cart_id": cart_id,
-            "variant_id": variant_id,
-            "quantity": new_qty,
-            "price_cents": price_cents,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        return get_cart(cart_id)
-    except Exception as e:
-        conn.rollback()
-        raise DBError(str(e))
+        return fetch_cart(cart_id)
 
 
-def update_cart_item(cart_id: int, variant_id: int, quantity: int):
-    """Change quantity for an existing item."""
+def update_item_quantity(cart_id: int, cart_item_id: int, quantity: int):
+    """Update existing cart item quantity (PATCH)."""
+    if quantity <= 0:
+        remove_item(cart_id, cart_item_id)
+        return fetch_cart(cart_id)
+
     conn = get_db_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.cursor()
-
-        if quantity <= 0:
-            cursor.execute("DELETE FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
-            conn.commit()
-            return get_cart(cart_id)
-
-        variant = _get_variant_data(conn, variant_id)
-        if variant["stock"] <= 0:
-            raise InsufficientStockError("Out of stock")
-
-        new_qty = min(quantity, variant["stock"])
-        cursor.execute("""
-            UPDATE cart_items
-            SET quantity = ?, price_cents = ?, updated_at = datetime('now')
-            WHERE cart_id = ? AND variant_id = ?
-        """, (new_qty, variant["price_cents"], cart_id, variant_id))
-
-        conn.commit()
-        logging.info({
-            "event": "cart_update",
-            "action": "modify",
-            "cart_id": cart_id,
-            "variant_id": variant_id,
-            "quantity": new_qty,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        return get_cart(cart_id)
-    except Exception as e:
-        conn.rollback()
-        raise DBError(str(e))
+    with conn:
+        repo.update_cart_item_quantity(conn, cart_item_id, quantity)
+        _record_audit(conn, cart_id, None, None, "update", f"Updated item {cart_item_id} quantity={quantity}")
+        return fetch_cart(cart_id)
 
 
-def remove_cart_item(cart_id: int, variant_id: int):
-    """Delete a variant from the cart."""
+def remove_item(cart_id: int, cart_item_id: int):
+    """Remove specific cart item."""
     conn = get_db_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM cart_items WHERE cart_id = ? AND variant_id = ?", (cart_id, variant_id))
-        conn.commit()
-        logging.info({"event": "cart_remove", "cart_id": cart_id, "variant_id": variant_id})
-        return get_cart(cart_id)
-    except Exception as e:
-        conn.rollback()
-        raise DBError(str(e))
+    with conn:
+        repo.remove_cart_item(conn, cart_item_id)
+        _record_audit(conn, cart_id, None, None, "delete", f"Removed cart item {cart_item_id}")
+        return fetch_cart(cart_id)
 
 
 def clear_cart(cart_id: int):
-    """Empty the entire cart."""
+    """Clear all items from cart."""
     conn = get_db_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM cart_items WHERE cart_id = ?", (cart_id,))
-        conn.commit()
-        logging.info({"event": "cart_clear", "cart_id": cart_id})
-    except Exception as e:
-        conn.rollback()
-        raise DBError(str(e))
+    with conn:
+        repo.clear_cart_items(conn, cart_id)
+        _record_audit(conn, cart_id, None, None, "clear", "Cleared all items from cart")
 
 
 # =============================================================
-# Merge Logic
+# Merge & Conversion
 # =============================================================
-def merge_guest_cart(user_id: int, guest_id: str):
-    """Merge a guest cart into a user cart."""
+def merge_guest_into_user(user_id: int, guest_id: str):
+    """Merge guest cart items into user cart with quantity reconciliation."""
     conn = get_db_connection()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT cart_id, status FROM carts WHERE guest_id = ?", (guest_id,))
-        guest_cart = cursor.fetchone()
+    with conn:
+        guest_cart = repo.get_cart_by_guest_id(conn, guest_id)
         if not guest_cart:
-            raise GuestCartNotFoundError("Guest cart not found")
-        if guest_cart["status"] == "converted":
-            raise GuestCartNotFoundError("Guest cart already merged")
+            raise CartNotFoundError("Guest cart not found")
+        if guest_cart["status"] in ("converted", "merged"):
+            return {"status": "skipped", "reason": "already merged"}
 
-        cursor.execute("SELECT cart_id FROM carts WHERE user_id = ?", (user_id,))
-        user_cart = cursor.fetchone()
+        user_cart = repo.get_cart_by_user_id(conn, user_id)
         if not user_cart:
-            cursor.execute("""
-                INSERT INTO carts (user_id, status, created_at)
-                VALUES (?, 'active', datetime('now'))
-            """, (user_id,))
-            user_cart_id = cursor.lastrowid
+            user_cart_id = repo.create_user_cart(conn, user_id)
         else:
             user_cart_id = user_cart["cart_id"]
 
-        cursor.execute("SELECT variant_id, quantity FROM cart_items WHERE cart_id = ?", (guest_cart["cart_id"],))
-        guest_items = cursor.fetchall()
+        guest_items = repo.get_cart_items(conn, guest_cart["cart_id"])
+        added, updated = 0, 0
 
-        added, updated, clamped, skipped = 0, 0, 0, 0
         for item in guest_items:
-            variant_id, qty = item["variant_id"], item["quantity"]
+            variant = repo.get_variant_with_price_and_stock(conn, item["variant_id"])
+            if not variant or variant["stock"] <= 0:
+                continue
             try:
-                variant = _get_variant_data(conn, variant_id)
-            except InvalidVariantError:
-                skipped += 1
+                existed = not repo.add_or_update_cart_item(
+                    conn,
+                    user_cart_id,
+                    item["variant_id"],
+                    min(item["quantity"], variant["stock"]),
+                    variant["price_cents"],
+                )
+                updated += int(existed)
+                added += int(not existed)
+            except Exception:
                 continue
 
-            if variant["stock"] <= 0:
-                skipped += 1
-                continue
+        repo.mark_cart_merged(conn, guest_cart["cart_id"])
+        _record_audit(conn, guest_cart["cart_id"], user_id, guest_id, "merge",
+                      f"Merged {added} added, {updated} updated")
+        return {"status": "merged", "added": added, "updated": updated}
 
-            cursor.execute("SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?", (user_cart_id, variant_id))
-            existing = cursor.fetchone()
 
-            if existing:
-                new_qty = min(existing["quantity"] + qty, variant["stock"])
-                cursor.execute("""
-                    UPDATE cart_items
-                    SET quantity = ?, price_cents = ?
-                    WHERE cart_id = ? AND variant_id = ?
-                """, (new_qty, variant["price_cents"], user_cart_id, variant_id))
-                updated += 1
-            else:
-                final_qty = min(qty, variant["stock"])
-                cursor.execute("""
-                    INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents)
-                    VALUES (?, ?, ?, ?)
-                """, (user_cart_id, variant_id, final_qty, variant["price_cents"]))
-                added += 1
+def convert_cart_to_order(cart_id: int):
+    """Marks a cart as converted and readies it for checkout cloning."""
+    conn = get_db_connection()
+    with conn:
+        repo.mark_cart_converted(conn, cart_id)
+        _record_audit(conn, cart_id, None, None, "convert", "Cart converted to order-ready state")
 
-        cursor.execute("UPDATE carts SET status = 'converted' WHERE guest_id = ?", (guest_id,))
-        conn.commit()
 
-        result = {
-            "status": "success",
-            "items_added": added,
-            "items_updated": updated,
-            "items_clamped": clamped,
-            "items_skipped": skipped,
-        }
+# =============================================================
+# Audit Fetch
+# =============================================================
+def get_audit_log(cart_id: int):
+    """Return last 20 audit entries for a given cart."""
+    conn = get_db_connection()
+    with conn:
+        events = repo.get_recent_audit_events(conn, cart_id)
+        return [
+            {
+                "audit_id": e["audit_id"],
+                "event_type": e["event_type"],
+                "message": e["message"],
+                "created_at": e["created_at"],
+            }
+            for e in events
+        ]
 
-        logging.info({
-            "event": "merge_guest_cart",
-            "user_id": user_id,
-            "guest_id": guest_id,
-            "result": result,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        return result
-    except GuestCartNotFoundError:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise MergeConflictError(str(e))

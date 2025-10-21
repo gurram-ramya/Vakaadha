@@ -1,5 +1,6 @@
-// script.js — Homepage product listing & backend-integrated cart actions
-// Requires window.apiRequest (classic client.js) and optional window.updateNavbarCounts()
+// ============================================================
+// script.js — Phase 2 Final (restored product grid + 410 handling)
+// ============================================================
 
 (function () {
   const productGrid = document.getElementById("productGrid");
@@ -26,19 +27,15 @@
   // ----------------------------
   async function loadProducts() {
     try {
-      // Backend route per your catalog.py
       const products = await window.apiRequest("/api/products");
-
       if (!Array.isArray(products) || products.length === 0) {
         productGrid.innerHTML = `<p>No products available.</p>`;
         return;
       }
 
-      productGrid.innerHTML = products
-        .map((prod) => renderProductCard(prod))
-        .join("");
+      productGrid.innerHTML = products.map(renderProductCard).join("");
 
-      // Size button behavior (toggle .active)
+      // Size selection
       productGrid.querySelectorAll(".product-card").forEach((card) => {
         card.querySelectorAll(".size-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -47,7 +44,6 @@
           });
         });
       });
-
     } catch (err) {
       console.error("Failed to load products:", err);
       productGrid.innerHTML = `<p class="error">Error loading products.</p>`;
@@ -59,12 +55,8 @@
     const price = typeof prod.price_cents === "number"
       ? "₹" + (prod.price_cents / 100).toFixed(0)
       : "₹—";
+    const img = prod.image_url ? `Images/${prod.image_url}` : "Images/placeholder.png";
 
-    const img = prod.image_url
-      ? `Images/${prod.image_url}`
-      : "Images/placeholder.png";
-
-    // Build size buttons with data-variant-id for a definite variant resolution
     let sizesHtml = "";
     if (Array.isArray(prod.variants) && prod.variants.length > 0) {
       sizesHtml = `
@@ -88,12 +80,10 @@
             <i class="fas fa-share-alt"></i>
           </button>
         </div>
-
         <img src="${img}" alt="${escapeHtml(prod.name || "Product")}">
         <h3>${escapeHtml(prod.name || "")}</h3>
         <p class="price">${price}</p>
         ${sizesHtml}
-
         <div class="card-actions">
           <button class="btn add-to-cart">Add to Cart</button>
           <button class="btn buy-now">Buy Now</button>
@@ -109,56 +99,47 @@
   }
 
   // ----------------------------
-  // Add to Cart
+  // Add to Cart (410 handling)
   // ----------------------------
   async function handleAddToCart(productCard) {
-    const productId = productCard?.dataset?.id;
-    if (!productId) return;
-
     try {
-      // Determine a valid variant_id
-      const sizeButtons = productCard.querySelectorAll(".size-btn");
-      let variantId = null;
+      const variantId = getSelectedVariant(productCard);
+      if (!variantId) return;
 
-      if (sizeButtons.length > 0) {
-        const active = productCard.querySelector(".size-btn.active");
-        if (!active) {
-          toast("Please select a size", true);
-          return;
-        }
-        variantId = Number(active.getAttribute("data-variant-id"));
-      } else {
-        // No variants exposed; backend must accept product_id as variant_id only if that's your schema.
-        // In your schema, cart expects a real variant_id. If products always have variants, you should
-        // render at least one. If there's truly one implicit variant, you must return it in /api/products.
-        // We fail loudly here to avoid DBError.
-        toast("This product has no selectable variant", true);
-        return;
-      }
-
-      if (!variantId || Number.isNaN(variantId)) {
-        toast("Invalid variant selected", true);
-        return;
-      }
-
-      // POST /api/cart (do NOT add guest_id in URL; backend sets cookie)
       await window.apiRequest("/api/cart", {
         method: "POST",
         body: { variant_id: variantId, quantity: 1 },
       });
 
       toast("Added to cart!");
-      if (typeof window.updateNavbarCounts === "function") {
-        window.updateNavbarCounts();
-      }
+      window.updateNavbarCounts?.(true);
     } catch (err) {
       console.error("Add to cart failed:", err);
-      toast("Failed to add to cart", true);
+      if (err.status === 410) {
+        toast("Session expired. Reloading...", true);
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast("Failed to add to cart", true);
+      }
     }
   }
 
+  function getSelectedVariant(card) {
+    const sizeButtons = card.querySelectorAll(".size-btn");
+    if (!sizeButtons.length) {
+      toast("This product has no selectable variant", true);
+      return null;
+    }
+    const active = card.querySelector(".size-btn.active");
+    if (!active) {
+      toast("Please select a size", true);
+      return null;
+    }
+    return Number(active.getAttribute("data-variant-id"));
+  }
+
   // ----------------------------
-  // Wishlist click (auth required)
+  // Wishlist add
   // ----------------------------
   async function handleWishlist(productCard) {
     const productId = productCard?.dataset?.id;
@@ -169,17 +150,15 @@
         body: { product_id: Number(productId) },
       });
       toast("Added to wishlist");
-      if (typeof window.updateNavbarCounts === "function") {
-        window.updateNavbarCounts();
-      }
+      window.updateNavbarCounts?.(true);
     } catch (err) {
-      console.warn("Wishlist add failed (likely not logged in):", err);
+      console.warn("Wishlist add failed:", err);
       toast("Login required for wishlist", true);
     }
   }
 
   // ----------------------------
-  // Share Modal (optional)
+  // Share Modal
   // ----------------------------
   function openShare(productCard) {
     const pid = productCard?.dataset?.id;
@@ -191,7 +170,6 @@
     const f = document.getElementById("share-facebook");
     const t = document.getElementById("share-twitter");
     const c = document.getElementById("copy-link");
-
     if (!modal || !w || !f || !t || !c) return;
 
     w.href = `https://wa.me/?text=${encodeURIComponent(`${name} - ${url}`)}`;
@@ -219,26 +197,13 @@
     const wishBtn = e.target.closest(".wishlist-btn");
     const shareBtn = e.target.closest(".share-btn");
 
-    if (addBtn) {
-      const card = addBtn.closest(".product-card");
-      handleAddToCart(card);
-    }
-
-    if (buyBtn) {
-      const card = buyBtn.closest(".product-card");
-      // For now, just add to cart then navigate to cart page
-      handleAddToCart(card).then(() => (window.location.href = "cart.html"));
-    }
-
-    if (wishBtn) {
-      const card = wishBtn.closest(".product-card");
-      handleWishlist(card);
-    }
-
-    if (shareBtn) {
-      const card = shareBtn.closest(".product-card");
-      openShare(card);
-    }
+    if (addBtn) handleAddToCart(addBtn.closest(".product-card"));
+    if (buyBtn)
+      handleAddToCart(buyBtn.closest(".product-card")).then(
+        () => (window.location.href = "cart.html")
+      );
+    if (wishBtn) handleWishlist(wishBtn.closest(".product-card"));
+    if (shareBtn) openShare(shareBtn.closest(".product-card"));
   });
 
   // ----------------------------
@@ -246,8 +211,9 @@
   // ----------------------------
   document.addEventListener("DOMContentLoaded", async () => {
     await loadProducts();
-    if (typeof window.updateNavbarCounts === "function") {
-      window.updateNavbarCounts();
-    }
+    window.updateNavbarCounts?.(true);
   });
+
+  // Global access
+  window.toast = toast;
 })();

@@ -67,6 +67,7 @@
     <div id="cart-items" class="cart-items"></div>
 
     <!-- Cart summary -->
+
     <div id="cart-summary" class="cart-summary hidden">
       <div class="summary-line">
         <span>Subtotal:</span>
@@ -76,7 +77,10 @@
         <span>Total:</span>
         <span id="cart-total">₹0.00</span>
       </div>
-      <button id="checkout-btn" class="btn-checkout" disabled>Proceed to Checkout</button>
+      <div class="summary-actions">
+        <button id="clear-cart-btn" class="btn-secondary">Clear Cart</button>
+        <button id="checkout-btn" class="btn-checkout" disabled>Proceed to Checkout</button>
+      </div>
     </div>
   </main>
 
@@ -113,12 +117,31 @@
     </section>
   </div>
 
+  <!-- Toast message -->
+  <div id="toast" style="
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+    "></div>
+
+
   <!-- FOOTER -->
   <footer>
     <p>© 2025 VAKAADHA. All rights reserved.</p>
   </footer>
 
+
+
   <!-- CART LOGIC -->
+  <script src="./api/client.js"></script>
   <script src="./cart.js" defer></script>
 </body>
 </html>

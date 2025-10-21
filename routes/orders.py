@@ -1,78 +1,54 @@
-# routes/orders.py
+# routes/order.py — Checkout API Endpoint (Phase 3)
+# -------------------------------------------------
+# This file exposes the public /api/order/checkout endpoint.
+# The frontend calls this when a user clicks "Proceed to Checkout".
+#
+# It consumes the current cart, calls domain/order/service.py to
+# create a new order, and returns the order_id for the next payment step.
 
-import logging
-from flask import Blueprint, jsonify, request, g
-from utils.auth import require_auth
-from db import get_db_connection
-from domain.orders import service as order_service
+from flask import Blueprint, request, jsonify
+from domain.order import service as order_service
+from domain.users import service as user_service
 
-orders_bp = Blueprint("orders", __name__, url_prefix="/api/orders")
+order_bp = Blueprint("order", __name__)
 
-# -------------------------------------------------------------
-# GET /api/orders
-# List all orders for current user
-# -------------------------------------------------------------
-@orders_bp.route("", methods=["GET"])
-@require_auth()
-def list_orders():
-    conn = get_db_connection()
+@order_bp.route("/api/order/checkout", methods=["POST"])
+def checkout_order():
+    """
+    POST /api/order/checkout
+    Expected JSON body:
+    {
+        "cart_id": 123,
+        "user_id": 45
+    }
+
+    Steps:
+    1. Validate the input JSON
+    2. Call order_service.convert_cart_to_order(cart_id, user_id)
+    3. Return success with the new order_id and total_cents
+    4. Handle any errors with consistent structured JSON responses
+    """
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+    cart_id = data.get("cart_id")
+
+    # 1️⃣ Validate input
+    if not (user_id and cart_id):
+        return jsonify({"error": "BadRequest", "message": "cart_id and user_id required"}), 400
+
     try:
-        user_id = g.user["user_id"]
-        orders = order_service.list_orders(conn, user_id)
-        return jsonify(orders), 200
+        # 2️⃣ Perform checkout transition
+        order = order_service.convert_cart_to_order(int(cart_id), int(user_id))
+
+        # 3️⃣ Return structured success response
+        return jsonify({
+            "status": "success",
+            "order": order
+        }), 200
+
     except Exception as e:
-        logging.exception("Error fetching order list")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-# -------------------------------------------------------------
-# POST /api/orders
-# Create a new order from cart
-# -------------------------------------------------------------
-@orders_bp.route("", methods=["POST"])
-@require_auth()
-def create_order():
-    conn = get_db_connection()
-    try:
-        user_id = g.user["user_id"]
-        data = request.get_json(silent=True) or {}
-        address_id = data.get("address_id")
-        payment_method = data.get("payment_method", "cod")
-
-        if not address_id:
-            return jsonify({"error": "missing_address_id"}), 400
-
-        order = order_service.create_order(conn, user_id, address_id, payment_method)
-        conn.commit()
-        return jsonify(order), 201
-
-    except ValueError as e:
-        conn.rollback()
-        return jsonify({"error": "cart_empty", "message": str(e)}), 400
-    except Exception as e:
-        conn.rollback()
-        logging.exception("Error creating order")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
-
-# -------------------------------------------------------------
-# GET /api/orders/<id>
-# Get single order details
-# -------------------------------------------------------------
-@orders_bp.route("/<int:order_id>", methods=["GET"])
-@require_auth()
-def get_order(order_id):
-    conn = get_db_connection()
-    try:
-        user_id = g.user["user_id"]
-        order = order_service.get_order(conn, user_id, order_id)
-        if not order:
-            return jsonify({"error": "not_found"}), 404
-        return jsonify(order), 200
-    except Exception as e:
-        logging.exception("Error fetching order details")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        # 4️⃣ Safe structured failure (no stacktrace leaks)
+        return jsonify({
+            "error": "CheckoutFailed",
+            "message": str(e)
+        }), 400

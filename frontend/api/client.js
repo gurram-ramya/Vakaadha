@@ -273,6 +273,12 @@
       credentials: "include", // allow cookies for guest_id
     });
 
+    if (res.status === 410) {
+      console.warn("[client.js] Guest cart expired → resetting guest_id");
+      resetGuestId();
+      return { expired: true, status: 410 };
+    }
+
     let data;
     try {
       data = await res.json();
@@ -282,7 +288,9 @@
 
     if (!res.ok) {
       console.error("[API ERROR]", { url, status: res.status, data });
-      throw new Error(data?.error || `API ${res.status}`);
+      const err = new Error(data?.error || `API ${res.status}`);
+      err.status = res.status;
+      throw err;
     }
 
     return data;
@@ -295,6 +303,15 @@
     put: (e, b) => apiRequest(e, { method: "PUT", body: b }),
     delete: (e) => apiRequest(e, { method: "DELETE" }),
   };
+
+  window.CartAPI = {
+    get: () => apiRequest("/api/cart"),
+    patch: (body) => apiRequest("/api/cart", { method: "PATCH", body }),
+    add: (body) => apiRequest("/api/cart", { method: "POST", body }),
+    remove: (id) => apiRequest(`/api/cart/${id}`, { method: "DELETE" }),
+    clear: () => apiRequest("/api/cart/clear", { method: "DELETE" }),
+  };
+
 
   /* ---------------- Global exposure ---------------- */
   window.apiRequest = apiRequest;

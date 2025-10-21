@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS inventory (
   FOREIGN KEY(variant_id) REFERENCES product_variants(variant_id) ON DELETE CASCADE
 );
 
+
 -- =========================
 -- CART
 -- =========================
@@ -140,26 +141,77 @@ CREATE TABLE IF NOT EXISTS carts (
   cart_id       INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       INTEGER UNIQUE,
   guest_id      TEXT UNIQUE,
-  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','converted','abandoned')),
-  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-  updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  status        TEXT NOT NULL DEFAULT 'active'
+                 CHECK (status IN (
+                   'active',       -- currently in use
+                   'converted',    -- checked out successfully
+                   'merged',       -- merged into user cart
+                   'expired',      -- TTL exceeded
+                   'archived'      -- long-term retention
+                 )),
+  ttl_expires_at DATETIME,                  -- computed expiry timestamp for guests
+  merged_at      DATETIME,                  -- when guest cart was merged
+  converted_at   DATETIME,                  -- when order was placed
+  created_at     DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at     DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
+
 CREATE INDEX IF NOT EXISTS idx_carts_user ON carts(user_id);
 CREATE INDEX IF NOT EXISTS idx_carts_guest ON carts(guest_id);
+CREATE INDEX IF NOT EXISTS idx_carts_status ON carts(status);
+CREATE INDEX IF NOT EXISTS idx_carts_ttl ON carts(ttl_expires_at);
 
+-- =========================
+-- CART ITEMS 
+-- =========================
 CREATE TABLE IF NOT EXISTS cart_items (
   cart_item_id  INTEGER PRIMARY KEY AUTOINCREMENT,
   cart_id       INTEGER NOT NULL,
   variant_id    INTEGER NOT NULL,
   quantity      INTEGER NOT NULL CHECK (quantity > 0),
   price_cents   INTEGER NOT NULL,
+  locked_price_until DATETIME,   -- price validity window (24h or until refresh)
+  last_price_refresh DATETIME,   -- last time price was verified
+  last_stock_check   DATETIME,   -- last time stock was validated
   created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   updated_at    DATETIME NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY(cart_id) REFERENCES carts(cart_id) ON DELETE CASCADE,
   FOREIGN KEY(variant_id) REFERENCES product_variants(variant_id) ON DELETE CASCADE
 );
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_items_unique ON cart_items(cart_id, variant_id);
+
+-- =========================
+-- CART AUDIT LOG
+-- =========================
+CREATE TABLE IF NOT EXISTS cart_audit_log (
+  audit_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  cart_id       INTEGER NOT NULL,
+  user_id       INTEGER,
+  guest_id      TEXT,
+  event_type    TEXT NOT NULL CHECK (event_type IN ('merge','convert','expire','archive','delete','update')),
+  message       TEXT,
+  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(cart_id) REFERENCES carts(cart_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_cart_audit_cart ON cart_audit_log(cart_id);
+CREATE INDEX IF NOT EXISTS idx_cart_audit_event ON cart_audit_log(event_type);
+
+-- =========================
+-- DELETION JOURNAL (for compliance)
+-- =========================
+CREATE TABLE IF NOT EXISTS deletion_journal (
+  journal_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name    TEXT NOT NULL,
+  record_id     INTEGER,
+  deleted_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  extra_info    TEXT
+);
+
+
+
 
 -- =========================
 -- ORDERS
@@ -167,6 +219,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_items_unique ON cart_items(cart_id, v
 CREATE TABLE IF NOT EXISTS orders (
   order_id        INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id         INTEGER NOT NULL,
+  source_cart_id  INTEGER REFERENCES carts(cart_id) ON DELETE SET NULL;
   order_no        TEXT UNIQUE,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','shipped','delivered','cancelled')),
   payment_method  TEXT,
@@ -406,7 +459,7 @@ CREATE TRIGGER IF NOT EXISTS trg_details_ad AFTER DELETE ON product_details BEGI
 END;
 
 -- =========================
--- CART ITEM TRIGGERS
+-- CART TRIGGERS (timestamps + auditing)
 -- =========================
 CREATE TRIGGER IF NOT EXISTS trg_cart_items_au
 AFTER UPDATE ON cart_items
@@ -423,6 +476,33 @@ BEGIN
   SET created_at = COALESCE(created_at, datetime('now')),
       updated_at = datetime('now')
   WHERE cart_item_id = new.cart_item_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_carts_au
+AFTER UPDATE ON carts
+BEGIN
+  UPDATE carts
+  SET updated_at = datetime('now')
+  WHERE cart_id = new.cart_id;
+
+  INSERT INTO cart_audit_log (cart_id, user_id, guest_id, event_type, message)
+  SELECT
+    new.cart_id,
+    new.user_id,
+    new.guest_id,
+    CASE
+      WHEN old.status != new.status THEN new.status
+      ELSE 'update'
+    END,
+    'Cart status change from ' || old.status || ' → ' || new.status
+  WHERE old.status != new.status;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_cart_delete_journal
+AFTER DELETE ON carts
+BEGIN
+  INSERT INTO deletion_journal (table_name, record_id, extra_info)
+  VALUES ('carts', old.cart_id, 'Cascade delete triggered by user/cart cleanup');
 END;
 
 """

@@ -1,6 +1,7 @@
+// ============================================================
+// navbar.js — Phase 2 Final (with caching + 410 handling)
+// ============================================================
 
-
-// navbar.js — unified for guest + user carts
 import { apiRequest } from "./api/client.js";
 
 (function () {
@@ -10,53 +11,74 @@ import { apiRequest } from "./api/client.js";
   const CART_ENDPOINT = "/api/cart";
   const WISHLIST_COUNT_ENDPOINT = "/api/wishlist/count";
 
-  // =============================================================
-  // Fetch Cart Count — supports both guest + logged-in users
-  // =============================================================
-  async function fetchCartCount() {
+  // Shared cache across pages
+  window.appState = window.appState || {
+    cartCount: 0,
+    wishlistCount: 0,
+    lastFetch: 0,
+  };
+
+  // ------------------------------------------------------------
+  // Fetch Cart Count (with 410 handling)
+  // ------------------------------------------------------------
+  async function fetchCartCount(force = false) {
+    const now = Date.now();
+    if (!force && now - window.appState.lastFetch < 60000) {
+      return window.appState.cartCount;
+    }
     try {
       const data = await apiRequest(CART_ENDPOINT, { method: "GET" });
-
-      // ✅ backend returns { cart_id, items }
-      if (!data || !Array.isArray(data.items)) return 0;
-
-      // ✅ sum of item quantities
-      return data.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+      window.appState.cartCount = count;
+      window.appState.lastFetch = now;
+      return count;
     } catch (err) {
-      console.warn("Cart count update failed:", err);
+      if (err.status === 410) {
+        console.warn("Guest cart expired");
+        window.appState.cartCount = 0;
+        return 0;
+      }
+      console.warn("Cart count fetch failed:", err);
       return 0;
     }
   }
 
-  // =============================================================
-  // Fetch Wishlist Count (only if user logged in)
-  // =============================================================
-  async function fetchWishlistCount() {
+  // ------------------------------------------------------------
+  // Fetch Wishlist Count
+  // ------------------------------------------------------------
+  async function fetchWishlistCount(force = false) {
+    const now = Date.now();
+    if (!force && now - window.appState.lastFetch < 60000) {
+      return window.appState.wishlistCount;
+    }
     const token = localStorage.getItem("auth_token");
     if (!token) return 0;
 
     try {
       const res = await apiRequest(WISHLIST_COUNT_ENDPOINT, { method: "GET" });
-      if (!res || typeof res.count !== "number") return 0;
-      return res.count;
+      const count = typeof res.count === "number" ? res.count : 0;
+      window.appState.wishlistCount = count;
+      window.appState.lastFetch = now;
+      return count;
     } catch (err) {
-      console.warn("Wishlist count update failed:", err);
+      console.warn("Wishlist count fetch failed:", err);
       return 0;
     }
   }
 
-  // =============================================================
+  // ------------------------------------------------------------
   // Update Navbar Counts
-  // =============================================================
-  async function updateNavbarCounts() {
+  // ------------------------------------------------------------
+  async function updateNavbarCounts(force = false) {
     const cartEl = document.getElementById("cartCount");
     const wishEl = document.getElementById("wishlistCount");
     if (!cartEl && !wishEl) return;
 
     try {
       const [cartCount, wishlistCount] = await Promise.all([
-        fetchCartCount(),
-        fetchWishlistCount(),
+        fetchCartCount(force),
+        fetchWishlistCount(force),
       ]);
 
       if (cartEl) cartEl.textContent = cartCount || 0;
@@ -68,9 +90,9 @@ import { apiRequest } from "./api/client.js";
     }
   }
 
-  // =============================================================
+  // ------------------------------------------------------------
   // Update Navbar User Info
-  // =============================================================
+  // ------------------------------------------------------------
   function updateNavbarUser(user) {
     const loginLink = document.getElementById("loginLink");
     const profileLink = document.getElementById("profileLink");
@@ -78,7 +100,6 @@ import { apiRequest } from "./api/client.js";
     const userDisplay = document.getElementById("user-display");
 
     const isAuth = !!(user && (user.name || user.email));
-
     if (userDisplay)
       userDisplay.textContent = isAuth ? (user.name || user.email || "") : "";
 
@@ -87,17 +108,17 @@ import { apiRequest } from "./api/client.js";
     if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
   }
 
-  // =============================================================
+  // ------------------------------------------------------------
   // Wire Logout Handler
-  // =============================================================
+  // ------------------------------------------------------------
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
-
     logoutLink.addEventListener("click", async (e) => {
       e.preventDefault();
       try {
         await window.auth.logout();
+        window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
         window.location.href = "index.html";
       } catch (err) {
         console.warn("Logout failed:", err);
@@ -105,9 +126,9 @@ import { apiRequest } from "./api/client.js";
     });
   }
 
-  // =============================================================
-  // Initialize Navbar
-  // =============================================================
+  // ------------------------------------------------------------
+  // Init
+  // ------------------------------------------------------------
   document.addEventListener("DOMContentLoaded", async () => {
     try {
       const user = await window.auth.getCurrentUser();
@@ -116,10 +137,13 @@ import { apiRequest } from "./api/client.js";
       updateNavbarUser(null);
     }
 
-    await updateNavbarCounts();
+    await updateNavbarCounts(true);
     wireLogout();
 
-    // Expose globally for product.js & script.js
+    // Periodic refresh every 60s
+    setInterval(() => updateNavbarCounts(false), 60000);
+
+    // Global access
     window.updateNavbarCounts = updateNavbarCounts;
     window.updateNavbarUser = updateNavbarUser;
   });

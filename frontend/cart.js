@@ -1,95 +1,230 @@
-// cart.js
-import { apiRequest } from "./api/client.js";
+// ============================================================
+// cart.js — Vakaadha Cart Service Frontend (Phase 2 Final)
+// REST-aligned, consistent with existing cart.html + styles
+// ============================================================
 
 (function () {
-  async function renderCart() {
-    const emptyEl = document.getElementById("cart-empty");
-    const container = document.getElementById("cart-items");
-    const summary = document.getElementById("cart-summary");
-    if (!container || !summary || !emptyEl) return;
+  const itemsContainer = document.getElementById("cart-items");
+  const emptyEl = document.getElementById("cart-empty");
+  const summaryEl = document.getElementById("cart-summary");
+  const subtotalEl = document.getElementById("cart-subtotal");
+  const totalEl = document.getElementById("cart-total");
+  const checkoutBtn = document.getElementById("checkout-btn");
+  const clearBtn = document.getElementById("clear-cart-btn");
+  const toastEl = document.getElementById("toast");
 
+  // ----------------------------
+  // Toast utility
+  // ----------------------------
+  function toast(msg, bad = false, ms = 2200) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.style.background = bad ? "#b00020" : "#333";
+    toastEl.style.opacity = "1";
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => (toastEl.style.opacity = "0"), ms);
+  }
+
+  // ----------------------------
+  // Render cart contents
+  // ----------------------------
+  function renderCart(cart) {
+    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+      showEmpty();
+      return;
+    }
+
+    emptyEl.classList.add("hidden");
+    summaryEl.classList.remove("hidden");
+    checkoutBtn.disabled = false;
+
+    const html = cart.items
+      .map((item) => {
+        const img = item.image_url || "Images/default.jpg";
+        const price = (item.price_cents / 100).toFixed(2);
+        const subtotal = ((item.price_cents * item.quantity) / 100).toFixed(2);
+        let lockBadge = "";
+        if (item.locked_price_until && new Date(item.locked_price_until) > new Date()) {
+          const until = new Date(item.locked_price_until).toLocaleDateString();
+          lockBadge = `<div class="lock-badge">Locked until ${until}</div>`;
+        }
+
+        return `
+          <div class="cart-item" data-id="${item.cart_item_id}">
+            <div class="cart-item-left">
+              <img src="${img}" alt="${item.name || "Product"}" />
+            </div>
+            <div class="cart-item-right">
+              <h3>${item.name || "Product"}</h3>
+              <p class="variant">${item.size || ""} ${item.color || ""}</p>
+              <p class="price">₹${price}</p>
+              ${lockBadge}
+              <div class="quantity-control">
+                <button class="qty-btn minus">−</button>
+                <input type="number" min="1" value="${item.quantity}" />
+                <button class="qty-btn plus">+</button>
+              </div>
+              <div class="item-actions">
+                <span class="item-subtotal">₹${subtotal}</span>
+                <button class="remove-btn"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+          </div>`;
+      })
+      .join("");
+
+    itemsContainer.innerHTML = html;
+
+    // Totals
+    const subtotal =
+      cart.totals?.subtotal_cents ??
+      cart.items.reduce((s, i) => s + i.price_cents * i.quantity, 0);
+    const total =
+      cart.totals?.total_cents ??
+      cart.items.reduce((s, i) => s + i.price_cents * i.quantity, 0);
+
+    subtotalEl.textContent = `₹${(subtotal / 100).toFixed(2)}`;
+    totalEl.textContent = `₹${(total / 100).toFixed(2)}`;
+  }
+
+  // ----------------------------
+  // Empty-state helper
+  // ----------------------------
+  function showEmpty() {
+    itemsContainer.innerHTML = "";
+    emptyEl.classList.remove("hidden");
+    summaryEl.classList.add("hidden");
+    checkoutBtn.disabled = true;
+    subtotalEl.textContent = "₹0.00";
+    totalEl.textContent = "₹0.00";
+    updateNavbarCounts?.(true);
+  }
+
+  // ----------------------------
+  // Fetch + render
+  // ----------------------------
+  async function loadCart() {
     try {
-      const cart = await apiRequest("/api/cart");
-      const items = cart.items || [];
-
-      container.innerHTML = "";
-      summary.classList.add("hidden");
-      emptyEl.classList.add("hidden");
-
-      if (items.length === 0) {
-        emptyEl.classList.remove("hidden");
-        if (typeof updateNavbarCounts === "function") updateNavbarCounts();
+      const cart = await CartAPI.get();
+      if (cart?.expired || cart?.status === 410) {
+        toast("Your cart session expired", true);
+        showEmpty();
         return;
       }
-
-      let subtotal = 0;
-      items.forEach((item) => {
-        subtotal += item.subtotal || 0;
-        const row = document.createElement("div");
-        row.classList.add("cart-item");
-        row.innerHTML = `
-          <img src="${item.image_url || "Images/default.jpg"}" alt="${item.product_name}">
-          <div class="details">
-            <h3>${item.product_name}</h3>
-            <p>${item.variant?.size || ""} ${item.variant?.color || ""} ${item.variant?.sku || ""}</p>
-            <p>₹${item.price.toFixed(2)}</p>
-            <div class="qty-controls">
-              <input type="number" min="1" value="${item.quantity}" class="qty-input" data-id="${item.cart_item_id}">
-            </div>
-            <p class="subtotal">Subtotal: ₹${item.subtotal.toFixed(2)}</p>
-            <button class="remove-btn" data-id="${item.cart_item_id}">Remove</button>
-            <div class="error-msg" id="err-${item.cart_item_id}"></div>
-          </div>
-        `;
-        container.appendChild(row);
-      });
-
-      document.getElementById("cart-subtotal").textContent = `₹${subtotal.toFixed(2)}`;
-      document.getElementById("cart-total").textContent = `₹${subtotal.toFixed(2)}`;
-      const checkoutBtn = document.getElementById("checkout-btn");
-      checkoutBtn.disabled = items.length === 0;
-      summary.classList.remove("hidden");
-
-      container.querySelectorAll(".qty-input").forEach((input) => {
-        input.addEventListener("change", async (e) => {
-          const id = e.target.dataset.id;
-          const qty = parseInt(e.target.value, 10);
-          if (qty < 1) {
-            e.target.value = 1;
-            return;
-          }
-          try {
-            await apiRequest(`/api/cart/${id}`, { method: "PUT", body: { quantity: qty } });
-            renderCart();
-          } catch (err) {
-            document.getElementById(`err-${id}`).textContent = err.message;
-          }
-        });
-      });
-
-      container.querySelectorAll(".remove-btn").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const id = btn.dataset.id;
-          try {
-            await apiRequest(`/api/cart/${id}`, { method: "DELETE" });
-            renderCart();
-          } catch (err) {
-            document.getElementById(`err-${id}`).textContent = err.message;
-          }
-        });
-      });
-
-      checkoutBtn.onclick = () => {
-        if (items.length === 0) return;
-        window.location.href = "checkout.html";
-      };
-
-      if (typeof updateNavbarCounts === "function") updateNavbarCounts();
+      renderCart(cart);
     } catch (err) {
-      emptyEl.innerHTML = `<p class="error">Failed to load cart: ${err.message}</p>`;
-      emptyEl.classList.remove("hidden");
+      if (err.status === 410) {
+        toast("Your cart session expired", true);
+        showEmpty();
+      } else {
+        console.error("Cart load failed:", err);
+        toast("Error loading cart", true);
+      }
     }
   }
 
-  document.addEventListener("DOMContentLoaded", renderCart);
+  // ----------------------------
+  // Quantity update
+  // ----------------------------
+  async function updateQuantity(id, quantity) {
+    try {
+      if (quantity <= 0) return removeItem(id);
+      await CartAPI.patch({ cart_item_id: id, quantity });
+      await refresh();
+    } catch (err) {
+      handleError(err, "Failed to update quantity");
+    }
+  }
+
+  // ----------------------------
+  // Remove item
+  // ----------------------------
+  async function removeItem(id) {
+    try {
+      await CartAPI.remove(id);
+      toast("Item removed");
+      await refresh();
+    } catch (err) {
+      handleError(err, "Failed to remove item");
+    }
+  }
+
+  // ----------------------------
+  // Clear cart
+  // ----------------------------
+  async function clearCart() {
+    try {
+      await CartAPI.clear();
+      toast("Cart cleared");
+      await refresh();
+    } catch (err) {
+      handleError(err, "Failed to clear cart");
+    }
+  }
+
+  // ----------------------------
+  // Error handler
+  // ----------------------------
+  function handleError(err, fallback) {
+    if (!err) return toast(fallback, true);
+    switch (err.status) {
+      case 400:
+        toast("Bad request", true);
+        break;
+      case 409:
+        toast("Out of stock or inventory updated", true);
+        break;
+      case 410:
+        toast("Cart expired", true);
+        showEmpty();
+        break;
+      default:
+        toast(fallback, true);
+    }
+  }
+
+  // ----------------------------
+  // Refresh cart + navbar
+  // ----------------------------
+  async function refresh() {
+    await loadCart();
+    updateNavbarCounts?.(true);
+  }
+
+  // ----------------------------
+  // Event delegation
+  // ----------------------------
+  document.addEventListener("click", (e) => {
+    const minus = e.target.closest(".qty-btn.minus");
+    const plus = e.target.closest(".qty-btn.plus");
+    const remove = e.target.closest(".remove-btn");
+    const clear = e.target.closest("#clear-cart-btn");
+    const checkout = e.target.closest("#checkout-btn");
+
+    if (minus || plus) {
+      const item = e.target.closest(".cart-item");
+      const input = item.querySelector("input");
+      let qty = Number(input.value);
+      qty += plus ? 1 : -1;
+      if (qty < 1) qty = 1;
+      input.value = qty;
+      updateQuantity(Number(item.dataset.id), qty);
+    }
+
+    if (remove) {
+      const id = Number(e.target.closest(".cart-item").dataset.id);
+      removeItem(id);
+    }
+
+    if (clear) clearCart();
+
+    if (checkout) window.location.href = "checkout.html";
+  });
+
+  // ----------------------------
+  // Init
+  // ----------------------------
+  document.addEventListener("DOMContentLoaded", () => {
+    loadCart();
+  });
 })();
