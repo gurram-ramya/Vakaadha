@@ -105,16 +105,25 @@
   
   // Attach wishlist handlers to heart icons
   function wireWishlistButtons() {
+    console.log("[wireWishlistButtons] Binding wishlist buttons...");
     document.querySelectorAll(".wishlist-btn").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
-        const productId = btn.dataset.productId;
-        const variantId = btn.dataset.variantId;
+        let productId = btn.dataset.productId;
+        let variantId = btn.dataset.variantId;
+
+        // fallback: try to grab active size button if variantId missing
+        if (!variantId) {
+          const active = btn.closest(".product-card")?.querySelector(".size-btn.active");
+          if (active) variantId = active.dataset.variantId;
+        }
 
         if (!productId || !variantId) {
-          showToast("Product info missing.");
+          toast("⚠️ Missing product or variant info.");
+          console.warn("[wishlist] Missing product or variant:", { productId, variantId });
           return;
         }
+
 
         try {
           if (btn.classList.contains("active")) {
@@ -140,7 +149,7 @@
   }
 
   async function addToWishlist(productId, variantId) {
-    return apiRequest("/api/wishlist", {
+    return window.apiRequest("/api/wishlist", {
       method: "POST",
       body: JSON.stringify({ product_id: productId, variant_id: variantId }),
     });

@@ -29,7 +29,7 @@ import { apiRequest } from "./api/client.js";
   // ----------------------------
   async function loadWishlist() {
     try {
-      const items = await apiRequest("/api/wishlist");
+      const items = await window.apiRequest("/api/wishlist");
       renderWishlist(items);
       if (guestPrompt) guestPrompt.style.display = "none";
     } catch (err) {
