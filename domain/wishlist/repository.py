@@ -1,36 +1,33 @@
 # domain/wishlist/repository.py
 
 """
-Vakaadha — Wishlist Repository Layer
-====================================
+Vakaadha — Wishlist Repository Layer (Product-level Schema)
+===========================================================
 
 This module provides low-level SQL access for wishlist operations.
 
-Responsibilities:
-- CRUD operations on wishlist_items
-- Guest ↔ User identity handling
-- Enrichment joins with products, product_variants, inventory
-- Merge guest wishlist into user wishlist
-- Lightweight audit logging to wishlist_audit
+Updated for simplified schema:
+- Wishlist uniqueness is now (user_id, product_id) or (guest_id, product_id)
+- variant_id is optional (used only for enrichment and move-to-cart)
 """
 
 import logging
 from typing import Optional
 from db import get_db_connection, transaction, query_all
 
-# Toggle audit logging globally (can later move to config.py)
 ENABLE_WISHLIST_AUDIT = True
 
 
 # -------------------------------------------------------------
 # CRUD OPERATIONS
 # -------------------------------------------------------------
-def add_item(product_id: int, variant_id: int,
+def add_item(product_id: int,
              user_id: Optional[int] = None,
-             guest_id: Optional[str] = None) -> None:
+             guest_id: Optional[str] = None,
+             variant_id: Optional[int] = None) -> None:
     """
     Insert or update a wishlist item atomically.
-    Ensures uniqueness by (user_id OR guest_id, variant_id).
+    Ensures uniqueness by (user_id OR guest_id, product_id).
     """
     if not (user_id or guest_id):
         raise ValueError("Either user_id or guest_id must be provided")
@@ -40,37 +37,41 @@ def add_item(product_id: int, variant_id: int,
             con.execute("""
                 INSERT INTO wishlist_items (user_id, product_id, variant_id, created_at)
                 VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(user_id, variant_id) DO UPDATE SET updated_at = datetime('now');
+                ON CONFLICT(user_id, product_id) DO UPDATE
+                    SET updated_at = datetime('now');
             """, (user_id, product_id, variant_id))
         else:
             con.execute("""
                 INSERT INTO wishlist_items (guest_id, product_id, variant_id, created_at)
                 VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(guest_id, variant_id) DO UPDATE SET updated_at = datetime('now');
+                ON CONFLICT(guest_id, product_id) DO UPDATE
+                    SET updated_at = datetime('now');
             """, (guest_id, product_id, variant_id))
 
         if ENABLE_WISHLIST_AUDIT:
             log_audit("add", user_id, guest_id, product_id, variant_id, con=con)
 
 
-def remove_item(wishlist_item_id: int,
+def remove_item(product_id: int,
                 user_id: Optional[int] = None,
                 guest_id: Optional[str] = None) -> int:
     """
-    Delete a specific wishlist item.
-    Returns number of rows affected.
+    Delete a wishlist item by product ID for a given user or guest.
+    Returns the number of rows affected.
     """
+    if not (user_id or guest_id):
+        raise ValueError("Either user_id or guest_id must be provided")
+
     with transaction() as con:
-        # Retrieve info for audit before delete
         row = con.execute("""
             SELECT product_id, variant_id FROM wishlist_items
-            WHERE wishlist_item_id = ? AND (user_id = ? OR guest_id = ?)
-        """, (wishlist_item_id, user_id, guest_id)).fetchone()
+            WHERE product_id = ? AND (user_id = ? OR guest_id = ?)
+        """, (product_id, user_id, guest_id)).fetchone()
 
         cur = con.execute("""
             DELETE FROM wishlist_items
-            WHERE wishlist_item_id = ? AND (user_id = ? OR guest_id = ?)
-        """, (wishlist_item_id, user_id, guest_id))
+            WHERE product_id = ? AND (user_id = ? OR guest_id = ?)
+        """, (product_id, user_id, guest_id))
         count = cur.rowcount
 
         if ENABLE_WISHLIST_AUDIT and row:
@@ -83,6 +84,9 @@ def clear(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> int:
     """
     Remove all wishlist items for a given identity.
     """
+    if not (user_id or guest_id):
+        return 0
+
     with transaction() as con:
         if ENABLE_WISHLIST_AUDIT:
             con.execute("""
@@ -104,14 +108,13 @@ def get_items(user_id: Optional[int] = None,
               guest_id: Optional[str] = None) -> list[dict]:
     """
     Retrieve wishlist items with enrichment data.
-    Returns list of dictionaries suitable for JSON serialization.
+    Supports both logged-in and guest users.
     """
     if not (user_id or guest_id):
         return []
 
     sql = """
         SELECT
-            w.wishlist_id AS wishlist_item_id,
             w.product_id,
             w.variant_id,
             p.name,
@@ -131,10 +134,9 @@ def get_items(user_id: Optional[int] = None,
     return [dict(row) | {"available": bool(row["available"])} for row in rows]
 
 
-
 def count_items(user_id: Optional[int] = None,
                 guest_id: Optional[str] = None) -> int:
-    """Return total count for navbar refresh."""
+    """Return total wishlist count (for navbar refresh)."""
     con = get_db_connection()
     cur = con.execute("""
         SELECT COUNT(*) AS c FROM wishlist_items
@@ -150,10 +152,9 @@ def count_items(user_id: Optional[int] = None,
 def merge_guest_into_user(user_id: int, guest_id: str) -> int:
     """
     Merge all guest wishlist items into the user's wishlist.
-    Deduplicates on (user_id, variant_id).
+    Deduplicates on (user_id, product_id).
     """
     with transaction() as con:
-        # Merge guest → user (ignore duplicates)
         cur = con.execute("""
             INSERT OR IGNORE INTO wishlist_items (user_id, product_id, variant_id, created_at)
             SELECT ?, product_id, variant_id, datetime('now')
@@ -162,10 +163,8 @@ def merge_guest_into_user(user_id: int, guest_id: str) -> int:
         """, (user_id, guest_id))
         merged_count = cur.rowcount
 
-        # Clean up guest entries
         con.execute("DELETE FROM wishlist_items WHERE guest_id = ?", (guest_id,))
 
-        # Optional audit
         if ENABLE_WISHLIST_AUDIT and merged_count > 0:
             con.execute("""
                 INSERT INTO wishlist_audit (user_id, guest_id, product_id, variant_id, action)

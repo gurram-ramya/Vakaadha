@@ -103,74 +103,54 @@
   // ============================================================
 
   
-  // Attach wishlist handlers to heart icons
   function wireWishlistButtons() {
     console.log("[wireWishlistButtons] Binding wishlist buttons...");
     document.querySelectorAll(".wishlist-btn").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.preventDefault();
-        let productId = btn.dataset.productId;
-        let variantId = btn.dataset.variantId;
+        const productId = btn.dataset.productId;
 
-        // fallback: try to grab active size button if variantId missing
-        if (!variantId) {
-          const active = btn.closest(".product-card")?.querySelector(".size-btn.active");
-          if (active) variantId = active.dataset.variantId;
-        }
-
-        if (!productId || !variantId) {
-          toast("⚠️ Missing product or variant info.");
-          console.warn("[wishlist] Missing product or variant:", { productId, variantId });
+        if (!productId) {
+          showToast("⚠️ Missing product info.");
+          console.warn("[wishlist] Missing product:", { productId });
           return;
         }
 
-
         try {
           if (btn.classList.contains("active")) {
-            // Remove from wishlist
-            await removeFromWishlist(productId, variantId);
+            await removeFromWishlist(productId);
             btn.classList.remove("active");
             showToast("Removed from wishlist ❤️‍🔥");
           } else {
-            // Add to wishlist
-            await addToWishlist(productId, variantId);
+            await addToWishlist(productId);
             btn.classList.add("active");
             showToast("Added to wishlist ❤️");
           }
-          if (window.updateNavbarCounts) {
-            window.updateNavbarCounts(true);
-          }
+
+          // update navbar wishlist count
+          if (window.updateNavbarCounts) window.updateNavbarCounts(true);
         } catch (err) {
-          console.error("Wishlist toggle failed:", err);
-          showToast("Login required to save to wishlist");
+          console.error("[wishlist] Toggle failed:", err);
+          showToast("Unable to update wishlist ❌");
         }
       });
     });
   }
 
-  async function addToWishlist(productId, variantId) {
+
+  async function addToWishlist(productId) {
     return window.apiRequest("/api/wishlist", {
       method: "POST",
-      body: JSON.stringify({ product_id: productId, variant_id: variantId }),
+      body: { product_id: productId },
     });
   }
 
-  async function removeFromWishlist(productId, variantId) {
-    // Optional: implement a backend lookup if you have IDs, or use DELETE by variant
-    return apiRequest(`/api/wishlist`, {
+  async function removeFromWishlist(productId) {
+    return window.apiRequest("/api/wishlist", {
       method: "DELETE",
-      body: JSON.stringify({ product_id: productId, variant_id: variantId }),
+      body: { product_id: productId },
     });
   }
-
-  // Re-wire wishlist icons after rendering products
-  document.addEventListener("DOMContentLoaded", async () => {
-    await loadProducts();
-    wireWishlistButtons();
-    window.updateNavbarCounts?.(true);
-  });
-
-
 
   // ----------------------------
   // Add to Cart (410 handling)
@@ -189,6 +169,8 @@
       window.updateNavbarCounts?.(true);
     } catch (err) {
       console.error("Add to cart failed:", err);
+      console.error("Wishlist toggle failed:", err);
+showToast(`Wishlist error: ${err.message || "Unexpected"}`, true);
       if (err.status === 410) {
         toast("Session expired. Reloading...", true);
         setTimeout(() => window.location.reload(), 1000);
@@ -285,6 +267,7 @@
   // ----------------------------
   document.addEventListener("DOMContentLoaded", async () => {
     await loadProducts();
+    wireWishlistButtons(); 
     window.updateNavbarCounts?.(true);
   });
 

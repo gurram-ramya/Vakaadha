@@ -1,15 +1,14 @@
 # domain/wishlist/service.py
 
 """
-Vakaadha — Wishlist Service Layer
-=================================
+Vakaadha — Wishlist Service Layer (Product-level Schema)
+========================================================
 
 Implements business logic for wishlist operations:
 - CRUD orchestration
 - Guest ↔ User identity handling
 - Merge logic
-- Move-to-Cart integration
-- Error validation and audit handling
+- Move-to-Cart integration with size (variant) selection
 """
 
 import logging
@@ -21,10 +20,12 @@ from db import transaction, get_db_connection
 
 ENABLE_WISHLIST_AUDIT = True
 
+
 # -------------------------------------------------------------
 # HELPERS
 # -------------------------------------------------------------
 def _identity(user_id: Optional[int], guest_id: Optional[str]) -> tuple[Optional[int], Optional[str]]:
+    """Ensure at least one identity (user or guest) exists."""
     if not (user_id or guest_id):
         raise ValueError("Either user_id or guest_id must be provided")
     return user_id, guest_id
@@ -33,78 +34,53 @@ def _identity(user_id: Optional[int], guest_id: Optional[str]) -> tuple[Optional
 # -------------------------------------------------------------
 # CORE OPERATIONS
 # -------------------------------------------------------------
-
 def get_wishlist(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> list[dict]:
-    """Fetch full enriched wishlist with product info."""
+    """Fetch wishlist items (enriched with product info)."""
     user_id, guest_id = _identity(user_id, guest_id)
-    con = get_db_connection()
-    rows = con.execute("""
-        SELECT w.wishlist_id AS wishlist_item_id,
-               w.product_id,
-               w.variant_id,
-               p.name,
-               ROUND(v.price_cents / 100.0, 2) AS price,
-               i.quantity AS stock,
-               CASE WHEN i.quantity > 0 THEN 1 ELSE 0 END AS available,
-               img.image_url
-        FROM wishlist_items w
-        LEFT JOIN product_variants v ON v.variant_id = w.variant_id
-        LEFT JOIN products p ON p.product_id = w.product_id
-        LEFT JOIN inventory i ON i.variant_id = w.variant_id
-        LEFT JOIN product_images img ON img.product_id = w.product_id AND img.sort_order = 0
-        WHERE (w.user_id = ? OR w.guest_id = ?)
-        ORDER BY w.created_at DESC
-    """, (user_id, guest_id)).fetchall()
-
-    return [dict(r) for r in rows]
+    items = repo.get_items(user_id=user_id, guest_id=guest_id)
+    return items
 
 
 def get_count(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> int:
-    """Return total count for navbar refresh."""
+    """Return wishlist item count for navbar refresh."""
     user_id, guest_id = _identity(user_id, guest_id)
     return repo.count_items(user_id=user_id, guest_id=guest_id)
 
-def add_to_wishlist(product_id: int, variant_id: int,
+
+def add_to_wishlist(product_id: int,
                     user_id: Optional[int] = None,
-                    guest_id: Optional[str] = None) -> dict:
-    """Add item to wishlist with dedup and validation."""
+                    guest_id: Optional[str] = None,
+                    variant_id: Optional[int] = None) -> dict:
+    """
+    Add a product to wishlist.
+    - Only product_id is required (variant optional)
+    - Deduplicates per (user_id, product_id)
+    """
     user_id, guest_id = _identity(user_id, guest_id)
-    con = get_db_connection()
 
-    # Validate variant existence
-    row = con.execute("SELECT product_id FROM product_variants WHERE variant_id = ?", (variant_id,)).fetchone()
-    if not row:
-        raise ValueError("Variant not found")
+    if not product_id:
+        raise ValueError("Product ID is required")
 
-    product_id = product_id or row["product_id"]
-
-    with transaction():
-        # UPSERT: avoid duplicates per (user/guest, variant)
-        con.execute("""
-            INSERT INTO wishlist_items (user_id, guest_id, product_id, variant_id, created_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(user_id, variant_id) DO UPDATE SET updated_at = datetime('now')
-        """, (user_id, guest_id, product_id, variant_id))
-
-        if ENABLE_WISHLIST_AUDIT:
-            repo.log_audit("add", user_id, guest_id, product_id, variant_id, con)
-
-    logging.info(f"[wishlist] add: variant={variant_id} user={user_id} guest={guest_id}")
-    return {"status": "ok", "variant_id": variant_id}
+    repo.add_item(product_id, user_id=user_id, guest_id=guest_id, variant_id=variant_id)
+    logging.info(f"[wishlist] add: product={product_id}, user={user_id}, guest={guest_id}")
+    return {"status": "ok", "product_id": product_id}
 
 
-def remove_from_wishlist(wishlist_item_id: int,
+def remove_from_wishlist(product_id: int,
                          user_id: Optional[int] = None,
                          guest_id: Optional[str] = None) -> dict:
-    """Remove a single wishlist item."""
+    """
+    Remove a single wishlist item by product_id.
+    """
     user_id, guest_id = _identity(user_id, guest_id)
-    count = repo.remove_item(wishlist_item_id, user_id, guest_id)
+    count = repo.remove_item(product_id, user_id, guest_id)
+    logging.info(f"[wishlist] remove: product={product_id}, user={user_id}, guest={guest_id}")
     return {"removed": count}
 
 
 def clear_wishlist(user_id: Optional[int] = None,
                    guest_id: Optional[str] = None) -> dict:
-    """Clear all wishlist items for identity."""
+    """Clear all wishlist items for a given identity."""
     user_id, guest_id = _identity(user_id, guest_id)
     count = repo.clear(user_id, guest_id)
     logging.info(f"[wishlist] Cleared {count} items for user={user_id} guest={guest_id}")
@@ -112,21 +88,23 @@ def clear_wishlist(user_id: Optional[int] = None,
 
 
 # -------------------------------------------------------------
-# MOVE-TO-CART INTEGRATION
+# MOVE-TO-CART INTEGRATION (with size selection)
 # -------------------------------------------------------------
-def move_to_cart(variant_id: int,
+def move_to_cart(product_id: int,
+                 variant_id: int,
                  user_id: Optional[int] = None,
                  guest_id: Optional[str] = None) -> dict:
     """
-    Move a wishlist item to cart.
-    - If variant already in cart → increment qty 1
-    - If out of stock → 409 error
-    - On success → remove from wishlist
+    Move a wishlist product to cart.
+    - Requires variant_id (user selected size)
+    - If stock available → add to cart
+    - Removes wishlist entry upon success
     """
     user_id, guest_id = _identity(user_id, guest_id)
 
-    # Check stock availability
     con = get_db_connection()
+
+    # Validate variant exists and has stock
     stock_row = con.execute(
         "SELECT quantity FROM inventory WHERE variant_id = ?",
         (variant_id,)
@@ -134,16 +112,9 @@ def move_to_cart(variant_id: int,
     if not stock_row:
         raise ValueError("Variant not found in inventory")
     if stock_row["quantity"] <= 0:
-        return {"status": "error", "code": 409, "message": "StockConflict"}
+        return {"status": "error", "code": 409, "message": "OutOfStock"}
 
-    # Fetch product_id for logging
-    prod_row = con.execute(
-        "SELECT product_id FROM product_variants WHERE variant_id = ?",
-        (variant_id,)
-    ).fetchone()
-    product_id = prod_row["product_id"] if prod_row else None
-
-    # Add to cart and remove from wishlist
+    # Add to cart & remove wishlist entry
     try:
         with transaction():
             cart_service.add_item(
@@ -153,15 +124,16 @@ def move_to_cart(variant_id: int,
                 user_id=user_id,
                 guest_id=guest_id
             )
-            # Remove from wishlist after success
-            con.execute(
-                "DELETE FROM wishlist_items WHERE variant_id = ? AND (user_id = ? OR guest_id = ?)",
-                (variant_id, user_id, guest_id)
-            )
-            if repo.ENABLE_WISHLIST_AUDIT:
+            # Remove wishlist entry after successful cart add
+            con.execute("""
+                DELETE FROM wishlist_items
+                WHERE product_id = ? AND (user_id = ? OR guest_id = ?)
+            """, (product_id, user_id, guest_id))
+
+            if ENABLE_WISHLIST_AUDIT:
                 repo.log_audit("move_to_cart", user_id, guest_id, product_id, variant_id, con)
-        logging.info(f"[wishlist] Moved variant {variant_id} to cart for user={user_id} guest={guest_id}")
-        return {"status": "ok"}
+        logging.info(f"[wishlist] Moved product={product_id} variant={variant_id} to cart for user={user_id} guest={guest_id}")
+        return {"status": "ok", "product_id": product_id, "variant_id": variant_id}
     except Exception as e:
         logging.exception(f"[wishlist] Move-to-cart failed: {e}")
         raise
@@ -171,10 +143,7 @@ def move_to_cart(variant_id: int,
 # MERGE LOGIC (Guest → User)
 # -------------------------------------------------------------
 def merge_guest_wishlist(user_id: int, guest_id: str) -> dict:
-    """
-    Merge guest wishlist items into user's wishlist.
-    Runs after cart merge in login flow.
-    """
+    """Merge guest wishlist items into user's wishlist."""
     merged = repo.merge_guest_into_user(user_id, guest_id)
     logging.info(f"[wishlist] Merged {merged} items from guest={guest_id} → user={user_id}")
     return {"merged": merged}
