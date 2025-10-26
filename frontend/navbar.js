@@ -1,8 +1,6 @@
 // ============================================================
-// navbar.js — Phase 2 Final (with caching + 410 handling)
+// navbar.js — Phase 3 (Guest + Auth Wishlist Count Fix)
 // ============================================================
-
-// import { apiRequest } from "./api/client.js";
 
 console.log("[navbar.js] apiRequest available?", typeof window.apiRequest);
 
@@ -21,6 +19,26 @@ console.log("[navbar.js] apiRequest available?", typeof window.apiRequest);
   };
 
   // ------------------------------------------------------------
+  // Helper — Get Guest ID
+  // ------------------------------------------------------------
+  function getGuestId() {
+    try {
+      return localStorage.getItem("guest_id") || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Helper — Safe API call that includes guest_id if needed
+  // ------------------------------------------------------------
+  async function safeApiRequest(endpoint, options = {}) {
+    const guestId = getGuestId();
+    const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
+    return await window.apiRequest(url, options);
+  }
+
+  // ------------------------------------------------------------
   // Fetch Cart Count (with 410 handling)
   // ------------------------------------------------------------
   async function fetchCartCount(force = false) {
@@ -28,8 +46,9 @@ console.log("[navbar.js] apiRequest available?", typeof window.apiRequest);
     if (!force && now - window.appState.lastFetch < 60000) {
       return window.appState.cartCount;
     }
+
     try {
-      const data = await apiRequest(CART_ENDPOINT, { method: "GET" });
+      const data = await safeApiRequest(CART_ENDPOINT, { method: "GET" });
       const items = Array.isArray(data.items) ? data.items : [];
       const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
       window.appState.cartCount = count;
@@ -47,18 +66,22 @@ console.log("[navbar.js] apiRequest available?", typeof window.apiRequest);
   }
 
   // ------------------------------------------------------------
-  // Fetch Wishlist Count
+  // Fetch Wishlist Count (with guest support)
   // ------------------------------------------------------------
   async function fetchWishlistCount(force = false) {
     const now = Date.now();
     if (!force && now - window.appState.lastFetch < 60000) {
       return window.appState.wishlistCount;
     }
+
+    const guestId = getGuestId();
     const token = localStorage.getItem("auth_token");
-    if (!token) return 0;
+    const endpoint = guestId
+      ? `${WISHLIST_COUNT_ENDPOINT}?guest_id=${guestId}`
+      : WISHLIST_COUNT_ENDPOINT;
 
     try {
-      const res = await apiRequest(WISHLIST_COUNT_ENDPOINT, { method: "GET" });
+      const res = await window.apiRequest(endpoint, { method: "GET" });
       const count = typeof res.count === "number" ? res.count : 0;
       window.appState.wishlistCount = count;
       window.appState.lastFetch = now;

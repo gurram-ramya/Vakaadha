@@ -1,20 +1,18 @@
-// frontend\wishlist.js
-// wishlist.js — Final Version
-
-import { apiRequest } from "./api/client.js";
-
+// frontend/wishlist.js — Vakaadha Wishlist v3 (Fixed Guest Context + API)
 (function () {
   const wishlistContainer = document.getElementById("wishlist-items");
   const guestPrompt = document.getElementById("wishlist-guest");
+  const loadingEl = document.getElementById("loading");
+  const emptyState = document.getElementById("emptyState");
 
   // ----------------------------
-  // Toast Helper
+  // Helpers
   // ----------------------------
   function toast(msg, bad = false, ms = 2200) {
     const toastEl = document.getElementById("toast");
-    if (!toastEl) return alert(msg);
+    if (!toastEl) return console.log(msg);
     toastEl.textContent = msg;
-    toastEl.style.background = bad ? "#b00020" : "#333";
+    toastEl.style.background = bad ? "#b00020" : "#493628";
     toastEl.style.opacity = "1";
     toastEl.style.visibility = "visible";
     clearTimeout(toastEl._t);
@@ -24,33 +22,60 @@ import { apiRequest } from "./api/client.js";
     }, ms);
   }
 
+  function getGuestId() {
+    try {
+      return localStorage.getItem("guest_id") || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function safeApiRequest(endpoint, options = {}) {
+    const guestId = getGuestId();
+    const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
+    return await window.apiRequest(url, options);
+  }
+
   // ----------------------------
-  // Fetch Wishlist
+  // Load Wishlist (with guest context)
   // ----------------------------
   async function loadWishlist() {
     try {
-      const items = await window.apiRequest("/api/wishlist");
+      if (loadingEl) loadingEl.classList.remove("hidden");
+      wishlistContainer.innerHTML = "";
+      if (emptyState) emptyState.classList.add("hidden");
+
+      const res = await safeApiRequest("/api/wishlist", { method: "GET" });
+      const items = res?.items ?? [];
+
+      if (!Array.isArray(items) || items.length === 0) {
+        if (emptyState) emptyState.classList.remove("hidden");
+        wishlistContainer.innerHTML = "";
+        return;
+      }
+
       renderWishlist(items);
       if (guestPrompt) guestPrompt.style.display = "none";
     } catch (err) {
       console.warn("Failed to load wishlist:", err);
       if (err.status === 401 || err.status === 410) {
-        // User not logged in — show guest prompt
         wishlistContainer.innerHTML = "";
         if (guestPrompt) guestPrompt.style.display = "block";
       } else {
         toast("Error loading wishlist", true);
       }
     } finally {
+      if (loadingEl) loadingEl.classList.add("hidden");
       window.updateNavbarCounts?.(true);
     }
   }
 
   // ----------------------------
-  // Render Wishlist Items
+  // Render Wishlist Items (matches DB schema)
   // ----------------------------
   function renderWishlist(items = []) {
     if (!wishlistContainer) return;
+
     if (!items.length) {
       wishlistContainer.innerHTML = `
         <p class="empty">
@@ -60,29 +85,39 @@ import { apiRequest } from "./api/client.js";
     }
 
     wishlistContainer.innerHTML = items
-      .map(
-        (item) => `
-        <div class="wishlist-card" data-product-id="${item.product_id}">
-          <div class="wishlist-img">
-            <img src="${item.image_url || "Images/placeholder.png"}" alt="${item.name || "Product"}">
-          </div>
-          <div class="wishlist-info">
-            <h3>${item.name || "Product"}</h3>
-            <p class="price">₹${item.price ? Number(item.price).toFixed(0) : "—"}</p>
-            <p class="status ${item.available ? "in-stock" : "out-of-stock"}">
-              ${item.available ? "In Stock" : "Out of Stock"}
-            </p>
-          </div>
-          <div class="wishlist-actions">
-            <button class="move-to-cart" ${item.available ? "" : "disabled"}>
-              Move to Bag
-            </button>
-            <button class="remove-item">Remove</button>
-          </div>
-        </div>`
-      )
-      .join("");
+      .map((item) => {
+        const image = item.image_url
+          ? item.image_url.startsWith("http")
+            ? item.image_url
+            : `Images/${item.image_url}`
+          : "Images/placeholder.png";
 
+        const price =
+          typeof item.price_cents === "number"
+            ? `₹${(item.price_cents / 100).toFixed(0)}`
+            : "₹—";
+
+        return `
+          <div class="wishlist-card" data-product-id="${item.product_id}">
+            <div class="wishlist-img">
+              <img src="${image}" alt="${item.name || "Product"}" loading="lazy">
+            </div>
+            <div class="wishlist-info">
+              <h3>${item.name || "Product"}</h3>
+              <p class="price">${price}</p>
+              <p class="status ${item.available ? "in-stock" : "out-of-stock"}">
+                ${item.available ? "In Stock" : "Out of Stock"}
+              </p>
+            </div>
+            <div class="wishlist-actions">
+              <button class="move-to-cart" ${item.available ? "" : "disabled"}>
+                Move to Bag
+              </button>
+              <button class="remove-item">Remove</button>
+            </div>
+          </div>`;
+      })
+      .join("");
   }
 
   // ----------------------------
@@ -90,50 +125,47 @@ import { apiRequest } from "./api/client.js";
   // ----------------------------
   async function removeItem(productId) {
     try {
-      await apiRequest(`/api/wishlist`, {
-        method: "DELETE",
-        body: { product_id: productId },
-      });
-      toast("Removed from wishlist ❤️‍🔥");
-      await loadWishlist();
+      const res = await safeApiRequest(`/api/wishlist/${productId}`, { method: "DELETE" });
+      if (res?.status === "success") {
+        toast("Removed from wishlist ❤️‍🔥");
+        await loadWishlist();
+      } else {
+        toast(res?.message || "Failed to remove item", true);
+      }
     } catch (err) {
       console.error("Failed to remove wishlist item:", err);
       toast("Failed to remove item", true);
     }
   }
 
-
   // ----------------------------
-  // Move to Cart
+  // Move to Cart (size selection)
   // ----------------------------
-
-
   async function moveToCart(productId) {
     try {
-      // Fetch available variants for this product
-      const variants = await apiRequest(`/api/products/${productId}/variants`);
-
-      if (!variants || variants.length === 0) {
+      const variants = await safeApiRequest(`/api/products/${productId}/variants`);
+      if (!Array.isArray(variants) || variants.length === 0) {
         toast("No size options available for this product.", true);
         return;
       }
 
-      // Show popup for size selection
       const variantId = await promptForSize(variants);
       if (!variantId) {
         toast("Size selection cancelled.");
         return;
       }
 
-      // Proceed with moving item to cart
-      await apiRequest("/api/wishlist/move-to-cart", {
+      const res = await safeApiRequest("/api/wishlist/move-to-cart", {
         method: "POST",
         body: { product_id: productId, variant_id: variantId },
       });
 
-      toast("Moved to bag 🛍️");
-      await removeItem(productId);
-      window.updateNavbarCounts?.(true);
+      if (res?.status === "success") {
+        toast("Moved to bag 🛍️");
+        await removeItem(productId);
+      } else {
+        toast(res?.message || "Failed to move item", true);
+      }
     } catch (err) {
       if (err.status === 409) toast("Out of stock", true);
       else if (err.status === 401 || err.status === 410)
@@ -143,9 +175,11 @@ import { apiRequest } from "./api/client.js";
     }
   }
 
+  // ----------------------------
+  // Variant Selector Modal (unchanged)
+  // ----------------------------
   function promptForSize(variants) {
     return new Promise((resolve) => {
-      // Remove existing modal if any
       document.querySelector("#sizeModal")?.remove();
 
       const modal = document.createElement("div");
@@ -158,9 +192,9 @@ import { apiRequest } from "./api/client.js";
             ${variants
               .map(
                 (v) => `
-                <button class="size-option" data-variant-id="${v.variant_id}">
-                  ${v.size_label || v.size || "Size"}
-                </button>`
+              <button class="size-option" data-variant-id="${v.variant_id}">
+                ${v.size_label || v.size || "Size"}
+              </button>`
               )
               .join("")}
           </div>
@@ -170,7 +204,6 @@ import { apiRequest } from "./api/client.js";
 
       document.body.appendChild(modal);
 
-      // CSS for modal (you can move this to wishlist.css)
       const style = document.createElement("style");
       style.textContent = `
         #sizeModal {
@@ -184,12 +217,13 @@ import { apiRequest } from "./api/client.js";
         }
         .size-modal-content {
           position: relative;
-          background: white;
+          background: #fffaf5;
           padding: 20px;
           border-radius: 8px;
-          max-width: 300px;
+          max-width: 320px;
           text-align: center;
           box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+          color: #493628;
         }
         .size-options {
           display: flex;
@@ -199,14 +233,16 @@ import { apiRequest } from "./api/client.js";
           margin: 15px 0;
         }
         .size-option {
-          border: 1px solid #ccc;
+          border: 1px solid #70513b;
           padding: 8px 12px;
           border-radius: 5px;
-          background: #f9f9f9;
+          background: #f8eee5;
+          color: #493628;
           cursor: pointer;
+          transition: all 0.3s ease;
         }
         .size-option:hover {
-          background: #333;
+          background: #493628;
           color: #fff;
         }
         .close-size-modal {
@@ -220,7 +256,6 @@ import { apiRequest } from "./api/client.js";
       `;
       document.head.appendChild(style);
 
-      // Event listeners
       modal.addEventListener("click", (e) => {
         const btn = e.target.closest(".size-option");
         if (btn) {
@@ -229,8 +264,10 @@ import { apiRequest } from "./api/client.js";
           style.remove();
           resolve(variantId);
         }
-
-        if (e.target.classList.contains("close-size-modal") || e.target.classList.contains("size-modal-backdrop")) {
+        if (
+          e.target.classList.contains("close-size-modal") ||
+          e.target.classList.contains("size-modal-backdrop")
+        ) {
           modal.remove();
           style.remove();
           resolve(null);
@@ -239,29 +276,9 @@ import { apiRequest } from "./api/client.js";
     });
   }
 
-
-
   // ----------------------------
   // Event Delegation
   // ----------------------------
-  // document.addEventListener("click", async (e) => {
-  //   const removeBtn = e.target.closest(".remove-item");
-  //   const moveBtn = e.target.closest(".move-to-cart");
-
-  //   if (removeBtn) {
-  //     const card = removeBtn.closest(".wishlist-card");
-  //     const wishlistItemId = card?.dataset?.id;
-  //     if (wishlistItemId) await removeItem(wishlistItemId);
-  //   }
-
-  //   if (moveBtn) {
-  //     const card = moveBtn.closest(".wishlist-card");
-  //     const wishlistItemId = card?.dataset?.id;
-  //     const variantId = moveBtn.dataset.variantId;
-  //     if (variantId) await moveToCart(variantId, wishlistItemId);
-  //   }
-  // });
-
   document.addEventListener("click", async (e) => {
     const removeBtn = e.target.closest(".remove-item");
     const moveBtn = e.target.closest(".move-to-cart");
@@ -279,12 +296,11 @@ import { apiRequest } from "./api/client.js";
     }
   });
 
-
   // ----------------------------
   // Init
   // ----------------------------
-  document.addEventListener("DOMContentLoaded", () => {
-    loadWishlist();
+  document.addEventListener("DOMContentLoaded", async () => {
+    await loadWishlist();
+    await window.updateNavbarCounts?.(true);
   });
 })();
-

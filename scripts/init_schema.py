@@ -371,57 +371,65 @@ CREATE TABLE IF NOT EXISTS voucher_redemptions (
 );
 CREATE INDEX IF NOT EXISTS idx_redemptions_user ON voucher_redemptions(user_id);
 
--- =========================
--- WISHLIST (Simplified: product-level only, no variant required)
--- =========================
+-- ===============================================
+-- WISHLIST SCHEMA — VERSION 2.0 (Vakaadha)
+-- ===============================================
 
+-- =========================
+-- WISHLISTS
+-- =========================
+CREATE TABLE IF NOT EXISTS wishlists (
+  wishlist_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER UNIQUE,
+  guest_id        TEXT UNIQUE,
+  status          TEXT NOT NULL DEFAULT 'active'
+                   CHECK (status IN ('active', 'merged', 'archived')),
+  ttl_expires_at  DATETIME,
+  merged_at       DATETIME,
+  archived_at     DATETIME,
+  created_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at      DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
+CREATE INDEX IF NOT EXISTS idx_wishlists_guest ON wishlists(guest_id);
+CREATE INDEX IF NOT EXISTS idx_wishlists_status_ttl ON wishlists(status, ttl_expires_at);
+
+
+-- =========================
+-- WISHLIST ITEMS
+-- =========================
 CREATE TABLE IF NOT EXISTS wishlist_items (
   wishlist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id     INTEGER,
-  guest_id    TEXT,
-  product_id  INTEGER NOT NULL,
-  variant_id  INTEGER, -- optional for future use
-  created_at  DATETIME NOT NULL DEFAULT (datetime('now')),
-  updated_at  DATETIME NOT NULL DEFAULT (datetime('now')),
-
-  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  wishlist_id      INTEGER NOT NULL,
+  product_id       INTEGER NOT NULL,
+  created_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(wishlist_id) REFERENCES wishlists(wishlist_id) ON DELETE CASCADE,
   FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE CASCADE,
-
-  CHECK (user_id IS NOT NULL OR guest_id IS NOT NULL)
+  UNIQUE (wishlist_id, product_id)
 );
 
--- Deduplication rules — one wishlist entry per product per user/guest
-CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_user_product
-  ON wishlist_items(user_id, product_id)
-  WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_wishlist_items_product ON wishlist_items(product_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_guest_product
-  ON wishlist_items(guest_id, product_id)
-  WHERE guest_id IS NOT NULL;
-
--- Lookup optimization
-CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist_items(user_id);
-CREATE INDEX IF NOT EXISTS idx_wishlist_guest ON wishlist_items(guest_id);
-CREATE INDEX IF NOT EXISTS idx_wishlist_product ON wishlist_items(product_id);
 
 -- =========================
--- WISHLIST AUDIT LOG (still optional but compatible)
+-- WISHLIST AUDIT LOG
 -- =========================
-
 CREATE TABLE IF NOT EXISTS wishlist_audit (
-  audit_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id      INTEGER,
-  guest_id     TEXT,
-  product_id   INTEGER,
-  action       TEXT NOT NULL CHECK (action IN ('add','remove','move_to_cart')),
-  timestamp    DATETIME NOT NULL DEFAULT (datetime('now')),
-
-  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE SET NULL,
-  FOREIGN KEY(product_id) REFERENCES products(product_id) ON DELETE SET NULL
+  audit_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  wishlist_id   INTEGER,
+  user_id       INTEGER,
+  guest_id      TEXT,
+  product_id    INTEGER,
+  action        TEXT NOT NULL CHECK (action IN ('add','remove','merge','archive','clear','status_change')),
+  message       TEXT,
+  created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(wishlist_id) REFERENCES wishlists(wishlist_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_wishlist_audit_user ON wishlist_audit(user_id);
-CREATE INDEX IF NOT EXISTS idx_wishlist_audit_guest ON wishlist_audit(guest_id);
+CREATE INDEX IF NOT EXISTS idx_wishlist_audit_wishlist ON wishlist_audit(wishlist_id);
 CREATE INDEX IF NOT EXISTS idx_wishlist_audit_action ON wishlist_audit(action);
 
 """
@@ -540,26 +548,46 @@ BEGIN
   VALUES ('carts', old.cart_id, 'Cascade delete triggered by user/cart cleanup');
 END;
 
+
+
+
 -- =========================
 -- WISHLIST TRIGGERS
 -- =========================
+
+-- Auto-update timestamps for wishlist items
+CREATE TRIGGER IF NOT EXISTS trg_wishlist_items_ai
+AFTER INSERT ON wishlist_items
+BEGIN
+  UPDATE wishlist_items
+  SET created_at = COALESCE(new.created_at, datetime('now')),
+      updated_at = datetime('now')
+  WHERE wishlist_item_id = new.wishlist_item_id;
+END;
 
 CREATE TRIGGER IF NOT EXISTS trg_wishlist_items_au
 AFTER UPDATE ON wishlist_items
 BEGIN
   UPDATE wishlist_items
   SET updated_at = datetime('now')
-  WHERE wishlist_item_id = old.wishlist_item_id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_wishlist_items_ai
-AFTER INSERT ON wishlist_items
-BEGIN
-  UPDATE wishlist_items
-  SET created_at = COALESCE(created_at, datetime('now')),
-      updated_at = datetime('now')
   WHERE wishlist_item_id = new.wishlist_item_id;
 END;
+
+-- Log wishlist status changes
+CREATE TRIGGER IF NOT EXISTS trg_wishlists_status_change
+AFTER UPDATE OF status ON wishlists
+WHEN old.status != new.status
+BEGIN
+  INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, action, message, created_at)
+  VALUES (new.wishlist_id, new.user_id, new.guest_id, 'status_change',
+          'Wishlist status changed from ' || old.status || ' to ' || new.status,
+          datetime('now'));
+
+  UPDATE wishlists
+  SET updated_at = datetime('now')
+  WHERE wishlist_id = new.wishlist_id;
+END;
+
 
 """
 

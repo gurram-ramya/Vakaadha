@@ -1,195 +1,253 @@
-# domain/wishlist/repository.py
-
-"""
-Vakaadha — Wishlist Repository Layer (Product-level Schema)
-===========================================================
-
-This module provides low-level SQL access for wishlist operations.
-
-Updated for simplified schema:
-- Wishlist uniqueness is now (user_id, product_id) or (guest_id, product_id)
-- variant_id is optional (used only for enrichment and move-to-cart)
-"""
-
-import logging
-from typing import Optional
-from db import get_db_connection, transaction, query_all
-
-ENABLE_WISHLIST_AUDIT = True
+# domain/wishlist/repository.py — Vakaadha Wishlist Repository v4 (variant_id fix)
+import sqlite3
+from datetime import datetime
+from db import get_db_connection
 
 
-# -------------------------------------------------------------
-# CRUD OPERATIONS
-# -------------------------------------------------------------
-def add_item(product_id: int,
-             user_id: Optional[int] = None,
-             guest_id: Optional[str] = None,
-             variant_id: Optional[int] = None) -> None:
+# ============================================================
+# CREATE OR FETCH WISHLIST
+# ============================================================
+def get_or_create_wishlist(user_id=None, guest_id=None):
     """
-    Insert or update a wishlist item atomically.
-    Ensures uniqueness by (user_id OR guest_id, product_id).
+    Returns an active wishlist_id for the given user or guest.
+    Creates one if none exists.
     """
-    if not (user_id or guest_id):
-        raise ValueError("Either user_id or guest_id must be provided")
-
-    with transaction() as con:
-        if user_id:
-            con.execute("""
-                INSERT INTO wishlist_items (user_id, product_id, variant_id, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(user_id, product_id) DO UPDATE
-                    SET updated_at = datetime('now');
-            """, (user_id, product_id, variant_id))
-        else:
-            con.execute("""
-                INSERT INTO wishlist_items (guest_id, product_id, variant_id, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(guest_id, product_id) DO UPDATE
-                    SET updated_at = datetime('now');
-            """, (guest_id, product_id, variant_id))
-
-        if ENABLE_WISHLIST_AUDIT:
-            log_audit("add", user_id, guest_id, product_id, variant_id, con=con)
-
-
-def remove_item(product_id: int,
-                user_id: Optional[int] = None,
-                guest_id: Optional[str] = None) -> int:
-    """
-    Delete a wishlist item by product ID for a given user or guest.
-    Returns the number of rows affected.
-    """
-    if not (user_id or guest_id):
-        raise ValueError("Either user_id or guest_id must be provided")
-
-    with transaction() as con:
-        row = con.execute("""
-            SELECT product_id, variant_id FROM wishlist_items
-            WHERE product_id = ? AND (user_id = ? OR guest_id = ?)
-        """, (product_id, user_id, guest_id)).fetchone()
-
-        cur = con.execute("""
-            DELETE FROM wishlist_items
-            WHERE product_id = ? AND (user_id = ? OR guest_id = ?)
-        """, (product_id, user_id, guest_id))
-        count = cur.rowcount
-
-        if ENABLE_WISHLIST_AUDIT and row:
-            log_audit("remove", user_id, guest_id,
-                      row["product_id"], row["variant_id"], con=con)
-        return count
-
-
-def clear(user_id: Optional[int] = None, guest_id: Optional[str] = None) -> int:
-    """
-    Remove all wishlist items for a given identity.
-    """
-    if not (user_id or guest_id):
-        return 0
-
-    with transaction() as con:
-        if ENABLE_WISHLIST_AUDIT:
-            con.execute("""
-                INSERT INTO wishlist_audit (user_id, guest_id, product_id, variant_id, action)
-                SELECT user_id, guest_id, product_id, variant_id, 'remove'
-                FROM wishlist_items WHERE user_id = ? OR guest_id = ?
-            """, (user_id, guest_id))
-
-        cur = con.execute("""
-            DELETE FROM wishlist_items WHERE user_id = ? OR guest_id = ?
-        """, (user_id, guest_id))
-        return cur.rowcount
-
-
-# -------------------------------------------------------------
-# RETRIEVAL & ENRICHMENT
-# -------------------------------------------------------------
-def get_items(user_id: Optional[int] = None,
-              guest_id: Optional[str] = None) -> list[dict]:
-    """
-    Retrieve wishlist items with enrichment data.
-    Supports both logged-in and guest users.
-    """
-    if not (user_id or guest_id):
-        return []
-
-    sql = """
-        SELECT
-            w.product_id,
-            w.variant_id,
-            p.name,
-            ROUND(v.price_cents / 100.0, 2) AS price,
-            COALESCE(i.quantity, 0) AS stock,
-            CASE WHEN i.quantity > 0 THEN 1 ELSE 0 END AS available,
-            img.image_url
-        FROM wishlist_items w
-        LEFT JOIN product_variants v ON v.variant_id = w.variant_id
-        LEFT JOIN products p ON p.product_id = w.product_id
-        LEFT JOIN inventory i ON i.variant_id = w.variant_id
-        LEFT JOIN product_images img ON img.product_id = w.product_id AND img.sort_order = 0
-        WHERE (w.user_id = ? OR w.guest_id = ?)
-        ORDER BY w.created_at DESC;
-    """
-    rows = query_all(sql, (user_id, guest_id))
-    return [dict(row) | {"available": bool(row["available"])} for row in rows]
-
-
-def count_items(user_id: Optional[int] = None,
-                guest_id: Optional[str] = None) -> int:
-    """Return total wishlist count (for navbar refresh)."""
     con = get_db_connection()
-    cur = con.execute("""
-        SELECT COUNT(*) AS c FROM wishlist_items
-        WHERE user_id = ? OR guest_id = ?
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+
+    if not user_id and not guest_id:
+        raise ValueError("Either user_id or guest_id must be provided")
+
+    # Find active wishlist
+    if user_id:
+        row = cur.execute("""
+            SELECT wishlist_id
+            FROM wishlists
+            WHERE user_id = ? AND status = 'active'
+        """, (user_id,)).fetchone()
+    else:
+        row = cur.execute("""
+            SELECT wishlist_id
+            FROM wishlists
+            WHERE guest_id = ? AND status = 'active'
+        """, (guest_id,)).fetchone()
+
+    if row:
+        con.close()
+        return row["wishlist_id"]
+
+    # Create new wishlist
+    cur.execute("""
+        INSERT INTO wishlists (user_id, guest_id, status, created_at, updated_at)
+        VALUES (?, ?, 'active', datetime('now'), datetime('now'))
     """, (user_id, guest_id))
-    row = cur.fetchone()
-    return row["c"] if row else 0
+    wishlist_id = cur.lastrowid
+    con.commit()
+    con.close()
+    return wishlist_id
 
 
-# -------------------------------------------------------------
-# MERGE OPERATIONS
-# -------------------------------------------------------------
-def merge_guest_into_user(user_id: int, guest_id: str) -> int:
+# ============================================================
+# PRODUCT VALIDATION
+# ============================================================
+def product_exists(product_id):
+    """Check whether a product exists in the catalog."""
+    con = get_db_connection()
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    row = cur.execute("""
+        SELECT product_id FROM products WHERE product_id = ? LIMIT 1;
+    """, (product_id,)).fetchone()
+    con.close()
+    return bool(row)
+
+
+# ============================================================
+# ADD ITEM
+# ============================================================
+def add_item(wishlist_id, product_id, user_id=None, guest_id=None):
+    """Insert or update a product in the wishlist."""
+    with get_db_connection() as con:
+        con.execute("""
+            INSERT INTO wishlist_items (wishlist_id, product_id, created_at, updated_at)
+            VALUES (?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(wishlist_id, product_id)
+            DO UPDATE SET updated_at = datetime('now');
+        """, (wishlist_id, product_id))
+        log_audit("add", wishlist_id, user_id, guest_id, product_id, con=con)
+
+
+# ============================================================
+# REMOVE ITEM
+# ============================================================
+def remove_item(wishlist_id, product_id, user_id=None, guest_id=None):
+    """Delete a product from a wishlist."""
+    with get_db_connection() as con:
+        con.execute("""
+            DELETE FROM wishlist_items
+            WHERE wishlist_id = ? AND product_id = ?;
+        """, (wishlist_id, product_id))
+        log_audit("remove", wishlist_id, user_id, guest_id, product_id, con=con)
+
+
+# ============================================================
+# CLEAR WISHLIST
+# ============================================================
+def clear_items(wishlist_id, user_id=None, guest_id=None):
+    """Remove all products from a wishlist."""
+    with get_db_connection() as con:
+        con.execute("DELETE FROM wishlist_items WHERE wishlist_id = ?;", (wishlist_id,))
+        log_audit("clear", wishlist_id, user_id, guest_id, con=con)
+
+
+# ============================================================
+# FETCH WISHLIST ITEMS — ENRICHED PRODUCT DATA
+# ============================================================
+def get_items(wishlist_id):
     """
-    Merge all guest wishlist items into the user's wishlist.
-    Deduplicates on (user_id, product_id).
+    Returns all wishlist products with full details:
+    - product_id, name, image, lowest price_cents, availability
     """
-    with transaction() as con:
-        cur = con.execute("""
-            INSERT OR IGNORE INTO wishlist_items (user_id, product_id, variant_id, created_at)
-            SELECT ?, product_id, variant_id, datetime('now')
-            FROM wishlist_items
-            WHERE guest_id = ?;
-        """, (user_id, guest_id))
-        merged_count = cur.rowcount
+    con = get_db_connection()
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
 
-        con.execute("DELETE FROM wishlist_items WHERE guest_id = ?", (guest_id,))
+    query = """
+        SELECT
+            p.product_id,
+            p.name AS name,
+            COALESCE(MIN(v.price_cents), 0) AS price_cents,
+            (
+                SELECT image_url
+                FROM product_images i
+                WHERE i.product_id = p.product_id
+                ORDER BY sort_order ASC
+                LIMIT 1
+            ) AS image_url,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM product_variants pv
+                    JOIN inventory inv ON pv.variant_id = inv.variant_id
+                    WHERE pv.product_id = p.product_id
+                      AND inv.quantity > 0
+                )
+                THEN 1 ELSE 0
+            END AS available,
+            wi.created_at,
+            wi.updated_at
+        FROM wishlist_items wi
+        JOIN products p ON wi.product_id = p.product_id
+        LEFT JOIN product_variants v ON v.product_id = p.product_id
+        WHERE wi.wishlist_id = ?
+        GROUP BY p.product_id, p.name
+        ORDER BY wi.created_at DESC;
+    """
 
-        if ENABLE_WISHLIST_AUDIT and merged_count > 0:
-            con.execute("""
-                INSERT INTO wishlist_audit (user_id, guest_id, product_id, variant_id, action)
-                SELECT ?, ?, product_id, variant_id, 'merge'
-                FROM wishlist_items WHERE user_id = ?;
-            """, (user_id, guest_id, user_id))
-
-        logging.info(f"[wishlist] merged {merged_count} guest→user (guest_id={guest_id}, user_id={user_id})")
-        return merged_count
+    rows = cur.execute(query, (wishlist_id,)).fetchall()
+    con.close()
+    return [dict(row) for row in rows]
 
 
-# -------------------------------------------------------------
-# AUDIT LOGGING
-# -------------------------------------------------------------
-def log_audit(action: str, user_id: Optional[int], guest_id: Optional[str],
-              product_id: Optional[int], variant_id: Optional[int],
-              con=None) -> None:
-    """Record an audit entry safely (non-fatal if fails)."""
-    try:
-        connection = con or get_db_connection()
-        connection.execute("""
-            INSERT INTO wishlist_audit (user_id, guest_id, product_id, variant_id, action)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, guest_id, product_id, variant_id, action))
-        if con is None:
-            connection.commit()
-    except Exception as e:
-        logging.warning(f"[wishlist_audit] failed: {e}")
+# ============================================================
+# COUNT ITEMS
+# ============================================================
+def get_count(wishlist_id):
+    """Return the number of items in a wishlist."""
+    con = get_db_connection()
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    row = cur.execute(
+        "SELECT COUNT(*) AS count FROM wishlist_items WHERE wishlist_id = ?;",
+        (wishlist_id,)
+    ).fetchone()
+    con.close()
+    return row["count"] if row else 0
+
+
+# ============================================================
+# AUDIT LOG (patched — no variant_id column)
+# ============================================================
+def log_audit(action, wishlist_id, user_id=None, guest_id=None,
+              product_id=None, variant_id=None, con=None, message=None):
+    """
+    Insert an audit entry. Records action details.
+    """
+    connection = con or get_db_connection()
+    connection.execute("""
+        INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, action, message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'));
+    """, (wishlist_id, user_id, guest_id, product_id, action, message))
+    if con is None:
+        connection.commit()
+        connection.close()
+
+
+# ============================================================
+# MERGE GUEST → USER
+# ============================================================
+def merge_wishlists(guest_wishlist_id, user_wishlist_id):
+    """Merge guest wishlist items into user's wishlist."""
+    with get_db_connection() as con:
+        result = con.execute("""
+            INSERT INTO wishlist_items (wishlist_id, product_id, created_at, updated_at)
+            SELECT ?, wi.product_id, datetime('now'), datetime('now')
+            FROM wishlist_items wi
+            WHERE wi.wishlist_id = ?
+              AND wi.product_id NOT IN (
+                SELECT product_id FROM wishlist_items WHERE wishlist_id = ?
+              )
+        """, (user_wishlist_id, guest_wishlist_id, user_wishlist_id))
+        added = result.rowcount or 0
+        con.commit()
+        return added
+
+
+# ============================================================
+# UPDATE STATUS
+# ============================================================
+def update_wishlist_status(wishlist_id, new_status):
+    """Update a wishlist's lifecycle state (active, merged, archived)."""
+    with get_db_connection() as con:
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        con.execute("""
+            UPDATE wishlists
+            SET status = ?, updated_at = ?
+            WHERE wishlist_id = ?;
+        """, (new_status, now, wishlist_id))
+        con.commit()
+
+
+# ============================================================
+# FETCH WISHLIST BY GUEST
+# ============================================================
+def get_wishlist_by_guest(guest_id):
+    """Return an active wishlist row for a guest (if any)."""
+    con = get_db_connection()
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    row = cur.execute("""
+        SELECT * FROM wishlists
+        WHERE guest_id = ? AND status = 'active'
+        LIMIT 1;
+    """, (guest_id,)).fetchone()
+    con.close()
+    return dict(row) if row else None
+
+
+# ============================================================
+# FETCH WISHLIST BY USER
+# ============================================================
+def get_wishlist_by_user(user_id):
+    """Return an active wishlist row for a user (if any)."""
+    con = get_db_connection()
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    row = cur.execute("""
+        SELECT * FROM wishlists
+        WHERE user_id = ? AND status = 'active'
+        LIMIT 1;
+    """, (user_id,)).fetchone()
+    con.close()
+    return dict(row) if row else None
