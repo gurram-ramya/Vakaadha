@@ -77,19 +77,60 @@ def mark_cart_expired(conn, cart_id: int):
 # ----------------------------
 # CART ITEMS
 # ----------------------------
+# def get_cart_items(conn, cart_id: int):
+#     cur = conn.execute("""
+#         SELECT ci.cart_item_id, ci.variant_id, ci.quantity, ci.price_cents,
+#                ci.locked_price_until, ci.created_at, ci.updated_at,
+#                pv.size, pv.color, pv.product_id, p.name AS product_name,
+#                IFNULL(i.quantity, 0) AS stock
+#         FROM cart_items ci
+#         JOIN product_variants pv ON ci.variant_id = pv.variant_id
+#         JOIN products p ON pv.product_id = p.product_id
+#         LEFT JOIN inventory i ON i.variant_id = pv.variant_id
+#         WHERE ci.cart_id = ?
+#     """, (cart_id,))
+#     return cur.fetchall()
+
 def get_cart_items(conn, cart_id: int):
+    """
+    Returns all items in a cart with product, variant, stock, and image.
+    Mirrors the wishlist image logic for consistency.
+    """
     cur = conn.execute("""
-        SELECT ci.cart_item_id, ci.variant_id, ci.quantity, ci.price_cents,
-               ci.locked_price_until, ci.created_at, ci.updated_at,
-               pv.size, pv.color, pv.product_id, p.name AS product_name,
-               IFNULL(i.quantity, 0) AS stock
+        SELECT
+            ci.cart_item_id,
+            ci.variant_id,
+            ci.quantity,
+            ci.price_cents,
+            ci.locked_price_until,
+            ci.created_at,
+            ci.updated_at,
+            pv.size,
+            pv.color,
+            pv.product_id,
+            p.name AS product_name,
+            IFNULL(inv.quantity, 0) AS stock,
+            COALESCE(img.image_url, 'Images/placeholder.png') AS image_url
         FROM cart_items ci
         JOIN product_variants pv ON ci.variant_id = pv.variant_id
         JOIN products p ON pv.product_id = p.product_id
-        LEFT JOIN inventory i ON i.variant_id = pv.variant_id
+        LEFT JOIN inventory inv ON inv.variant_id = pv.variant_id
+        LEFT JOIN (
+            SELECT product_id, image_url
+            FROM product_images
+            WHERE sort_order = (
+                SELECT MIN(sort_order)
+                FROM product_images pi
+                WHERE pi.product_id = product_images.product_id
+            )
+            GROUP BY product_id
+        ) AS img ON img.product_id = p.product_id
         WHERE ci.cart_id = ?
+        ORDER BY ci.created_at DESC
     """, (cart_id,))
     return cur.fetchall()
+
+
 
 
 def add_or_update_cart_item(conn, cart_id: int, variant_id: int, quantity: int, price_cents: int):

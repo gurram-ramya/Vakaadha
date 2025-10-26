@@ -94,8 +94,38 @@ def ensure_cart_for_user(user_id: int):
 # =============================================================
 # Core Cart Retrieval
 # =============================================================
+# def fetch_cart(cart_id: int):
+#     """Return full cart with items + totals. Raises GuestCartExpired if expired."""
+#     conn = get_db_connection()
+#     with conn:
+#         items = repo.get_cart_items(conn, cart_id)
+#         totals = repo.compute_cart_totals(conn, cart_id)
+#         return {
+#             "cart_id": cart_id,
+#             "items": [
+#                 {
+#                     "cart_item_id": i["cart_item_id"],
+#                     "variant_id": i["variant_id"],
+#                     "product_id": i["product_id"],
+#                     "product_name": i["product_name"],
+#                     "size": i["size"],
+#                     "color": i["color"],
+#                     "quantity": i["quantity"],
+#                     "price": float(i["price_cents"]) / 100.0,
+#                     "price_cents": i["price_cents"],
+#                     "stock": i["stock"],
+#                     "locked_price_until": i["locked_price_until"],
+#                 }
+#                 for i in items
+#             ],
+#             "totals": {
+#                 "subtotal": float(totals["subtotal_cents"]) / 100.0,
+#                 "total": float(totals["total_cents"]) / 100.0,
+#             },
+#         }
+
 def fetch_cart(cart_id: int):
-    """Return full cart with items + totals. Raises GuestCartExpired if expired."""
+    """Return full cart with enriched item data — includes image_url."""
     conn = get_db_connection()
     with conn:
         items = repo.get_cart_items(conn, cart_id)
@@ -115,6 +145,13 @@ def fetch_cart(cart_id: int):
                     "price_cents": i["price_cents"],
                     "stock": i["stock"],
                     "locked_price_until": i["locked_price_until"],
+                    # ✅ Fixed: sqlite3.Row does not support .get()
+                    "image_url": (
+                        f"Images/{i['image_url']}"
+                        if "image_url" in i.keys() and i["image_url"]
+                        else "Images/placeholder.png"
+                    ),
+
                 }
                 for i in items
             ],
@@ -123,6 +160,7 @@ def fetch_cart(cart_id: int):
                 "total": float(totals["total_cents"]) / 100.0,
             },
         }
+
 
 
 # =============================================================

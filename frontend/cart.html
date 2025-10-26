@@ -55,32 +55,45 @@
 
   <!-- CART CONTENT -->
   <main class="cart-page">
-    <h2>Your Shopping Cart</h2>
+    <h2 class="cart-title">Your Shopping Cart</h2>
 
-    <!-- Empty state -->
+    <!-- Empty State -->
     <div id="cart-empty" class="cart-empty hidden">
-      <p>Your cart is empty.</p>
+      <img src="./assets/empty-cart.svg" alt="Empty Cart" class="empty-cart-img" />
+      <p>Your cart feels empty!</p>
       <a href="index.html" class="continue-btn">Continue Shopping</a>
     </div>
 
-    <!-- Cart items container -->
-    <div id="cart-items" class="cart-items"></div>
+    <!-- Cart Layout -->
+    <div class="cart-layout">
+      <!-- LEFT: CART ITEMS -->
+      <section id="cart-items" class="cart-items">
+        <!-- Example Cart Item -->
+        <!-- JS dynamically injects items here -->
+      </section>
 
-    <!-- Cart summary -->
-
-    <div id="cart-summary" class="cart-summary hidden">
-      <div class="summary-line">
-        <span>Subtotal:</span>
-        <span id="cart-subtotal">₹0.00</span>
-      </div>
-      <div class="summary-line total">
-        <span>Total:</span>
-        <span id="cart-total">₹0.00</span>
-      </div>
-      <div class="summary-actions">
-        <button id="clear-cart-btn" class="btn-secondary">Clear Cart</button>
-        <button id="checkout-btn" class="btn-checkout" disabled>Proceed to Checkout</button>
-      </div>
+      <!-- RIGHT: CART SUMMARY -->
+      <aside id="cart-summary" class="cart-summary hidden">
+        <div class="summary-card">
+          <h3>Price Details</h3>
+          <hr/>
+          <div class="summary-line">
+            <span>Subtotal</span>
+            <span id="cart-subtotal">₹0.00</span>
+          </div>
+          <div class="summary-line">
+            <span>Discount</span>
+            <span class="discount">– ₹0.00</span>
+          </div>
+          <div class="summary-line total">
+            <strong>Total</strong>
+            <strong id="cart-total">₹0.00</strong>
+          </div>
+          <button id="checkout-btn" class="btn-checkout" disabled>Proceed to Checkout</button>
+          <button id="clear-cart-btn" class="btn-clear">Clear Cart</button>
+          <p class="secure-text"><i class="fa-solid fa-lock"></i> Secure checkout • Easy returns</p>
+        </div>
+      </aside>
     </div>
   </main>
 
@@ -132,13 +145,10 @@
       z-index: 9999;
     "></div>
 
-
   <!-- FOOTER -->
   <footer>
     <p>© 2025 VAKAADHA. All rights reserved.</p>
   </footer>
-
-
 
   <!-- CART LOGIC -->
   <script src="./api/client.js"></script>
