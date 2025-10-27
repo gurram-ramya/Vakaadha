@@ -35,11 +35,26 @@ def ensure_user_profile(user_id):
     return repository.get_user_profile(user_id)
 
 
-def update_profile(user_id, updates):
-    allowed = {"dob", "gender", "avatar_url"}
+def update_profile(conn, firebase_uid, updates):
+    """Update profile by firebase_uid (align with route)"""
+    user = repository.get_user_by_uid(firebase_uid)
+    if not user:
+        return None
+
+    allowed = {"name", "dob", "gender", "avatar_url"}
     fields = {k: v for k, v in updates.items() if k in allowed}
-    repository.update_user_profile(user_id, fields)
-    return repository.get_user_profile(user_id)
+
+    # Update users.name separately
+    if "name" in fields:
+        from db import execute
+        execute("UPDATE users SET name = ?, updated_at = datetime('now') WHERE user_id = ?", (fields["name"], user["user_id"]))
+        del fields["name"]
+
+    if fields:
+        repository.update_user_profile(user["user_id"], fields)
+
+    merged = repository.get_user_profile(user["user_id"]) or {}
+    return {**user, **merged}
 
 
 # def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
@@ -104,3 +119,22 @@ def merge_guest_cart_if_any(user_id, guest_id):
     merge_result = cart_service.merge_guest_cart_if_any(user_id, guest_id)
     repository.delete_guest_cart(guest_id)
     return merge_result
+
+def get_user_with_profile(conn, firebase_uid):
+    """
+    Retrieve a user's core info and profile details using Firebase UID.
+    """
+    user = repository.get_user_by_uid(firebase_uid)
+    if not user:
+        return None
+
+    profile = repository.get_user_profile(user["user_id"])
+    # Merge core + profile info
+    if not profile:
+        profile = {}
+    return {
+        **user,
+        "dob": profile.get("dob"),
+        "gender": profile.get("gender"),
+        "avatar_url": profile.get("avatar_url"),
+    }

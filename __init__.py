@@ -6,7 +6,7 @@ from sqlite3 import Error as DBError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from db import get_db_connection
-from utils.auth import initialize_firebase
+# from utils.auth import initialize_firebase
 import uuid, time
 import psutil, os, time
 from utils.cache import user_cache, profile_cache, firebase_token_cache
@@ -32,6 +32,13 @@ limiter = Limiter(
 # Flask Application Factory
 # -------------------------------------------------------------
 def create_app():
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
+    logging.info("🚀 create_app() starting")
+
     # Create Flask app
     app = Flask(
         __name__,
@@ -42,6 +49,7 @@ def create_app():
     # ---------------------------------------------------------
     # Initialize Firebase (after app creation for context safety)
     # ---------------------------------------------------------
+    from utils.auth import initialize_firebase
     initialize_firebase()
 
     # ---------------------------------------------------------
@@ -67,11 +75,11 @@ def create_app():
     # ---------------------------------------------------------
     # Logging
     # ---------------------------------------------------------
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
-    logging.info("✅ Vakaadha Flask App initialized")
+    # logging.basicConfig(
+    #     level=logging.INFO,
+    #     format="%(asctime)s [%(levelname)s] %(message)s",
+    # )
+    # logging.info("✅ Vakaadha Flask App initialized")
 
 
     # ---------------------------------------------------------

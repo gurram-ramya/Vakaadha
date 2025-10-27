@@ -1,5 +1,6 @@
 // frontend/profile.js
-import { apiRequest, getAuth, setAuth, clearAuth } from "./api/client.js";
+const { apiRequest, getAuth, setAuth, clearAuth } = window;
+
 
 /* ---------------- Firebase init ---------------- */
 const firebaseConfig = {
@@ -216,11 +217,14 @@ function wireHandlers() {
 /* ---------------- Auth state ---------------- */
 function initAuthState() {
   auth().onAuthStateChanged(async (user) => {
+    console.info("[AuthStateChanged] user =", user ? user.uid : "none");
+
     if (!user) { clearAuth(); show("auth"); return; }
 
     const existing = getAuth();
     if (existing?.idToken && auth().currentUser) {
       try {
+        console.log("Existing token found, verifying with backend...");
         const me = await apiRequest("/api/users/me");
         populateProfile(me);
         show("profile");
@@ -240,61 +244,78 @@ function initAuthState() {
   });
 }
 
+
+
+
 /* ---------------- Auth + Profile sync ---------------- */
 async function afterFirebaseAuth(user, silent = false) {
   await user.reload();
   const idToken = await user.getIdToken(true);
 
-  // Grab any guest_id
+  console.groupCollapsed("%c[Firebase Debug]", "color: #03a9f4; font-weight: bold;");
+  console.log("🔥 Firebase UID:", user.uid);
+  console.log("📧 Email:", user.email);
+  console.log("🪪 Token (first 40 chars):", idToken.slice(0, 40) + "...");
+  console.groupEnd();
+
   const guestId = localStorage.getItem("guest_id");
 
-  // Register user with backend (send guest_id for merge)
-  let backendUser;
-  try {
-    const res = await apiRequest("/api/auth/register", {
-      method: "POST",
-      body: guestId ? { guest_id: guestId } : {},
-    });
-    backendUser = res; // must include user_id
-  } catch (e) {
-    console.warn("Register sync failed:", e);
-  }
-
-  // Store enriched auth state
+  // store token for authenticated requests
   setAuth({
     idToken,
     uid: user.uid,
     email: user.email,
     name: user.displayName || user.email,
     photoURL: user.photoURL || null,
+  });
+
+  let backendUser;
+  try {
+    console.log("[Frontend → Backend] POST /api/auth/register …");
+    const res = await apiRequest("/api/auth/register", {
+      method: "POST",
+      body: guestId ? { guest_id: guestId } : {},
+    });
+
+    // backend returns { user: {...}, merge: {...} }
+    backendUser = res?.user || res;
+    console.log("✅ Backend user:", backendUser);
+
+    // immediately fetch full profile details
+    const me = await apiRequest("/api/users/me");
+    populateProfile(me);
+  } catch (err) {
+    console.warn("⚠️ Register/profile sync failed:", err);
+  }
+
+  // update local auth cache with backend user_id if present
+  setAuth({
+    ...getAuth(),
     user_id: backendUser?.user_id || null,
   });
 
-  // Always drop guest_id after merge attempt
-  if (guestId) {
-    localStorage.removeItem("guest_id");
-  }
-
+  if (guestId) localStorage.removeItem("guest_id");
   if (!silent) toast("Signed in");
 }
 
 function populateProfile(me) {
   if (!els.profileSection) return;
-  if (els.profileName)   els.profileName.value   = me.name || "";
-  if (els.profileEmail)  els.profileEmail.value  = me.email || "";
-  if (els.profileDob)    els.profileDob.value    = me.dob || "";
-  if (els.profileGender) els.profileGender.value = me.gender || "";
-  if (els.profileAvatar) els.profileAvatar.value = me.avatar_url || "";
+  els.profileName.value   = me?.name || "";
+  els.profileEmail.value  = me?.email || "";
+  els.profileDob.value    = me?.dob || "";
+  els.profileGender.value = me?.gender || "";
+  els.profileAvatar.value = me?.avatar_url || "";
 
-  // Pass backend-enriched user to navbar
   if (window.updateNavbarUser) {
     window.updateNavbarUser({
-      user_id: me.user_id,
-      name: me.name,
-      email: me.email,
+      user_id: me?.user_id,
+      name: me?.name,
+      email: me?.email,
     });
   }
 }
+
+
 
 async function refreshEmailVerified() {
   try {
