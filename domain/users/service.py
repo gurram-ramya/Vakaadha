@@ -57,26 +57,6 @@ def update_profile(conn, firebase_uid, updates):
     return {**user, **merged}
 
 
-# def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
-#     user = upsert_user_from_firebase(firebase_uid, email, name)
-#     user_id = user["user_id"]
-
-#     # create profile if missing
-#     ensure_user_profile(user_id)
-
-#     # ensure user cart exists
-#     cart_service.ensure_user_cart(user_id)
-
-#     # merge guest cart if any
-#     merge_result = None
-#     if guest_id:
-#         merge_result = merge_guest_cart_if_any(user_id, guest_id)
-
-#     if update_last_login:
-#         repository.update_user_last_login(user_id)
-
-#     return user, merge_result
-
 def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
     user = upsert_user_from_firebase(firebase_uid, email, name)
     user_id = user["user_id"]
