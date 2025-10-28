@@ -95,18 +95,18 @@ def initialize_firebase():
 # -------------------------------------------------------------
 def resolve_guest_context():
     gid = request.cookies.get("guest_id")
-    if gid and len(gid) <= 64:
+    if gid and re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
         g.guest_id = gid
         g.new_guest = False
         return gid
-
     gid = str(uuid4())
     g.guest_id = gid
     g.new_guest = True
     return gid
 
 
-def _set_guest_cookie(resp, guest_id):
+
+def _set_guest_cookie(resp, guest_id, replace=False):
     is_https = request.is_secure or os.getenv("FORCE_SECURE_COOKIE") == "1"
     resp.set_cookie(
         "guest_id",
@@ -116,9 +116,16 @@ def _set_guest_cookie(resp, guest_id):
         secure=is_https,
         samesite="Lax",
     )
+    if replace:
+        logging.info({
+            "event": "guest_cookie_reissued",
+            "guest_id": guest_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
     resp.headers["Access-Control-Allow-Credentials"] = "true"
     resp.headers["Access-Control-Expose-Headers"] = "Set-Cookie"
     return resp
+
 
 
 # -------------------------------------------------------------
@@ -268,3 +275,23 @@ def require_auth(optional=False):
 
         return wrapper
     return decorator
+import re
+
+def require_guest(func):
+    """Ensure guest_id is valid when no authenticated user is present."""
+    @wraps(func)
+    def _wrapped(*args, **kwargs):
+        gid = request.args.get("guest_id") or request.cookies.get("guest_id")
+        if getattr(g, "user", None):  # skip if authenticated
+            return func(*args, **kwargs)
+        if not gid or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
+            logging.warning({
+                "event": "guest_validation_failed",
+                "guest_id": gid,
+                "ip": request.remote_addr,
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+            return jsonify({"error": "invalid_guest_id"}), 400
+        g.guest_id = gid
+        return func(*args, **kwargs)
+    return _wrapped

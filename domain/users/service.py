@@ -3,7 +3,10 @@ import logging
 from datetime import datetime
 from domain.users import repository
 from domain.cart import service as cart_service
+from domain.cart import repository as cart_repo
 from domain.wishlist import service as wishlist_service
+from domain.wishlist import repository as wishlist_repo
+from db import get_db_connection
 
 
 # ===========================================================
@@ -47,7 +50,8 @@ def update_profile(conn, firebase_uid, updates):
     # Update users.name separately
     if "name" in fields:
         from db import execute
-        execute("UPDATE users SET name = ?, updated_at = datetime('now') WHERE user_id = ?", (fields["name"], user["user_id"]))
+        execute("UPDATE users SET name = ?, updated_at = datetime('now') WHERE user_id = ?",
+                (fields["name"], user["user_id"]))
         del fields["name"]
 
     if fields:
@@ -57,25 +61,27 @@ def update_profile(conn, firebase_uid, updates):
     return {**user, **merged}
 
 
+# ===========================================================
+# CORE LOGIN → MERGE LOGIC
+# ===========================================================
+
 def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
+    """
+    Called on user login. Guarantees user record, profile,
+    and merges any guest cart/wishlist into the user's account
+    while performing audit normalization.
+    """
     user = upsert_user_from_firebase(firebase_uid, email, name)
     user_id = user["user_id"]
 
-    # create profile if missing
     ensure_user_profile(user_id)
+    # cart_service.ensure_user_cart(user_id)
 
-    # ensure user cart exists
-    cart_service.ensure_user_cart(user_id)
-
-    # merge guest cart and wishlist
     merge_result = {"cart": None, "wishlist": None}
     if guest_id:
-        # Merge cart first (atomic)
+        # perform atomic merges with audit normalization
         merge_result["cart"] = merge_guest_cart_if_any(user_id, guest_id)
-        
-        # Merge wishlist next (separate transaction)
-        from domain.wishlist import service as wishlist_service
-        merge_result["wishlist"] = wishlist_service.merge_guest_wishlist(user_id, guest_id)
+        merge_result["wishlist"] = merge_guest_wishlist_if_any(user_id, guest_id)
 
     if update_last_login:
         repository.update_user_last_login(user_id)
@@ -83,35 +89,108 @@ def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id
     return user, merge_result
 
 
+# ===========================================================
+# CART MERGE + AUDIT REASSIGNMENT
+# ===========================================================
+
 def merge_guest_cart_if_any(user_id, guest_id):
     guest_cart = repository.find_guest_cart(guest_id)
     if not guest_cart:
         return {"merged_items": 0}
 
     user_cart = repository.find_user_cart(user_id)
+    conn = get_db_connection()
+
     if not user_cart:
         # assign guest cart directly to user
         repository.assign_cart_to_user(guest_cart["cart_id"], user_id)
+        cart_repo.insert_audit_event(conn, guest_cart["cart_id"], user_id, guest_id,
+                                     "reassign", f"Guest cart reassigned to user {user_id}")
+        conn.commit()
+        conn.close()
         logging.info(f"Assigned guest cart to user {user_id}")
         return {"merged_items": 0}
 
     # both exist -> merge via cart service
     merge_result = cart_service.merge_guest_cart_if_any(user_id, guest_id)
+
+    # mark merged and reassign all ownership references
+    cart_repo.mark_cart_merged(conn, guest_cart["cart_id"])
+    conn.execute("""
+        UPDATE cart_items SET user_id = ? 
+        WHERE cart_id = ?;
+    """, (user_id, guest_cart["cart_id"]))
+    conn.execute("""
+        UPDATE cart_audit_log
+        SET user_id = ?, guest_id = NULL
+        WHERE cart_id = ?;
+    """, (user_id, guest_cart["cart_id"]))
+    cart_repo.insert_audit_event(conn, guest_cart["cart_id"], user_id, guest_id,
+                                 "reassign", f"Guest cart {guest_cart['cart_id']} merged and reassigned to user {user_id}")
+
     repository.delete_guest_cart(guest_id)
+    conn.commit()
+    conn.close()
     return merge_result
 
+
+# ===========================================================
+# WISHLIST MERGE + AUDIT REASSIGNMENT
+# ===========================================================
+
+def merge_guest_wishlist_if_any(user_id, guest_id):
+    guest_wishlist = wishlist_repo.get_wishlist_by_guest(guest_id)
+    if not guest_wishlist:
+        return {"merged_items": 0}
+
+    user_wishlist = wishlist_repo.get_wishlist_by_user(user_id)
+    conn = get_db_connection()
+
+    if not user_wishlist:
+        # direct reassignment
+        conn.execute("""
+            UPDATE wishlists
+            SET user_id = ?, guest_id = NULL, status = 'active', updated_at = datetime('now')
+            WHERE wishlist_id = ?;
+        """, (user_id, guest_wishlist["wishlist_id"]))
+        wishlist_repo.log_audit("merge", guest_wishlist["wishlist_id"],
+                                user_id, guest_id, message=f"Guest wishlist reassigned to user {user_id}", con=conn)
+        conn.commit()
+        conn.close()
+        return {"merged_items": 0}
+
+    # both exist -> merge items
+    added = wishlist_repo.merge_wishlists(guest_wishlist["wishlist_id"], user_wishlist["wishlist_id"])
+    wishlist_repo.update_wishlist_status(guest_wishlist["wishlist_id"], "merged")
+
+    # reassign and normalize audit ownership
+    conn.execute("""
+        UPDATE wishlist_items SET user_id = ? 
+        WHERE wishlist_id = ?;
+    """, (user_id, guest_wishlist["wishlist_id"]))
+    conn.execute("""
+        UPDATE wishlist_audit
+        SET user_id = ?, guest_id = NULL
+        WHERE wishlist_id = ?;
+    """, (user_id, guest_wishlist["wishlist_id"]))
+    wishlist_repo.log_audit("merge", guest_wishlist["wishlist_id"], user_id, guest_id,
+                            message=f"Guest wishlist {guest_wishlist['wishlist_id']} merged and reassigned to user {user_id}", con=conn)
+
+    conn.commit()
+    conn.close()
+    return {"merged_items": added}
+
+
 def get_user_with_profile(conn, firebase_uid):
-    """
-    Retrieve a user's core info and profile details using Firebase UID.
-    """
     user = repository.get_user_by_uid(firebase_uid)
     if not user:
         return None
 
+    # Convert sqlite3.Row to dict
+    user = dict(user)
     profile = repository.get_user_profile(user["user_id"])
-    # Merge core + profile info
-    if not profile:
-        profile = {}
+    profile = dict(profile) if profile else {}
+
     return {
         **user,
         "dob": profile.get("dob"),

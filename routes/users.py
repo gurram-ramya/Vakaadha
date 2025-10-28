@@ -27,24 +27,20 @@ def error_response(code, error, message=None):
 @users_bp.route("/api/auth/register", methods=["POST"], endpoint="register_user")
 @require_auth()
 def register_user():
+    conn = None
     try:
         conn = get_db_connection()
         data = request.get_json(silent=True) or {}
 
-        # Debug: show incoming user context
-        logging.info({
-            "event": "register_user_start",
-            "firebase_uid": g.user.get("firebase_uid"),
-            "email": g.user.get("email"),
-            "guest_id_cookie": request.cookies.get("guest_id"),
-            "guest_id_payload": data.get("guest_id"),
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        print("\n=== [DEBUG] /api/auth/register ===")
+        print("Firebase UID:", g.user.get("firebase_uid"))
+        print("Email:", g.user.get("email"))
+        print("Guest cookie:", request.cookies.get("guest_id"))
+        print("Guest payload:", data.get("guest_id"))
 
-        # Extract guest_id from context or payload
         guest_id = getattr(g, "guest_id", None) or request.cookies.get("guest_id") or data.get("guest_id")
+        print("Resolved guest_id:", guest_id)
 
-        # Ensure user exists & merge guest cart if applicable
         user, merge_result = user_service.ensure_user_with_merge(
             conn=conn,
             firebase_uid=g.user["firebase_uid"],
@@ -55,73 +51,40 @@ def register_user():
             update_last_login=True,
         )
 
-        # Debug: DB user creation / merge info
-        logging.info({
-            "event": "register_user_merge_done",
-            "firebase_uid": g.user["firebase_uid"],
-            "guest_id": guest_id,
-            "db_user_id": user["user_id"],
-            "merge_result": merge_result,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        print("User from ensure_user_with_merge():", user)
+        print("Merge result:", merge_result)
 
-        # Response payload
         response = jsonify({
             "user": {
                 "user_id": user["user_id"],
                 "firebase_uid": user["firebase_uid"],
                 "email": user["email"],
                 "name": user["name"],
-                "is_admin": user.get("is_admin", False),
+                # "is_admin": user.get("is_admin", False),
+                "is_admin": user["is_admin"] if "is_admin" in user.keys() else False,
                 "email_verified": g.user.get("email_verified", False),
             },
             "merge": merge_result or None,
         })
 
-        # Rotate guest cookie
         resp = make_response(response)
         if request.cookies.get("guest_id"):
             resp.delete_cookie("guest_id")
         _set_guest_cookie(resp, str(uuid4()))
 
-        logging.info({
-            "event": "register_user_success",
-            "firebase_uid": g.user["firebase_uid"],
-            "new_guest_cookie": True,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
+        print("[DEBUG] register_user completed successfully\n")
         return resp, 200
 
-    except user_service.TokenExpiredError:
-        logging.warning({
-            "event": "register_user_failed",
-            "reason": "token_expired",
-            "firebase_uid": g.user.get("firebase_uid"),
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        return error_response(401, "token_expired", "Firebase token expired")
-
-    except user_service.InvalidTokenError:
-        logging.warning({
-            "event": "register_user_failed",
-            "reason": "invalid_token",
-            "firebase_uid": g.user.get("firebase_uid"),
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        return error_response(401, "invalid_token", "Invalid Firebase token")
-
     except Exception as e:
-        logging.exception({
-            "event": "register_user_exception",
-            "error": str(e),
-            "firebase_uid": getattr(g.user, "firebase_uid", None),
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        print("[ERROR] register_user failed:", e)
+        import traceback
+        traceback.print_exc()
         return error_response(500, "internal_error", str(e))
 
     finally:
-        conn.close()
+        if conn:
+            conn.close()
+
 
 
 # -------------------------------------------------------------
@@ -159,38 +122,35 @@ def session_info():
 @users_bp.route("/api/users/me", methods=["GET"], endpoint="get_user_profile")
 @require_auth()
 def get_user_profile():
+    conn = None
     try:
         conn = get_db_connection()
         firebase_uid = g.user["firebase_uid"]
-        logging.info({
-            "event": "get_user_profile_start",
-            "firebase_uid": firebase_uid,
-            "timestamp": datetime.utcnow().isoformat()
-        })
+
+        print("\n=== [DEBUG] /api/users/me ===")
+        print("Firebase UID:", firebase_uid)
 
         user_profile = user_service.get_user_with_profile(conn, firebase_uid)
+        print("Raw user_profile returned:", user_profile)
+
         if not user_profile:
-            logging.warning({
-                "event": "user_not_found",
-                "firebase_uid": firebase_uid,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            print("[WARN] No user found for this Firebase UID\n")
             return error_response(404, "user_not_found")
 
         user_profile["email_verified"] = g.user.get("email_verified", False)
+        print("[DEBUG] Final user_profile response:", user_profile, "\n")
 
-        logging.info({
-            "event": "get_user_profile_success",
-            "firebase_uid": firebase_uid,
-            "user_id": user_profile.get("user_id"),
-            "timestamp": datetime.utcnow().isoformat()
-        })
         return jsonify(user_profile), 200
+
     except Exception as e:
-        logging.exception("Error in /api/users/me")
+        print("[ERROR] /api/users/me failed:", e)
+        import traceback
+        traceback.print_exc()
         return error_response(500, "internal_error", str(e))
+
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 # -------------------------------------------------------------

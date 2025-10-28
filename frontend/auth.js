@@ -160,31 +160,27 @@
 
 
 // auth.js
+// auth.js (revised for dynamic token + session control)
 (function () {
-  // -------- Storage keys (must match existing frontend contract) --------
   const TOKEN_KEY = "auth_token";
   const USER_KEY  = "user_info";
-  const GUEST_KEY = "guest_id"; // not modified here
+  const GUEST_KEY = "guest_id"; // maintained via backend cookie only
 
   if (window.__auth_js_bound__) return;
   window.__auth_js_bound__ = true;
 
   // ---------------------- Helpers ----------------------
-  function getToken() {
-    try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
-  }
   function setToken(t) {
     try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch {}
   }
-  function getUserCached() {
-    try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch { return null; }
-  }
   function setUserCached(user) {
-    try {
-      if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
-      else localStorage.removeItem(USER_KEY);
-    } catch {}
+    try { user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY); } catch {}
   }
+  function clearSession() {
+    setToken(null);
+    setUserCached(null);
+  }
+
   async function fetchMe(token) {
     const res = await fetch("/api/users/me", { headers: { Authorization: `Bearer ${token}` } });
     return res;
@@ -193,90 +189,120 @@
     if (typeof window.updateNavbarUser === "function") window.updateNavbarUser(userOrNull || null);
     if (typeof window.updateNavbarCounts === "function") window.updateNavbarCounts();
   }
+
   async function backendLogout() {
     try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
   }
-  async function firebaseSignOutIfAny() {
-    try {
-      if (window.firebase && firebase.auth && firebase.auth().currentUser) {
-        await firebase.auth().signOut();
-      }
-    } catch {}
-  }
-  function clearSession() {
-    setToken(null);
-    setUserCached(null);
-  }
 
-  // ---------------------- Public API ----------------------
-  async function initSession() {
-    const token = getToken();
-    if (!token) { applyNavbar(null); return; }
-
+  async function getFreshToken() {
+    if (!window.firebase || !firebase.auth || !firebase.auth().currentUser) return null;
     try {
-      const res = await fetchMe(token);
-      if (res.status === 401) {
-        clearSession();
-        applyNavbar(null);
-        return;
-      }
-      if (!res.ok) {
-        // Any non-OK that isn't 401 → treat as guest
-        clearSession();
-        applyNavbar(null);
-        return;
-      }
-      const me = await res.json();
-      setUserCached(me);
-      applyNavbar(me);
+      const token = await firebase.auth().currentUser.getIdToken(true);
+      setToken(token);
+      return token;
     } catch {
-      // Network or parsing failure → degrade to guest
       clearSession();
+      return null;
+    }
+  }
+
+  // ---------------------- Core Session Flow ----------------------
+  async function initSession() {
+    // Wait for Firebase state first
+    if (window.firebase && firebase.auth) {
+      await new Promise(resolve => {
+        const unsub = firebase.auth().onAuthStateChanged(async (user) => {
+          unsub();
+          if (!user) {
+            clearSession();
+            applyNavbar(null);
+            return resolve();
+          }
+
+          const token = await getFreshToken();
+          if (!token) {
+            clearSession();
+            applyNavbar(null);
+            return resolve();
+          }
+
+          // Sync backend user
+          try {
+            const regRes = await fetch("/api/auth/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+              body: JSON.stringify({ guest_id: localStorage.getItem(GUEST_KEY) })
+            });
+            if (!regRes.ok) throw new Error("register failed");
+            const data = await regRes.json();
+            setUserCached(data.user);
+            applyNavbar(data.user);
+          } catch {
+            clearSession();
+            applyNavbar(null);
+          }
+          resolve();
+        });
+      });
+    } else {
+      // Firebase not loaded → treat as guest
       applyNavbar(null);
     }
   }
 
   async function getCurrentUser() {
-    const token = getToken();
-    if (!token) return null;
-
-    // Prefer cache
-    const cached = getUserCached();
+    const cached = (() => { try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch { return null; }})();
     if (cached) return cached;
 
-    // No cache: try to refresh
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return null;
+
     try {
       const res = await fetchMe(token);
-      if (res.status === 401) {
-        clearSession();
-        applyNavbar(null);
-        return null;
-      }
       if (!res.ok) return null;
       const me = await res.json();
       setUserCached(me);
-      applyNavbar(me);
       return me;
     } catch {
       return null;
     }
   }
 
+  // async function logout() {
+  //   clearSession();
+  //   await backendLogout();
+  //   if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+  //     try { await firebase.auth().signOut(); } catch {}
+  //   }
+  //   applyNavbar(null);
+  //   // location.href = "/"; // start fresh as 
+  //   window.location.href = "index.html";
+
+  // }
   async function logout() {
-    await firebaseSignOutIfAny();
-    await backendLogout();
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+      if (token) await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.warn("[auth.js] backend logout failed:", e);
+    }
+
     clearSession();
+
+    if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+      try { await firebase.auth().signOut(); } catch {}
+    }
+
     applyNavbar(null);
-    // Do NOT touch guest_id here. Another module may manage it.
+    window.location.href = "index.html";
   }
 
-  // ---------------------- Expose ----------------------
-  window.auth = {
-    initSession,
-    getCurrentUser,
-    logout,
-  };
 
-  // Auto-bootstrap session on load (idempotent)
+  // ---------------------- Expose ----------------------
+  window.auth = { initSession, getCurrentUser, logout };
+
   document.addEventListener("DOMContentLoaded", initSession);
 })();
