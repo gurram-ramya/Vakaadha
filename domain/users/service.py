@@ -12,14 +12,14 @@ from db import get_db_connection
 # ===========================================================
 # USER SERVICE (Business Logic Layer)
 # ===========================================================
-
 def upsert_user_from_firebase(firebase_uid, email, name):
+    # 1. existing by UID
     user = repository.get_user_by_uid(firebase_uid)
     if user:
         repository.update_user_last_login(user["user_id"])
         return user
 
-    # user doesn't exist, try by email to link existing record
+    # 2. existing by email
     if email:
         existing = repository.get_user_by_email(email)
         if existing:
@@ -27,10 +27,46 @@ def upsert_user_from_firebase(firebase_uid, email, name):
             repository.update_user_last_login(existing["user_id"])
             return existing
 
-    repository.insert_user(firebase_uid, email, name)
+    # 3. attempt insert, fallback on duplicates
+    try:
+        repository.insert_user(firebase_uid, email, name)
+    except Exception as e:
+        if "UNIQUE constraint failed" in str(e):
+            logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
+            existing = repository.get_user_by_email(email)
+            if existing:
+                repository.update_user_last_login(existing["user_id"])
+                return existing
+        logging.exception(f"Insert failed for {email}")
+        return None
+
+    # 4. confirm creation
     new_user = repository.get_user_by_uid(firebase_uid)
-    logging.info(f"Created new user {email}")
+    if new_user:
+        logging.info(f"Created new user {email}")
+        repository.update_user_last_login(new_user["user_id"])
+    else:
+        logging.error(f"Failed to fetch newly created user for {email}")
     return new_user
+
+# def upsert_user_from_firebase(firebase_uid, email, name):
+#     user = repository.get_user_by_uid(firebase_uid)
+#     if user:
+#         repository.update_user_last_login(user["user_id"])
+#         return user
+
+#     # user doesn't exist, try by email to link existing record
+#     if email:
+#         existing = repository.get_user_by_email(email)
+#         if existing:
+#             logging.info(f"Linking existing user {email} with Firebase UID")
+#             repository.update_user_last_login(existing["user_id"])
+#             return existing
+
+#     repository.insert_user(firebase_uid, email, name)
+#     new_user = repository.get_user_by_uid(firebase_uid)
+#     logging.info(f"Created new user {email}")
+#     return new_user
 
 
 def ensure_user_profile(user_id):
