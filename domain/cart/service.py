@@ -222,30 +222,32 @@ def clear_cart(cart_id: int):
 
 
 # =============================================================
-# Merge & Conversion
+# Merge & Conversion (corrected)
 # =============================================================
 def merge_guest_into_user(user_id: int, guest_id: str):
     """Merge guest cart items into user cart with quantity reconciliation."""
+    if not guest_id:
+        return {"status": "skipped", "reason": "no_guest"}
+
     conn = get_db_connection()
     with conn:
         guest_cart = repo.get_cart_by_guest_id(conn, guest_id)
         if not guest_cart:
-            raise CartNotFoundError("Guest cart not found")
-        if guest_cart["status"] in ("converted", "merged"):
-            return {"status": "skipped", "reason": "already merged"}
+            return {"status": "skipped", "reason": "guest_not_found"}
+
+        if guest_cart.get("status") in ("converted", "merged"):
+            return {"status": "skipped", "reason": "already_merged"}
 
         user_cart = repo.get_cart_by_user_id(conn, user_id)
-        if not user_cart:
-            user_cart_id = repo.create_user_cart(conn, user_id)
-        else:
-            user_cart_id = user_cart["cart_id"]
+        user_cart_id = user_cart["cart_id"] if user_cart else repo.create_user_cart(conn, user_id)
 
         guest_items = repo.get_cart_items(conn, guest_cart["cart_id"])
-        added, updated = 0, 0
+        added, updated, skipped = 0, 0, 0
 
         for item in guest_items:
             variant = repo.get_variant_with_price_and_stock(conn, item["variant_id"])
             if not variant or variant["stock"] <= 0:
+                skipped += 1
                 continue
             try:
                 existed = not repo.add_or_update_cart_item(
@@ -258,12 +260,32 @@ def merge_guest_into_user(user_id: int, guest_id: str):
                 updated += int(existed)
                 added += int(not existed)
             except Exception:
+                skipped += 1
                 continue
 
         repo.mark_cart_merged(conn, guest_cart["cart_id"])
-        _record_audit(conn, guest_cart["cart_id"], user_id, guest_id, "merge",
-                      f"Merged {added} added, {updated} updated")
-        return {"status": "merged", "added": added, "updated": updated}
+        _record_audit(
+            conn,
+            guest_cart["cart_id"],
+            user_id,
+            guest_id,
+            "merge",
+            f"Merged {added} added, {updated} updated, {skipped} skipped",
+        )
+
+        return {"status": "merged", "added": added, "updated": updated, "skipped": skipped}
+
+
+# =============================================================
+# Compatibility alias for user_service.ensure_user_with_merge()
+# =============================================================
+def merge_guest_cart_if_any(user_id: int, guest_id: str):
+    """Wrapper for backward compatibility with user_service."""
+    try:
+        return merge_guest_into_user(user_id, guest_id)
+    except Exception as e:
+        _record_audit(None, None, user_id, guest_id, "merge_error", str(e))
+        return {"status": "error", "error": str(e)}
 
 
 def convert_cart_to_order(cart_id: int):

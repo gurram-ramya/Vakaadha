@@ -159,8 +159,7 @@
 // }
 
 
-// auth.js
-// auth.js (revised for dynamic token + session control)
+// auth.js — current user service + guest/cart continuity (minimal correction)
 (function () {
   const TOKEN_KEY = "auth_token";
   const USER_KEY  = "user_info";
@@ -168,6 +167,12 @@
 
   if (window.__auth_js_bound__) return;
   window.__auth_js_bound__ = true;
+
+  // ---------------------- Cookie helper ----------------------
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+    return match ? decodeURIComponent(match[2]) : null;
+  }
 
   // ---------------------- Helpers ----------------------
   function setToken(t) {
@@ -216,6 +221,9 @@
           if (!user) {
             clearSession();
             applyNavbar(null);
+            // ensure guest_id from cookie is persisted
+            const g = getCookie(GUEST_KEY);
+            if (g) localStorage.setItem(GUEST_KEY, g);
             return resolve();
           }
 
@@ -246,6 +254,8 @@
       });
     } else {
       // Firebase not loaded → treat as guest
+      const g = getCookie(GUEST_KEY);
+      if (g) localStorage.setItem(GUEST_KEY, g);
       applyNavbar(null);
     }
   }
@@ -268,17 +278,7 @@
     }
   }
 
-  // async function logout() {
-  //   clearSession();
-  //   await backendLogout();
-  //   if (window.firebase && firebase.auth && firebase.auth().currentUser) {
-  //     try { await firebase.auth().signOut(); } catch {}
-  //   }
-  //   applyNavbar(null);
-  //   // location.href = "/"; // start fresh as 
-  //   window.location.href = "index.html";
-
-  // }
+  // ---------------------- Logout flow ----------------------
   async function logout() {
     const token = localStorage.getItem(TOKEN_KEY);
     try {
@@ -296,10 +296,13 @@
       try { await firebase.auth().signOut(); } catch {}
     }
 
+    // capture new guest_id cookie issued by backend logout
+    const newGuest = getCookie(GUEST_KEY);
+    if (newGuest) localStorage.setItem(GUEST_KEY, newGuest);
+
     applyNavbar(null);
     window.location.href = "index.html";
   }
-
 
   // ---------------------- Expose ----------------------
   window.auth = { initSession, getCurrentUser, logout };
