@@ -5,6 +5,20 @@ from domain.cart import service as cart_service
 
 
 # ============================================================
+# WISHLIST ENSURE HELPERS (NEW — align with cart service)
+# ============================================================
+def ensure_wishlist_for_guest(guest_id: str):
+    wishlist_id = repo.get_or_create_wishlist(guest_id=guest_id)
+    return {"wishlist_id": wishlist_id, "guest_id": guest_id}
+
+
+def ensure_wishlist_for_user(user_id: int):
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id)
+    return {"wishlist_id": wishlist_id, "user_id": user_id}
+
+
+
+# ============================================================
 # GET WISHLIST ITEMS
 # ============================================================
 def get_wishlist(user_id=None, guest_id=None):
@@ -77,60 +91,6 @@ def clear_wishlist(user_id=None, guest_id=None):
 # ============================================================
 # MOVE TO CART (FINAL FIXED VERSION — CLEAN REPO LAYER)
 # ============================================================
-# # ============================================================
-# # MOVE TO CART (FINAL & FIXED)
-# # ============================================================
-# def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
-#     """
-#     Moves a product from the wishlist to the cart.
-#     - Validates product existence.
-#     - Uses existing cart_service.add_item() for atomic add/update.
-#     - Removes the product from wishlist after successful add.
-#     - Logs valid audit entry.
-#     """
-#     from db import get_db_connection  # avoid circular import
-
-#     wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
-
-#     # ✅ 1. Validate product existence
-#     if not repo.product_exists(product_id):
-#         return {"status": "error", "message": "Product not found"}
-
-#     try:
-#         # ✅ 2. Ensure cart exists
-#         if user_id:
-#             cart_info = cart_service.ensure_cart_for_user(user_id)
-#         else:
-#             cart_info = cart_service.ensure_cart_for_guest(guest_id)
-
-#         cart_id = cart_info["cart_id"]
-
-#         # ✅ 3. Add to cart (handles increment logic automatically)
-#         cart_data = cart_service.add_item(cart_id, variant_id, 1)
-
-#         # ✅ 4. Remove from wishlist
-#         repo.remove_item(wishlist_id, product_id, user_id, guest_id)
-
-#         # ✅ 5. Audit log (use valid action to satisfy DB constraint)
-#         repo.log_audit(
-#             "remove",  # <-- valid per CHECK constraint
-#             wishlist_id,
-#             user_id,
-#             guest_id,
-#             product_id,
-#             variant_id=variant_id,
-#             message=f"Product {product_id} (variant {variant_id}) moved to cart"
-#         )
-
-#         # ✅ 6. Return consistent dict to frontend
-#         return {
-#             "status": "success",
-#             "message": "Item moved to cart successfully",
-#             "cart": cart_data
-#         }
-
-#     except Exception as e:
-#         return {"status": "error", "message": str(e)}
 
 from db import get_db_connection
 
@@ -195,32 +155,48 @@ def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
 # ============================================================
 # MERGE GUEST → USER WISHLIST
 # ============================================================
-def merge_guest_wishlist(user_id, guest_id):
-    """
-    Merge a guest's wishlist into a logged-in user's wishlist.
-    - Transfers guest wishlist items to user's wishlist.
-    - Marks guest wishlist as merged.
-    - Logs merge actions.
-    """
-    if not user_id or not guest_id:
-        return {"status": "error", "message": "Missing user_id or guest_id"}
 
-    guest_wishlist = repo.get_wishlist_by_guest(guest_id)
-    user_wishlist = repo.get_wishlist_by_user(user_id)
+# def merge_guest_wishlist_into_user(user_id: int, guest_id: str):
+#     """Move all wishlist items from guest wishlist into the user's wishlist, deleting guest wishlist."""
+#     conn = get_db_connection()
+#     with conn:
+#         guest_wishlist = repo.get_wishlist_by_guest_id(conn, guest_id)
+#         if not guest_wishlist:
+#             return {"status": "skipped", "reason": "no active guest wishlist"}
 
-    if not guest_wishlist:
-        return {"status": "success", "message": "No guest wishlist to merge"}
+#         user_wishlist = repo.get_wishlist_by_user_id(conn, user_id)
+#         if not user_wishlist:
+#             user_wishlist_id = repo.create_user_wishlist(conn, user_id)
+#         else:
+#             user_wishlist_id = user_wishlist["wishlist_id"]
 
-    if not user_wishlist:
-        user_wishlist_id = repo.get_or_create_wishlist(user_id=user_id)
-    else:
-        user_wishlist_id = user_wishlist["wishlist_id"]
+#         repo.transfer_wishlist_items(conn, guest_wishlist["wishlist_id"], user_wishlist_id)
+#         repo.record_wishlist_merge_audit(conn, user_wishlist_id, user_id, guest_id)
+#         repo.delete_guest_wishlist(conn, guest_id)
 
-    added = repo.merge_wishlists(guest_wishlist["wishlist_id"], user_wishlist_id)
-    repo.update_wishlist_status(guest_wishlist["wishlist_id"], "merged")
-    repo.log_audit("merge", user_wishlist_id, user_id, guest_id, message=f"Merged {added} items")
+#         conn.commit()
+#         return {"status": "merged", "user_wishlist_id": user_wishlist_id}
 
-    return {"status": "success", "message": f"Merged {added} items from guest wishlist"}
+def merge_guest_wishlist_into_user(user_id: int, guest_id: str):
+    """Merge guest wishlist into user wishlist without deletion (auth.py-compatible)."""
+    conn = get_db_connection()
+    with conn:
+        guest_wishlist = repo.get_wishlist_by_guest_id(conn, guest_id)
+        if not guest_wishlist:
+            return {"status": "skipped", "reason": "no active guest wishlist"}
+
+        user_wishlist = repo.get_wishlist_by_user_id(conn, user_id)
+        if not user_wishlist:
+            user_wishlist_id = repo.create_user_wishlist(conn, user_id)
+        else:
+            user_wishlist_id = user_wishlist["wishlist_id"]
+
+        repo.transfer_wishlist_items(conn, guest_wishlist["wishlist_id"], user_wishlist_id)
+        repo.record_wishlist_merge_audit(conn, user_wishlist_id, user_id, guest_id)
+        repo.mark_wishlist_merged(conn, guest_id)
+
+        conn.commit()
+        return {"status": "merged", "user_wishlist_id": user_wishlist_id}
 
 
 # ============================================================

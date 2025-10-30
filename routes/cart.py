@@ -173,12 +173,11 @@
 #         return _json_error(500, "ServerError", str(e))
 
 
-# routes/cart.py — Vakaadha Cart API v2 (aligned with unified auth + guest model)
-
+# routes/cart.py — Unified Guest + User Cart API v3
 import logging
 from flask import Blueprint, request, jsonify, make_response, g
 from domain.cart import service as cart_service
-from utils.auth import require_guest, _set_guest_cookie, resolve_guest_context
+from utils.auth import require_auth, _set_guest_cookie
 
 cart_bp = Blueprint("cart", __name__)
 
@@ -202,20 +201,37 @@ def _parse_json(required=None):
     return data, None
 
 
-# =============================================================
-# Routes
-# =============================================================
+def get_context():
+    """Resolve user_id vs guest_id based on auth state."""
+    user = getattr(g, "user", None)
+    user_id = user.get("user_id") if user else None
+    guest_id = None if user_id else getattr(g, "guest_id", None)
+    return user_id, guest_id
 
+
+
+# =============================================================
+# GET CART
+# =============================================================
 @cart_bp.route("/api/cart", methods=["GET"])
-@require_guest
+@require_auth(optional=True)
 def get_cart():
     """Return current cart (guest or user)."""
-    guest_id = getattr(g, "guest_id", None)
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
         cart_data = cart_service.fetch_cart(cart_info["cart_id"])
         resp = make_response(jsonify(cart_data))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except Exception as e:
@@ -223,23 +239,34 @@ def get_cart():
         return _json_error(500, "ServerError", str(e))
 
 
+# =============================================================
+# ADD TO CART
+# =============================================================
 @cart_bp.route("/api/cart", methods=["POST"])
-@require_guest
+@require_auth(optional=True)
 def add_to_cart():
-    """Add a product variant to cart."""
+    """Add a product variant to the cart (guest or user)."""
     data, err = _parse_json(["variant_id", "quantity"])
     if err:
         return err
 
-    variant_id = data.get("variant_id")
-    quantity = data.get("quantity")
-    guest_id = getattr(g, "guest_id", None)
+    variant_id = int(data["variant_id"])
+    quantity = int(data["quantity"])
 
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
-        cart_data = cart_service.add_item(cart_info["cart_id"], int(variant_id), int(quantity))
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
+        cart_data = cart_service.add_item(cart_info["cart_id"], variant_id, quantity)
         resp = make_response(jsonify(cart_data))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except cart_service.InsufficientStockError:
@@ -253,24 +280,36 @@ def add_to_cart():
         return _json_error(500, "ServerError", str(e))
 
 
+# =============================================================
+# PATCH CART ITEM
+# =============================================================
 @cart_bp.route("/api/cart", methods=["PATCH"])
-@require_guest
+@require_auth(optional=True)
 def patch_cart_item():
-    """Update quantity for existing item."""
+    """Update quantity for existing cart item."""
     data, err = _parse_json(["cart_item_id", "quantity"])
     if err:
         return err
-    guest_id = getattr(g, "guest_id", None)
 
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
         cart_data = cart_service.update_item_quantity(
             cart_info["cart_id"],
             int(data["cart_item_id"]),
             int(data["quantity"])
         )
         resp = make_response(jsonify(cart_data))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except cart_service.InsufficientStockError:
@@ -280,16 +319,29 @@ def patch_cart_item():
         return _json_error(500, "ServerError", str(e))
 
 
+# =============================================================
+# DELETE CART ITEM
+# =============================================================
 @cart_bp.route("/api/cart/<int:cart_item_id>", methods=["DELETE"])
-@require_guest
+@require_auth(optional=True)
 def delete_cart_item(cart_item_id):
-    """Remove a single cart item."""
-    guest_id = getattr(g, "guest_id", None)
+    """Remove a single item from the cart."""
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
         cart_data = cart_service.remove_item(cart_info["cart_id"], cart_item_id)
         resp = make_response(jsonify(cart_data))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except Exception as e:
@@ -297,16 +349,29 @@ def delete_cart_item(cart_item_id):
         return _json_error(500, "ServerError", str(e))
 
 
+# =============================================================
+# CLEAR CART
+# =============================================================
 @cart_bp.route("/api/cart/clear", methods=["DELETE"])
-@require_guest
+@require_auth(optional=True)
 def clear_cart():
     """Clear all cart items."""
-    guest_id = getattr(g, "guest_id", None)
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
         cart_service.clear_cart(cart_info["cart_id"])
         resp = make_response(jsonify({"status": "cleared"}))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except Exception as e:
@@ -314,18 +379,43 @@ def clear_cart():
         return _json_error(500, "ServerError", str(e))
 
 
+# =============================================================
+# GET CART AUDIT LOG
+# =============================================================
 @cart_bp.route("/api/cart/audit", methods=["GET"])
-@require_guest
+@require_auth(optional=True)
 def get_cart_audit():
-    """Return recent audit logs for the current guest/user cart."""
-    guest_id = getattr(g, "guest_id", None)
+    """Return recent audit logs for the current cart."""
     try:
-        cart_info = cart_service.ensure_cart_for_guest(guest_id)
+        user_id, guest_id = get_context()
+        if user_id:
+            cart_info = cart_service.ensure_cart_for_user(user_id)
+        else:
+            cart_info = cart_service.ensure_cart_for_guest(guest_id)
+
         audit_log = cart_service.get_audit_log(cart_info["cart_id"])
         resp = make_response(jsonify({"cart_id": cart_info["cart_id"], "events": audit_log}))
-        return _set_guest_cookie(resp, cart_info["guest_id"], replace=getattr(g, "new_guest", False))
+
+        if not user_id and getattr(g, "new_guest", False):
+            _set_guest_cookie(resp, cart_info["guest_id"], replace=True)
+
+        return resp
+
     except cart_service.GuestCartExpired:
         return _json_error(410, "GuestCartExpired", "Guest cart TTL expired")
     except Exception as e:
         logging.exception("Cart audit fetch failed")
         return _json_error(500, "ServerError", str(e))
+
+
+# =============================================================
+# MERGE GUEST CART (DEPRECATED)
+# =============================================================
+@cart_bp.route("/api/cart/merge", methods=["POST"])
+@require_auth(optional=True)
+def deprecated_cart_merge():
+    """Deprecated. Guest cart is now auto-merged during authentication."""
+    return jsonify({
+        "error": "deprecated",
+        "message": "Guest cart merge is handled automatically on login"
+    }), 410

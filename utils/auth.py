@@ -1,57 +1,18 @@
-# utils/auth.py
-# import logging
-# import os
-# from functools import wraps
-# from flask import request, jsonify, g, make_response
-# from datetime import datetime
-# from uuid import uuid4
-# from firebase_admin import auth as firebase_auth, credentials
-# import firebase_admin
-# from utils.cache import cached, firebase_token_cache, lock
-
-
-
-# -------------------------------------------------------------
-# Firebase Initialization
-# -------------------------------------------------------------
-# def initialize_firebase():
-#     if firebase_admin._apps:
-#         logging.info("Firebase already initialized; skipping re-initialization.")
-#         return
-
-#     try:
-#         service_account_path = os.getenv("FIREBASE_CREDENTIALS")
-#         if service_account_path and os.path.exists(service_account_path):
-#             cred = credentials.Certificate(service_account_path)
-#             logging.info(f"Using Firebase credentials from environment: {service_account_path}")
-#         else:
-#             from pathlib import Path
-#             local_path = Path(__file__).resolve().parents[1] / "firebase-adminsdk.json"
-#             logging.info(f"Looking for local Firebase credentials at: {local_path}")
-#             cred = credentials.Certificate(str(local_path))
-#             logging.info(f"Using local Firebase credentials: {local_path}")
-
-#         firebase_admin.initialize_app(cred)
-#         logging.info("Firebase Admin SDK initialized successfully. App name={app.name}")
-#     except Exception as e:
-#         logging.critical(f"Firebase initialization failed: {str(e)}")
-#         raise RuntimeError("Failed to initialize Firebase Admin SDK.")
-
-# utils/auth.py
+# utils/auth.py — merged and corrected (user-first with full Firebase + guest support)
 import logging
 import os
+import re
 from functools import wraps
-from flask import request, jsonify, g
+from flask import request, jsonify, g, make_response
 from datetime import datetime
 from uuid import uuid4
 from firebase_admin import auth as firebase_auth, credentials
 import firebase_admin
 from utils.cache import cached, firebase_token_cache, lock
 
-
-# -------------------------------------------------------------
-# Firebase Initialization
-# -------------------------------------------------------------
+# ===========================================================
+# FIREBASE INITIALIZATION
+# ===========================================================
 def initialize_firebase():
     import traceback
     logging.info("🔥 initialize_firebase() called")
@@ -77,7 +38,6 @@ def initialize_firebase():
         app = firebase_admin.initialize_app(cred)
         logging.info(f"✅ Firebase Admin initialized successfully. App name={app.name}")
 
-        # Debug Firebase project info
         try:
             proj_id = firebase_admin.get_app().project_id
             logging.info(f"🔧 Firebase Admin project_id={proj_id}")
@@ -90,63 +50,94 @@ def initialize_firebase():
         raise
 
 
-# -------------------------------------------------------------
-# Guest Identity Handling
-# -------------------------------------------------------------
-def resolve_guest_context():
-    gid = request.cookies.get("guest_id")
+# ===========================================================
+# COOKIE + GUEST UTILITIES
+# ===========================================================
+GUEST_COOKIE = "guest_id"
+GUEST_COOKIE_MAX_AGE = 7 * 24 * 3600
+
+
+def _resolve_guest_context():
+    """Stable guest_id; never regenerate within same browser session."""
+    gid = request.cookies.get(GUEST_COOKIE)
     if gid and re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
         g.guest_id = gid
         g.new_guest = False
         return gid
-    gid = str(uuid4())
-    g.guest_id = gid
+
+    # if cookie missing, create new and mark for immediate set
+    new_gid = str(uuid4())
+    g.guest_id = new_gid
     g.new_guest = True
-    return gid
+    g.defer_guest_cookie = True
+    return new_gid
+
+from flask import current_app
+
+@current_app.before_request
+def ensure_single_guest_context():
+    """
+    Guarantee one guest_id per client before any route executes.
+    Prevents concurrent guest creation across parallel /auth calls.
+    """
+    # Skip if already authenticated
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        return
+
+    if not hasattr(g, "guest_id"):
+        gid = request.cookies.get(GUEST_COOKIE)
+        if not gid or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
+            gid = str(uuid4())
+            g.new_guest = True
+            g.defer_guest_cookie = True
+        else:
+            g.new_guest = False
+        g.guest_id = gid
 
 
+def _set_guest_cookie(resp, guest_id=None, replace=False):
+    """Set guest cookie only once and defer until response commit."""
+    # skip static and favicon
+    if request.path.startswith("/static") or request.path.endswith(
+        (".css", ".js", ".png", ".jpg", ".ico", ".svg")
+    ):
+        return resp
 
-def _set_guest_cookie(resp, guest_id, replace=False):
+    current_cookie = request.cookies.get(GUEST_COOKIE)
+    if not replace and current_cookie == guest_id:
+        return resp
+
+    if not guest_id:
+        guest_id = getattr(g, "guest_id", None) or str(uuid4())
+
     is_https = request.is_secure or os.getenv("FORCE_SECURE_COOKIE") == "1"
     resp.set_cookie(
-        "guest_id",
+        GUEST_COOKIE,
         guest_id,
-        max_age=7 * 24 * 3600,
+        max_age=GUEST_COOKIE_MAX_AGE,
         httponly=True,
         secure=is_https,
         samesite="Lax",
     )
-    if replace:
-        logging.info({
-            "event": "guest_cookie_reissued",
-            "guest_id": guest_id,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
     resp.headers["Access-Control-Allow-Credentials"] = "true"
     resp.headers["Access-Control-Expose-Headers"] = "Set-Cookie"
+    g.defer_guest_cookie = False
     return resp
 
 
 
-# -------------------------------------------------------------
-# Token Extraction + Verification
-# -------------------------------------------------------------
-def extract_token():
+# ===========================================================
+# TOKEN EXTRACTION + VERIFICATION
+# ===========================================================
+def _extract_token():
     auth_header = request.headers.get("Authorization", None)
     if not auth_header:
         return None, "unauthorized_missing_token"
-
     parts = auth_header.split()
     if parts[0].lower() != "bearer" or len(parts) != 2:
         return None, "unauthorized_malformed_token"
-
     return parts[1], None
-
-
-def auth_error_response(error_code, message):
-    response = jsonify({"error": error_code, "message": message})
-    response.status_code = 401
-    return response
 
 
 class AuthError(Exception):
@@ -156,44 +147,14 @@ class AuthError(Exception):
         self.message = message
 
 
-# -------------------------------------------------------------
-# Firebase Token Verification (with debug)
-# -------------------------------------------------------------
 @cached(cache=firebase_token_cache, lock=lock)
 def verify_firebase_token(token):
-    """
-    Verify a Firebase ID token with short-term caching.
-    Added verbose debugging output.
-    """
-    logging.info(f"🔍 Verifying token (first 60 chars): {token[:60]}...")
+    """Firebase token verification with caching."""
     try:
         decoded = firebase_auth.verify_id_token(token, check_revoked=True)
-
-        uid = decoded.get("uid")
-        email = decoded.get("email")
-        aud = decoded.get("aud")
-        iss = decoded.get("iss")
-        project_id = firebase_admin.get_app().project_id if firebase_admin._apps else "unknown"
-
-        logging.info({
-            "event": "firebase_token_verified",
-            "uid": uid,
-            "email": email,
-            "aud": aud,
-            "iss": iss,
-            "project_id_admin": project_id,
-            "timestamp": datetime.utcnow().isoformat()
-        })
         return decoded
-
     except Exception as e:
         msg = str(e).lower()
-        logging.error({
-            "event": "firebase_token_error",
-            "error": str(e),
-            "token_snippet": token[:30] + "...",
-            "timestamp": datetime.utcnow().isoformat()
-        })
         if "expired" in msg:
             raise AuthError("token_expired", "Firebase ID token expired")
         elif "revoked" in msg:
@@ -204,94 +165,94 @@ def verify_firebase_token(token):
             raise AuthError("auth_verification_failed", str(e))
 
 
-# -------------------------------------------------------------
-# Decorator: Require Authentication
-# -------------------------------------------------------------
+# ===========================================================
+# DECORATOR: REQUIRE AUTH (USER-FIRST)
+# ===========================================================
 def require_auth(optional=False):
     """
-    Decorator enforcing Firebase authentication, while always resolving guest_id.
+    Enforce Firebase authentication if available.
+    optional=True → allows guest fallback.
     """
-    def decorator(f):
-        @wraps(f)
+    def decorator(func):
+        @wraps(func)
         def wrapper(*args, **kwargs):
-            resolve_guest_context()
-            token, error_code = extract_token()
+            token, token_error = _extract_token()
+            g.user = None
+            g.actor = {"user_id": None, "guest_id": None, "is_authenticated": False}
 
-            if not token:
-                if optional:
-                    g.user = None
-                    logging.info({
-                        "event": "auth_skipped",
-                        "reason": "no_token_provided",
-                        "guest_id": g.guest_id,
-                        "timestamp": datetime.utcnow().isoformat()
-                    })
-                    return f(*args, **kwargs)
-                return auth_error_response(error_code, "Missing or malformed Authorization header")
+            if token:
+                try:
+                    decoded = verify_firebase_token(token)
+                    g.user = {
+                        "firebase_uid": decoded.get("uid"),
+                        "email": decoded.get("email"),
+                        "name": decoded.get("name"),
+                        "email_verified": decoded.get("email_verified", False),
+                    }
+                    g.actor["is_authenticated"] = True
+                    return func(*args, **kwargs)
+                except AuthError as e:
+                    if not optional:
+                        return jsonify({"error": e.code, "message": e.message}), 401
+                except Exception as e:
+                    if not optional:
+                        return jsonify({"error": "auth_verification_failed", "message": str(e)}), 401
 
-            try:
-                decoded = verify_firebase_token(token)
-                g.user = {
-                    "firebase_uid": decoded.get("uid"),
-                    "email": decoded.get("email"),
-                    "name": decoded.get("name"),
-                    "email_verified": decoded.get("email_verified", False),
-                }
-
-                logging.info({
-                    "event": "auth_success",
-                    "uid": g.user["firebase_uid"],
-                    "email": g.user.get("email"),
-                    "guest_id": g.guest_id,
-                    "ip": request.remote_addr,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-                return f(*args, **kwargs)
-
-            except AuthError as e:
-                logging.warning({
-                    "event": "auth_failure",
-                    "error": e.code,
-                    "message": e.message,
-                    "guest_id": g.guest_id,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-                if optional:
-                    g.user = None
-                    return f(*args, **kwargs)
-                return auth_error_response(e.code, e.message)
-
-            except Exception as e:
-                logging.error({
-                    "event": "auth_unexpected_error",
-                    "error": str(e),
-                    "guest_id": g.guest_id,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-                if optional:
-                    g.user = None
-                    return f(*args, **kwargs)
-                return auth_error_response("auth_verification_failed", "Unexpected authentication error")
-
+            # guest fallback
+            gid = _resolve_guest_context()
+            g.actor.update({"guest_id": gid, "is_authenticated": False})
+            if not optional and not gid:
+                return jsonify({"error": "invalid_guest"}), 401
+            return func(*args, **kwargs)
         return wrapper
     return decorator
-import re
 
+
+# ===========================================================
+# REQUIRE GUEST (EXPLICIT GUEST-ONLY ROUTES)
+# ===========================================================
 def require_guest(func):
-    """Ensure guest_id is valid when no authenticated user is present."""
+    """Ensure guest_id is valid when no authenticated user present."""
     @wraps(func)
     def _wrapped(*args, **kwargs):
         gid = request.args.get("guest_id") or request.cookies.get("guest_id")
-        if getattr(g, "user", None):  # skip if authenticated
+        if getattr(g, "user", None):
             return func(*args, **kwargs)
         if not gid or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
-            logging.warning({
-                "event": "guest_validation_failed",
-                "guest_id": gid,
-                "ip": request.remote_addr,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
             return jsonify({"error": "invalid_guest_id"}), 400
         g.guest_id = gid
+        g.actor = {"user_id": None, "guest_id": gid, "is_authenticated": False}
         return func(*args, **kwargs)
     return _wrapped
+
+
+# ===========================================================
+# LOGOUT HANDLER SUPPORT
+# ===========================================================
+def perform_logout_response():
+    """
+    Called during /api/auth/logout.
+    Rotates guest cookie once, resets user context.
+    """
+    resp = make_response(jsonify({"status": "logged_out"}))
+    resp.delete_cookie(GUEST_COOKIE)
+    new_guest_id = str(uuid4())
+    _set_guest_cookie(resp, new_guest_id)
+    g.user = None
+    g.actor = {"user_id": None, "guest_id": new_guest_id, "is_authenticated": False}
+    logging.info({
+        "event": "user_logout",
+        "guest_id": new_guest_id,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    return resp
+
+
+# ===========================================================
+# CONTEXT ACCESSOR
+# ===========================================================
+def get_current_actor():
+    """Return unified session context."""
+    if hasattr(g, "actor"):
+        return g.actor
+    return {"user_id": None, "guest_id": None, "is_authenticated": False}

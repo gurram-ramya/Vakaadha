@@ -1,3 +1,119 @@
+# # routes/users.py
+# import logging
+# from flask import Blueprint, request, jsonify, g, make_response
+# from utils.auth import require_auth, _set_guest_cookie
+# from domain.users import service as user_service
+# from domain.cart import service as cart_service
+# from db import get_db_connection
+# from uuid import uuid4
+# from datetime import datetime
+
+# users_bp = Blueprint("users", __name__)
+
+# # -------------------------------------------------------------
+# # Helper: JSON error response
+# # -------------------------------------------------------------
+# def error_response(code, error, message=None):
+#     payload = {"error": error}
+#     if message:
+#         payload["message"] = message
+#     return jsonify(payload), code
+
+
+# # -------------------------------------------------------------
+# # POST /api/auth/register
+# # Authenticate user via Firebase and ensure DB consistency
+# # -------------------------------------------------------------
+# @users_bp.route("/api/auth/register", methods=["POST"], endpoint="register_user")
+# @require_auth()
+# def register_user():
+#     conn = None
+#     try:
+#         conn = get_db_connection()
+#         data = request.get_json(silent=True) or {}
+
+#         print("\n=== [DEBUG] /api/auth/register ===")
+#         print("Firebase UID:", g.user.get("firebase_uid"))
+#         print("Email:", g.user.get("email"))
+#         print("Guest cookie:", request.cookies.get("guest_id"))
+#         print("Guest payload:", data.get("guest_id"))
+
+#         guest_id = getattr(g, "guest_id", None) or request.cookies.get("guest_id") or data.get("guest_id")
+#         print("Resolved guest_id:", guest_id)
+
+#         user, merge_result = user_service.ensure_user_with_merge(
+#             conn=conn,
+#             firebase_uid=g.user["firebase_uid"],
+#             email=g.user["email"],
+#             name=g.user.get("name"),
+#             avatar_url=g.user.get("picture"),
+#             guest_id=guest_id,
+#             update_last_login=True,
+#         )
+
+#         print("User from ensure_user_with_merge():", user)
+#         print("Merge result:", merge_result)
+
+#         response = jsonify({
+#             "user": {
+#                 "user_id": user["user_id"],
+#                 "firebase_uid": user["firebase_uid"],
+#                 "email": user["email"],
+#                 "name": user["name"],
+#                 # "is_admin": user.get("is_admin", False),
+#                 "is_admin": user["is_admin"] if "is_admin" in user.keys() else False,
+#                 "email_verified": g.user.get("email_verified", False),
+#             },
+#             "merge": merge_result or None,
+#         })
+
+#         resp = make_response(response)
+#         if request.cookies.get("guest_id"):
+#             resp.delete_cookie("guest_id")
+#         _set_guest_cookie(resp, str(uuid4()))
+
+#         print("[DEBUG] register_user completed successfully\n")
+#         return resp, 200
+
+#     except Exception as e:
+#         print("[ERROR] register_user failed:", e)
+#         import traceback
+#         traceback.print_exc()
+#         return error_response(500, "internal_error", str(e))
+
+#     finally:
+#         if conn:
+#             conn.close()
+
+
+
+# # -------------------------------------------------------------
+# # GET /api/auth/session
+# # Validate Firebase token and return current user session snapshot
+# # -------------------------------------------------------------
+# @users_bp.route("/api/auth/session", methods=["GET"], endpoint="session_info")
+# @require_auth()
+# def session_info():
+#     try:
+#         user = g.user
+#         logging.info({
+#             "event": "session_info",
+#             "firebase_uid": user.get("firebase_uid"),
+#             "email": user.get("email"),
+#             "timestamp": datetime.utcnow().isoformat()
+#         })
+#         return jsonify({
+#             "user_id": user.get("user_id"),
+#             "firebase_uid": user.get("firebase_uid"),
+#             "email": user.get("email"),
+#             "name": user.get("name"),
+#             "is_admin": user.get("is_admin", False),
+#             "email_verified": user.get("email_verified", False)
+#         }), 200
+#     except Exception as e:
+#         logging.exception("Error in /api/auth/session")
+#         return error_response(500, "internal_error", str(e))
+
 # routes/users.py
 import logging
 from flask import Blueprint, request, jsonify, g, make_response
@@ -22,7 +138,6 @@ def error_response(code, error, message=None):
 
 # -------------------------------------------------------------
 # POST /api/auth/register
-# Authenticate user via Firebase and ensure DB consistency
 # -------------------------------------------------------------
 @users_bp.route("/api/auth/register", methods=["POST"], endpoint="register_user")
 @require_auth()
@@ -51,45 +166,39 @@ def register_user():
             update_last_login=True,
         )
 
+        if not user:
+            print("[ERROR] ensure_user_with_merge returned None")
+            return error_response(500, "user_creation_failed", "Unable to ensure user record")
+
         print("User from ensure_user_with_merge():", user)
         print("Merge result:", merge_result)
 
+        # do not delete or reissue guest cookie here; handled in auth.py
         response = jsonify({
             "user": {
                 "user_id": user["user_id"],
                 "firebase_uid": user["firebase_uid"],
                 "email": user["email"],
                 "name": user["name"],
-                # "is_admin": user.get("is_admin", False),
-                "is_admin": user["is_admin"] if "is_admin" in user.keys() else False,
+                "is_admin": user.get("is_admin", False),
                 "email_verified": g.user.get("email_verified", False),
             },
             "merge": merge_result or None,
         })
-
-        resp = make_response(response)
-        if request.cookies.get("guest_id"):
-            resp.delete_cookie("guest_id")
-        _set_guest_cookie(resp, str(uuid4()))
-
-        print("[DEBUG] register_user completed successfully\n")
-        return resp, 200
+        return make_response(response), 200
 
     except Exception as e:
         print("[ERROR] register_user failed:", e)
         import traceback
         traceback.print_exc()
         return error_response(500, "internal_error", str(e))
-
     finally:
         if conn:
             conn.close()
 
 
-
 # -------------------------------------------------------------
 # GET /api/auth/session
-# Validate Firebase token and return current user session snapshot
 # -------------------------------------------------------------
 @users_bp.route("/api/auth/session", methods=["GET"], endpoint="session_info")
 @require_auth()
@@ -199,21 +308,26 @@ def update_user_profile():
 # -------------------------------------------------------------
 # POST /api/auth/logout
 # -------------------------------------------------------------
+# @users_bp.route("/api/auth/logout", methods=["POST"])
+# @require_auth(optional=True)
+# def logout_user():
+#     resp = jsonify({"status": "logged_out"})
+#     if request.cookies.get("guest_id"):
+#         resp.delete_cookie("guest_id")
+#     _set_guest_cookie(resp, str(uuid4()))
+
+#     logging.info({
+#         "event": "user_logout",
+#         "firebase_uid": getattr(g.user, "firebase_uid", None),
+#         "timestamp": datetime.utcnow().isoformat(),
+#     })
+#     return resp, 200
+
 @users_bp.route("/api/auth/logout", methods=["POST"])
 @require_auth(optional=True)
 def logout_user():
-    resp = jsonify({"status": "logged_out"})
-    if request.cookies.get("guest_id"):
-        resp.delete_cookie("guest_id")
-    _set_guest_cookie(resp, str(uuid4()))
-
-    logging.info({
-        "event": "user_logout",
-        "firebase_uid": getattr(g.user, "firebase_uid", None),
-        "timestamp": datetime.utcnow().isoformat(),
-    })
-    return resp, 200
-
+    from utils.auth import perform_logout_response
+    return perform_logout_response()
 
 # -------------------------------------------------------------
 # GET /api/cart/merge (Deprecated)

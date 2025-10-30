@@ -159,153 +159,163 @@
 // }
 
 
-// auth.js — current user service + guest/cart continuity (minimal correction)
+// auth.js — unified guest/user continuity (final aligned)
 (function () {
   const TOKEN_KEY = "auth_token";
   const USER_KEY  = "user_info";
-  const GUEST_KEY = "guest_id"; // maintained via backend cookie only
+  const GUEST_KEY = "guest_id"; // backend cookie source of truth
 
   if (window.__auth_js_bound__) return;
   window.__auth_js_bound__ = true;
 
-  // ---------------------- Cookie helper ----------------------
+  // ---------------- Cookie ----------------
   function getCookie(name) {
-    const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-    return match ? decodeURIComponent(match[2]) : null;
+    const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+    return m ? decodeURIComponent(m[2]) : null;
   }
 
-  // ---------------------- Helpers ----------------------
+  // ---------------- Storage ----------------
   function setToken(t) {
     try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch {}
+  }
+  function getToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
   }
   function setUserCached(user) {
     try { user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY); } catch {}
   }
-  function clearSession() {
-    setToken(null);
-    setUserCached(null);
+  function clearSession() { setToken(null); setUserCached(null); }
+
+  // ---------------- Backend ----------------
+  async function fetchMe(token) {
+    return fetch("/api/users/me", { headers: { Authorization: `Bearer ${token}` } });
+  }
+  async function backendLogout(token) {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch {}
   }
 
-  async function fetchMe(token) {
-    const res = await fetch("/api/users/me", { headers: { Authorization: `Bearer ${token}` } });
-    return res;
-  }
+  // ---------------- UI ----------------
   function applyNavbar(userOrNull) {
     if (typeof window.updateNavbarUser === "function") window.updateNavbarUser(userOrNull || null);
     if (typeof window.updateNavbarCounts === "function") window.updateNavbarCounts();
   }
 
-  async function backendLogout() {
-    try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
-  }
-
+  // ---------------- Firebase token ----------------
   async function getFreshToken() {
-    if (!window.firebase || !firebase.auth || !firebase.auth().currentUser) return null;
+    if (!window.firebase?.auth?.currentUser) return null;
     try {
-      const token = await firebase.auth().currentUser.getIdToken(true);
-      setToken(token);
-      return token;
+      const tok = await firebase.auth().currentUser.getIdToken(true);
+      setToken(tok);
+      return tok;
     } catch {
       clearSession();
       return null;
     }
   }
 
-  // ---------------------- Core Session Flow ----------------------
+  // ---------------- Init session ----------------
   async function initSession() {
-    // Wait for Firebase state first
-    if (window.firebase && firebase.auth) {
-      await new Promise(resolve => {
-        const unsub = firebase.auth().onAuthStateChanged(async (user) => {
-          unsub();
-          if (!user) {
-            clearSession();
-            applyNavbar(null);
-            // ensure guest_id from cookie is persisted
-            const g = getCookie(GUEST_KEY);
-            if (g) localStorage.setItem(GUEST_KEY, g);
-            return resolve();
+    // Mirror backend guest cookie to localStorage before auth logic
+    const g = getCookie(GUEST_KEY);
+    if (g) try { localStorage.setItem(GUEST_KEY, g); } catch {}
+
+    if (!(window.firebase && firebase.auth)) { applyNavbar(null); return; }
+
+    await new Promise(resolve => {
+      const unsub = firebase.auth().onAuthStateChanged(async (user) => {
+        unsub();
+
+        // --- Anonymous guest path ---
+        if (!user) {
+          clearSession();
+          applyNavbar(null);
+          return resolve();
+        }
+
+        // --- Authenticated user path ---
+        const token = await getFreshToken();
+        if (!token) { clearSession(); applyNavbar(null); return resolve(); }
+
+        try {
+          // always send current guest_id (may be null if backend already rotated)
+          const guest_id = localStorage.getItem(GUEST_KEY);
+          const regRes = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ guest_id }),
+          });
+
+          if (!regRes.ok) throw new Error("register failed");
+
+          const data = await regRes.json();
+          if (data?.user) setUserCached(data.user);
+          applyNavbar(data.user || null);
+
+          // backend replaces guest cookie → sync new guest_id for continuity
+          const newGuest = getCookie(GUEST_KEY);
+          if (newGuest) {
+            try { localStorage.setItem(GUEST_KEY, newGuest); } catch {}
+          } else {
+            localStorage.removeItem(GUEST_KEY);
           }
 
-          const token = await getFreshToken();
-          if (!token) {
-            clearSession();
-            applyNavbar(null);
-            return resolve();
-          }
+        } catch (err) {
+          console.error("[auth.js] register/login flow failed", err);
+          clearSession();
+          applyNavbar(null);
+        }
 
-          // Sync backend user
-          try {
-            const regRes = await fetch("/api/auth/register", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-              body: JSON.stringify({ guest_id: localStorage.getItem(GUEST_KEY) })
-            });
-            if (!regRes.ok) throw new Error("register failed");
-            const data = await regRes.json();
-            setUserCached(data.user);
-            applyNavbar(data.user);
-          } catch {
-            clearSession();
-            applyNavbar(null);
-          }
-          resolve();
-        });
+        resolve();
       });
-    } else {
-      // Firebase not loaded → treat as guest
-      const g = getCookie(GUEST_KEY);
-      if (g) localStorage.setItem(GUEST_KEY, g);
-      applyNavbar(null);
-    }
+    });
   }
 
+  // ---------------- Current user ----------------
   async function getCurrentUser() {
-    const cached = (() => { try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch { return null; }})();
-    if (cached) return cached;
-
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return null;
-
     try {
-      const res = await fetchMe(token);
+      const cached = JSON.parse(localStorage.getItem(USER_KEY) || "null");
+      if (cached) return cached;
+    } catch {}
+    const t = getToken();
+    if (!t) return null;
+    try {
+      const res = await fetchMe(t);
       if (!res.ok) return null;
       const me = await res.json();
       setUserCached(me);
       return me;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
-  // ---------------------- Logout flow ----------------------
+  // ---------------- Logout ----------------
   async function logout() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    try {
-      if (token) await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-    } catch (e) {
-      console.warn("[auth.js] backend logout failed:", e);
-    }
-
+    const t = getToken();
+    await backendLogout(t);
     clearSession();
 
-    if (window.firebase && firebase.auth && firebase.auth().currentUser) {
+    if (window.firebase?.auth?.currentUser) {
       try { await firebase.auth().signOut(); } catch {}
     }
 
-    // capture new guest_id cookie issued by backend logout
+    // server reissues new guest_id cookie; mirror locally
     const newGuest = getCookie(GUEST_KEY);
-    if (newGuest) localStorage.setItem(GUEST_KEY, newGuest);
+    if (newGuest) try { localStorage.setItem(GUEST_KEY, newGuest); } catch {}
 
     applyNavbar(null);
     window.location.href = "index.html";
   }
 
-  // ---------------------- Expose ----------------------
-  window.auth = { initSession, getCurrentUser, logout };
+  // ---------------- Export ----------------
+  window.auth = { initSession, getCurrentUser, getToken, logout };
 
   document.addEventListener("DOMContentLoaded", initSession);
 })();
+

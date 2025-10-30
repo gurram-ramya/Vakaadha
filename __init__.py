@@ -146,6 +146,11 @@ def create_app():
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Cache-Control"] = "no-store"
         return response
+    
+    def finalize_guest_cookie(resp):
+        if getattr(g, "defer_guest_cookie", False):
+            _set_guest_cookie(resp, getattr(g, "guest_id", None))
+        return resp
 
     # ---------------------------------------------------------
     # Error Handlers

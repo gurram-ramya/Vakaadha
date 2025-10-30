@@ -251,3 +251,58 @@ def get_wishlist_by_user(user_id):
     """, (user_id,)).fetchone()
     con.close()
     return dict(row) if row else None
+# =============================================================
+# WISHLIST MERGE OPERATIONS
+# =============================================================
+
+def get_wishlist_by_guest_id(conn, guest_id):
+    cur = conn.execute(
+        "SELECT * FROM wishlists WHERE guest_id = ? AND status = 'active';",
+        (guest_id,),
+    )
+    return cur.fetchone()
+
+def get_wishlist_by_user_id(conn, user_id):
+    cur = conn.execute(
+        "SELECT * FROM wishlists WHERE user_id = ? AND status = 'active';",
+        (user_id,),
+    )
+    return cur.fetchone()
+
+def create_user_wishlist(conn, user_id):
+    cur = conn.execute(
+        "INSERT INTO wishlists (user_id, status, created_at) VALUES (?, 'active', datetime('now'));",
+        (user_id,),
+    )
+    return cur.lastrowid
+
+def transfer_wishlist_items(conn, guest_wishlist_id, user_wishlist_id):
+    conn.execute(
+        "UPDATE wishlist_items SET wishlist_id = ? WHERE wishlist_id = ?;",
+        (user_wishlist_id, guest_wishlist_id),
+    )
+
+def mark_wishlist_merged(conn, guest_id):
+    conn.execute("""
+        UPDATE wishlists
+        SET status = 'merged', updated_at = datetime('now')
+        WHERE guest_id = ?;
+    """, (guest_id,))
+
+
+# def delete_guest_wishlist(conn, guest_id):
+#     conn.execute("DELETE FROM wishlists WHERE guest_id = ?;", (guest_id,))
+
+def record_wishlist_merge_audit(conn, user_wishlist_id, user_id, guest_id):
+    conn.execute(
+        """
+        INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, action, message)
+        VALUES (?, ?, ?, NULL, 'merge', ?);
+        """,
+        (
+            user_wishlist_id,
+            user_id,
+            guest_id,
+            f"Merged wishlist items from guest {guest_id} → user {user_id}",
+        ),
+    )
