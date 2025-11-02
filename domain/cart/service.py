@@ -1,4 +1,4 @@
-# domain/cart/service.py — Unified Cart Service 3.0
+# domain/cart/service.py — Unified Cart Service (Revised Merge-Consistent)
 import logging
 import re
 from datetime import datetime
@@ -143,27 +143,61 @@ def clear_cart(cart_id: int):
 
 
 # =============================================================
-# MERGE LOGIC
+# MERGE LOGIC (REVISED)
 # =============================================================
 def merge_guest_into_user(user_id: int, guest_id: str):
-    """Safely merge guest cart into user cart."""
+    """
+    Merge guest cart items into an existing user cart atomically.
+    No user cart is created here — creation handled in user.py.
+    """
     conn = get_db_connection()
     with conn:
         guest_cart = repo.get_cart_by_guest_id(conn, guest_id)
         if not guest_cart:
-            return {"status": "skipped", "reason": "no active guest cart"}
+            return {"status": "skipped", "reason": "no guest cart"}
 
         user_cart = repo.get_cart_by_user_id(conn, user_id)
         if not user_cart:
-            user_cart_id = repo.create_user_cart(conn, user_id)
-        else:
-            user_cart_id = user_cart["cart_id"]
+            # no creation here; handled externally
+            logging.info(f"No active user cart found for user_id={user_id}. Merge deferred.")
+            return {"status": "deferred", "reason": "no user cart"}
 
-        repo.transfer_cart_items(conn, guest_cart["cart_id"], user_cart_id)
-        repo.mark_cart_merged(conn, guest_cart["cart_id"])
-        repo.record_cart_merge_audit(conn, user_cart_id, user_id, guest_id)
-        _record_audit(conn, user_cart_id, user_id, guest_id, "merge", f"Merged guest {guest_id} into user {user_id}")
-        return {"status": "merged", "user_cart_id": user_cart_id}
+        guest_cart_id = guest_cart["cart_id"]
+        user_cart_id = user_cart["cart_id"]
+
+        merge_result = repo.merge_cart_items_atomic(conn, guest_cart_id, user_cart_id, user_id)
+        repo.mark_cart_merged(conn, guest_cart_id)
+        repo.insert_cart_merge_audit(
+            conn,
+            user_cart_id,
+            guest_cart_id,
+            user_id,
+            guest_id,
+            merge_result.get("added", 0),
+            merge_result.get("updated", 0),
+        )
+
+        _record_audit(
+            conn,
+            user_cart_id,
+            user_id,
+            guest_id,
+            "merge",
+            f"Guest cart {guest_cart_id} merged → user {user_cart_id}",
+        )
+
+        logging.info(
+            f"Cart merge complete for user_id={user_id}: "
+            f"guest_cart={guest_cart_id}, user_cart={user_cart_id}, "
+            f"added={merge_result.get('added')}, updated={merge_result.get('updated')}"
+        )
+
+        return {
+            "status": "merged",
+            "guest_cart_id": guest_cart_id,
+            "user_cart_id": user_cart_id,
+            **merge_result,
+        }
 
 
 # =============================================================

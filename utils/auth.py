@@ -1,4 +1,4 @@
-# utils/auth.py — merged and corrected (user-first with full Firebase + guest support)
+# utils/auth.py — final corrected version
 import logging
 import os
 import re
@@ -15,7 +15,7 @@ from utils.cache import cached, firebase_token_cache, lock
 # ===========================================================
 def initialize_firebase():
     import traceback
-    logging.info("🔥 initialize_firebase() called")
+    logging.info("initialize_firebase() called")
 
     if firebase_admin._apps:
         logging.info("Firebase already initialized; skipping re-init.")
@@ -36,16 +36,9 @@ def initialize_firebase():
 
         cred = credentials.Certificate(str(cred_path))
         app = firebase_admin.initialize_app(cred)
-        logging.info(f"✅ Firebase Admin initialized successfully. App name={app.name}")
-
-        try:
-            proj_id = firebase_admin.get_app().project_id
-            logging.info(f"🔧 Firebase Admin project_id={proj_id}")
-        except Exception:
-            logging.warning("⚠️ Could not retrieve Firebase project_id for debug check.")
-
+        logging.info(f"Firebase Admin initialized successfully. App name={app.name}")
     except Exception as e:
-        logging.critical("❌ Firebase initialization failed: %s", e)
+        logging.critical("Firebase initialization failed: %s", e)
         traceback.print_exc()
         raise
 
@@ -70,38 +63,19 @@ def _resolve_guest_context():
     g.guest_id = new_gid
     g.new_guest = True
     g.defer_guest_cookie = True
+    logging.info({"event": "guest_context_created", "guest_id": new_gid})
     return new_gid
-
-from flask import current_app
-
-@current_app.before_request
-def ensure_single_guest_context():
-    """
-    Guarantee one guest_id per client before any route executes.
-    Prevents concurrent guest creation across parallel /auth calls.
-    """
-    # Skip if already authenticated
-    auth_header = request.headers.get("Authorization")
-    if auth_header:
-        return
-
-    if not hasattr(g, "guest_id"):
-        gid = request.cookies.get(GUEST_COOKIE)
-        if not gid or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
-            gid = str(uuid4())
-            g.new_guest = True
-            g.defer_guest_cookie = True
-        else:
-            g.new_guest = False
-        g.guest_id = gid
 
 
 def _set_guest_cookie(resp, guest_id=None, replace=False):
-    """Set guest cookie only once and defer until response commit."""
-    # skip static and favicon
-    if request.path.startswith("/static") or request.path.endswith(
+    """Set guest cookie only once per response."""
+    # skip static/preflight requests
+    if request.method == "OPTIONS" or request.path.startswith("/static") or request.path.endswith(
         (".css", ".js", ".png", ".jpg", ".ico", ".svg")
     ):
+        return resp
+
+    if getattr(g, "guest_cookie_written", False):
         return resp
 
     current_cookie = request.cookies.get(GUEST_COOKIE)
@@ -119,12 +93,13 @@ def _set_guest_cookie(resp, guest_id=None, replace=False):
         httponly=True,
         secure=is_https,
         samesite="Lax",
+        path="/",
     )
     resp.headers["Access-Control-Allow-Credentials"] = "true"
     resp.headers["Access-Control-Expose-Headers"] = "Set-Cookie"
-    g.defer_guest_cookie = False
+    g.guest_cookie_written = True
+    logging.info({"event": "guest_cookie_set", "guest_id": guest_id})
     return resp
-
 
 
 # ===========================================================
@@ -189,7 +164,11 @@ def require_auth(optional=False):
                         "name": decoded.get("name"),
                         "email_verified": decoded.get("email_verified", False),
                     }
-                    g.actor["is_authenticated"] = True
+                    g.actor.update({
+                        "is_authenticated": True,
+                        "firebase_uid": g.user["firebase_uid"],
+                        "guest_id": None,
+                    })
                     return func(*args, **kwargs)
                 except AuthError as e:
                     if not optional:
@@ -198,11 +177,12 @@ def require_auth(optional=False):
                     if not optional:
                         return jsonify({"error": "auth_verification_failed", "message": str(e)}), 401
 
-            # guest fallback
+            # guest fallback — single creation per request
             gid = _resolve_guest_context()
             g.actor.update({"guest_id": gid, "is_authenticated": False})
             if not optional and not gid:
                 return jsonify({"error": "invalid_guest"}), 401
+
             return func(*args, **kwargs)
         return wrapper
     return decorator
@@ -215,7 +195,7 @@ def require_guest(func):
     """Ensure guest_id is valid when no authenticated user present."""
     @wraps(func)
     def _wrapped(*args, **kwargs):
-        gid = request.args.get("guest_id") or request.cookies.get("guest_id")
+        gid = request.args.get("guest_id") or request.cookies.get(GUEST_COOKIE)
         if getattr(g, "user", None):
             return func(*args, **kwargs)
         if not gid or not re.fullmatch(r"[0-9a-fA-F-]{20,64}", gid):
@@ -237,7 +217,7 @@ def perform_logout_response():
     resp = make_response(jsonify({"status": "logged_out"}))
     resp.delete_cookie(GUEST_COOKIE)
     new_guest_id = str(uuid4())
-    _set_guest_cookie(resp, new_guest_id)
+    _set_guest_cookie(resp, new_guest_id, replace=True)
     g.user = None
     g.actor = {"user_id": None, "guest_id": new_guest_id, "is_authenticated": False}
     logging.info({

@@ -1,4 +1,4 @@
-# domain/cart/repository.py — Unified Cart Repository
+# domain/cart/repository.py — Unified Cart Repository (Revised Merge-Safe)
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -12,14 +12,16 @@ from typing import Optional, Dict, Any
 # ----------------------------
 def get_cart_by_guest_id(conn, guest_id: str):
     cur = conn.execute(
-        "SELECT * FROM carts WHERE guest_id = ? AND status = 'active';", (guest_id,)
+        "SELECT * FROM carts WHERE guest_id = ? AND status = 'active';",
+        (guest_id,),
     )
     return cur.fetchone()
 
 
 def get_cart_by_user_id(conn, user_id: int):
     cur = conn.execute(
-        "SELECT * FROM carts WHERE user_id = ? AND status = 'active';", (user_id,)
+        "SELECT * FROM carts WHERE user_id = ? AND status = 'active';",
+        (user_id,),
     )
     return cur.fetchone()
 
@@ -187,28 +189,74 @@ def get_variant_with_price_and_stock(conn, variant_id: int):
     return cur.fetchone()
 
 
-# ----------------------------
-# MERGE OPERATIONS
-# ----------------------------
-def transfer_cart_items(conn, guest_cart_id: int, user_cart_id: int):
-    conn.execute(
-        "UPDATE cart_items SET cart_id = ? WHERE cart_id = ?;",
-        (user_cart_id, guest_cart_id),
+# =============================================================
+# MERGE OPERATIONS (REVISED)
+# =============================================================
+
+def get_cart_item_by_variant(conn, cart_id: int, variant_id: int):
+    cur = conn.execute(
+        "SELECT cart_item_id, quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?;",
+        (cart_id, variant_id),
     )
+    return cur.fetchone()
 
 
-def record_cart_merge_audit(conn, user_cart_id: int, user_id: int, guest_id: str):
+def merge_cart_items_atomic(conn, guest_cart_id: int, user_cart_id: int, user_id: int):
+    """
+    Merge guest cart items into user's cart atomically.
+    Combine duplicate variants and update quantities safely.
+    """
+    added = 0
+    updated = 0
+
+    cur = conn.execute(
+        "SELECT variant_id, quantity, price_cents FROM cart_items WHERE cart_id = ?;",
+        (guest_cart_id,),
+    )
+    guest_items = cur.fetchall()
+
+    for item in guest_items:
+        variant_id = item["variant_id"]
+        qty = item["quantity"]
+        price = item["price_cents"]
+
+        existing = get_cart_item_by_variant(conn, user_cart_id, variant_id)
+        if existing:
+            conn.execute(
+                """
+                UPDATE cart_items
+                SET quantity = quantity + ?, updated_at = datetime('now')
+                WHERE cart_id = ? AND variant_id = ?;
+                """,
+                (qty, user_cart_id, variant_id),
+            )
+            updated += 1
+        else:
+            conn.execute(
+                """
+                UPDATE cart_items
+                SET cart_id = ?, user_id = ?, updated_at = datetime('now')
+                WHERE cart_id = ? AND variant_id = ?;
+                """,
+                (user_cart_id, user_id, guest_cart_id, variant_id),
+            )
+            added += 1
+
+    conn.execute(
+        "DELETE FROM cart_items WHERE cart_id = ?;", (guest_cart_id,)
+    )
+    return {"added": added, "updated": updated}
+
+
+def insert_cart_merge_audit(conn, user_cart_id: int, guest_cart_id: int,
+                            user_id: int, guest_id: str, added: int, updated: int):
+    message = f"Merged guest {guest_id} into user {user_id}: added={added}, updated={updated}"
     conn.execute(
         """
         INSERT INTO cart_audit_log (cart_id, user_id, guest_id, event_type, message)
         VALUES (?, ?, ?, 'merge', ?);
         """,
-        (
-            user_cart_id,
-            user_id,
-            guest_id,
-            f"Merged cart items from guest {guest_id} → user {user_id}",
-        ),
+        (user_cart_id, user_id, guest_id, message),
     )
 
 

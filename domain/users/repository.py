@@ -1,9 +1,9 @@
-# domain/users/repository.py
+# domain/users/repository.py 
 from db import query_one, query_all, execute, transaction
 from utils.cache import cached, user_cache, profile_cache, lock
 
 # ===========================================================
-# USER REPOSITORY (with caching and atomic insert guarantees)
+# USER REPOSITORY (cached and atomic-safe)
 # ===========================================================
 
 @cached(cache=user_cache, lock=lock)
@@ -20,29 +20,45 @@ def get_user_by_email(email):
 
 def insert_user(firebase_uid, email, name):
     """
-    Insert new user and return the created record.
-    Ensures cache invalidation and guarantees return of the inserted row.
+    Insert a new user, return created record.
+    Ensures transaction safety and cache invalidation.
     """
     with transaction():
         execute("""
             INSERT INTO users (firebase_uid, email, name, created_at, updated_at)
             VALUES (?, ?, ?, datetime('now'), datetime('now'))
         """, (firebase_uid, email, name))
-    # Invalidate both UID and email cache entries
     try:
         user_cache.pop(firebase_uid, None)
         if email:
             user_cache.pop(email, None)
     except Exception:
         pass
-    # Fetch freshly inserted record
     return get_user_by_uid(firebase_uid)
+
+
+def link_firebase_uid(user_id, firebase_uid):
+    """Attach a Firebase UID to an existing user record (e.g., from email match)."""
+    execute("""
+        UPDATE users
+           SET firebase_uid = ?, updated_at = datetime('now')
+         WHERE user_id = ?
+           AND (firebase_uid IS NULL OR firebase_uid = '')
+    """, (firebase_uid, user_id))
+    try:
+        user_cache.pop(firebase_uid, None)
+    except Exception:
+        pass
 
 
 def update_user_last_login(user_id):
     """Update last login timestamp."""
     execute("UPDATE users SET last_login = datetime('now') WHERE user_id = ?", (user_id,))
 
+
+# ===========================================================
+# USER PROFILE REPOSITORY
+# ===========================================================
 
 @cached(cache=profile_cache, lock=lock)
 def get_user_profile(user_id):
@@ -63,23 +79,24 @@ def insert_user_profile(user_id):
 
 
 def update_user_profile(user_id, fields):
-    """Update a user's profile and invalidate cache."""
+    """Update a user's profile fields and invalidate cache."""
     if not fields:
         return
     set_clause = ", ".join(f"{k} = ?" for k in fields.keys())
     values = list(fields.values()) + [user_id]
     execute(f"""
         UPDATE user_profiles
-        SET {set_clause}, updated_at = datetime('now')
-        WHERE user_id = ?
+           SET {set_clause}, updated_at = datetime('now')
+         WHERE user_id = ?
     """, values)
     try:
         profile_cache.pop(user_id, None)
     except Exception:
         pass
 
+
 # ===========================================================
-# CART / GUEST MERGE HELPERS (unchanged, schema-correct)
+# CART / GUEST MERGE HELPERS
 # ===========================================================
 
 def find_guest_cart(guest_id):
@@ -100,3 +117,19 @@ def assign_cart_to_user(cart_id, user_id):
 def delete_guest_cart(guest_id):
     """Delete a guest cart once merged."""
     execute("DELETE FROM carts WHERE guest_id = ?", (guest_id,))
+
+
+def is_cart_already_merged(cart_id):
+    """Return True if a cart has been marked merged to prevent duplicate merges."""
+    row = query_one("SELECT merged_at FROM carts WHERE cart_id = ?", (cart_id,))
+    return bool(row and row.get("merged_at"))
+
+
+# ===========================================================
+# WISHLIST MERGE HELPERS
+# ===========================================================
+
+def is_wishlist_already_merged(wishlist_id):
+    """Return True if a wishlist has already been marked as merged."""
+    row = query_one("SELECT status FROM wishlists WHERE wishlist_id = ?", (wishlist_id,))
+    return row and row.get("status") == "merged"

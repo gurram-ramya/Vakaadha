@@ -218,13 +218,11 @@
 #     }
 
 
-# domain/users/service.py
+# domain/users/service.py 
 import logging
-from datetime import datetime
 from domain.users import repository
 from domain.cart import service as cart_service
 from domain.cart import repository as cart_repo
-from domain.wishlist import service as wishlist_service
 from domain.wishlist import repository as wishlist_repo
 from db import transaction
 
@@ -237,24 +235,29 @@ def upsert_user_from_firebase(firebase_uid, email, name):
     Ensure a user exists for the given Firebase UID.
     Updates last_login and returns the record.
     """
-    user = repository.get_user_by_uid(firebase_uid)
-    if user:
-        repository.update_user_last_login(user["user_id"])
-        return user
-
-    if email:
-        existing = repository.get_user_by_email(email)
-        if existing:
-            logging.info(f"Linking existing user {email} with Firebase UID")
-            repository.update_user_last_login(existing["user_id"])
-            return existing
-
     try:
+        user = repository.get_user_by_uid(firebase_uid)
+        if user:
+            repository.update_user_last_login(user["user_id"])
+            return user
+
+        if email:
+            existing = repository.get_user_by_email(email)
+            if existing:
+                # Link existing user if email already exists
+                repository.link_firebase_uid(existing["user_id"], firebase_uid)
+                repository.update_user_last_login(existing["user_id"])
+                return existing
+
         new_user = repository.insert_user(firebase_uid, email, name)
-        if new_user:
-            repository.update_user_last_login(new_user["user_id"])
-            logging.info(f"Created new user {email}")
-            return new_user
+        if not new_user:
+            logging.error(f"User insert failed for {email}")
+            return None
+
+        repository.update_user_last_login(new_user["user_id"])
+        logging.info(f"Created new user {email}")
+        return new_user
+
     except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
@@ -262,21 +265,22 @@ def upsert_user_from_firebase(firebase_uid, email, name):
             if existing:
                 repository.update_user_last_login(existing["user_id"])
                 return existing
-        logging.exception(f"Insert failed for {email}")
+        logging.exception(f"upsert_user_from_firebase failed for {email}")
         return None
-
-    logging.error(f"Failed to create or fetch user for {email}")
-    return None
 
 
 def ensure_user_profile(user_id):
     """Guarantee that a user profile exists and return it."""
-    repository.insert_user_profile(user_id)
+    try:
+        repository.insert_user_profile(user_id)
+    except Exception:
+        # ignore constraint errors (already exists)
+        pass
     return repository.get_user_profile(user_id)
 
 
 def update_profile(conn, firebase_uid, updates):
-    """Update profile by firebase_uid (align with route)."""
+    """Update user and profile fields by firebase_uid."""
     user = repository.get_user_by_uid(firebase_uid)
     if not user:
         return None
@@ -284,6 +288,10 @@ def update_profile(conn, firebase_uid, updates):
     allowed = {"name", "dob", "gender", "avatar_url"}
     fields = {k: v for k, v in updates.items() if k in allowed}
 
+    if not fields:
+        return repository.get_user_profile(user["user_id"])
+
+    # name lives in users table, others in profile
     if "name" in fields:
         from db import execute
         execute(
@@ -306,7 +314,7 @@ def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id
     """
     Called on user login. Guarantees user record, profile,
     and merges any guest cart/wishlist into the user's account.
-    Entire block executes atomically for correctness.
+    Entire block executes atomically.
     """
     try:
         with transaction(conn):
@@ -318,11 +326,9 @@ def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id
             user_id = user["user_id"]
             ensure_user_profile(user_id)
 
-            merge_result = {
-                "cart": {"merged_items": 0, "status": "none"},
-                "wishlist": {"merged_items": 0, "status": "none"},
-            }
+            merge_result = {"cart": {"status": "none"}, "wishlist": {"status": "none"}}
 
+            # Skip redundant merges if no guest_id or same-session merge already done
             if guest_id:
                 merge_result["cart"] = merge_guest_cart_if_any(conn, user_id, guest_id)
                 merge_result["wishlist"] = merge_guest_wishlist_if_any(conn, user_id, guest_id)
@@ -346,19 +352,23 @@ def merge_guest_cart_if_any(conn, user_id, guest_id):
         return {"merged_items": 0, "status": "none"}
 
     user_cart = repository.find_user_cart(user_id)
-
     if not user_cart:
         repository.assign_cart_to_user(guest_cart["cart_id"], user_id)
         cart_repo.insert_audit_event(
             conn, guest_cart["cart_id"], user_id, guest_id,
             "reassign", f"Guest cart reassigned to user {user_id}"
         )
-        logging.info(f"Assigned guest cart {guest_cart['cart_id']} to user {user_id}")
+        logging.info(f"Guest cart {guest_cart['cart_id']} reassigned to user {user_id}")
         return {"merged_items": 0, "status": "reassigned"}
 
-    merge_result = cart_service.merge_guest_into_user(user_id, guest_id)
+    # Prevent duplicate merges
+    if cart_repo.is_cart_already_merged(guest_cart["cart_id"]):
+        logging.info(f"Guest cart {guest_cart['cart_id']} already merged; skipping.")
+        return {"merged_items": 0, "status": "skipped"}
 
+    merge_result = cart_service.merge_guest_into_user(user_id, guest_id)
     cart_repo.mark_cart_merged(conn, guest_cart["cart_id"])
+
     conn.execute(
         "UPDATE cart_items SET user_id = ? WHERE cart_id = ?;",
         (user_id, guest_cart["cart_id"])
@@ -389,7 +399,6 @@ def merge_guest_wishlist_if_any(conn, user_id, guest_id):
         return {"merged_items": 0, "status": "none"}
 
     user_wishlist = wishlist_repo.get_wishlist_by_user(user_id)
-
     if not user_wishlist:
         conn.execute(
             """
@@ -407,8 +416,13 @@ def merge_guest_wishlist_if_any(conn, user_id, guest_id):
             message=f"Guest wishlist reassigned to user {user_id}",
             con=conn,
         )
-        logging.info(f"Assigned guest wishlist {guest_wishlist['wishlist_id']} to user {user_id}")
+        logging.info(f"Guest wishlist {guest_wishlist['wishlist_id']} reassigned to user {user_id}")
         return {"merged_items": 0, "status": "reassigned"}
+
+    # Prevent duplicate merges
+    if wishlist_repo.is_wishlist_already_merged(guest_wishlist["wishlist_id"]):
+        logging.info(f"Guest wishlist {guest_wishlist['wishlist_id']} already merged; skipping.")
+        return {"merged_items": 0, "status": "skipped"}
 
     added = wishlist_repo.merge_wishlists(
         guest_wishlist["wishlist_id"], user_wishlist["wishlist_id"]
@@ -440,17 +454,10 @@ def merge_guest_wishlist_if_any(conn, user_id, guest_id):
 # PROFILE FETCH
 # ===========================================================
 def get_user_with_profile(conn, firebase_uid):
+    """Return user merged with profile attributes."""
     user = repository.get_user_by_uid(firebase_uid)
     if not user:
         return None
 
-    user = dict(user)
-    profile = repository.get_user_profile(user["user_id"])
-    profile = dict(profile) if profile else {}
-
-    return {
-        **user,
-        "dob": profile.get("dob"),
-        "gender": profile.get("gender"),
-        "avatar_url": profile.get("avatar_url"),
-    }
+    profile = repository.get_user_profile(user["user_id"]) or {}
+    return {**user, **profile}

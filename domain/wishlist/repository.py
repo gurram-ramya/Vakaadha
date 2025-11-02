@@ -1,8 +1,7 @@
-# domain/wishlist/repository.py — Vakaadha Wishlist Repository v4 (variant_id fix)
+# domain/wishlist/repository.py — Unified Wishlist Repository (Revised Merge-Consistent)
 import sqlite3
 from datetime import datetime
 from db import get_db_connection
-
 
 # ============================================================
 # CREATE OR FETCH WISHLIST
@@ -160,14 +159,14 @@ def get_count(wishlist_id):
     cur = con.cursor()
     row = cur.execute(
         "SELECT COUNT(*) AS count FROM wishlist_items WHERE wishlist_id = ?;",
-        (wishlist_id,)
+        (wishlist_id,),
     ).fetchone()
     con.close()
     return row["count"] if row else 0
 
 
 # ============================================================
-# AUDIT LOG (patched — no variant_id column)
+# AUDIT LOG
 # ============================================================
 def log_audit(action, wishlist_id, user_id=None, guest_id=None,
               product_id=None, variant_id=None, con=None, message=None):
@@ -185,82 +184,15 @@ def log_audit(action, wishlist_id, user_id=None, guest_id=None,
 
 
 # ============================================================
-# MERGE GUEST → USER
+# WISHLIST MERGE OPERATIONS (REVISED)
 # ============================================================
-def merge_wishlists(guest_wishlist_id, user_wishlist_id):
-    """Merge guest wishlist items into user's wishlist."""
-    with get_db_connection() as con:
-        result = con.execute("""
-            INSERT INTO wishlist_items (wishlist_id, product_id, created_at, updated_at)
-            SELECT ?, wi.product_id, datetime('now'), datetime('now')
-            FROM wishlist_items wi
-            WHERE wi.wishlist_id = ?
-              AND wi.product_id NOT IN (
-                SELECT product_id FROM wishlist_items WHERE wishlist_id = ?
-              )
-        """, (user_wishlist_id, guest_wishlist_id, user_wishlist_id))
-        added = result.rowcount or 0
-        con.commit()
-        return added
-
-
-# ============================================================
-# UPDATE STATUS
-# ============================================================
-def update_wishlist_status(wishlist_id, new_status):
-    """Update a wishlist's lifecycle state (active, merged, archived)."""
-    with get_db_connection() as con:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        con.execute("""
-            UPDATE wishlists
-            SET status = ?, updated_at = ?
-            WHERE wishlist_id = ?;
-        """, (new_status, now, wishlist_id))
-        con.commit()
-
-
-# ============================================================
-# FETCH WISHLIST BY GUEST
-# ============================================================
-def get_wishlist_by_guest(guest_id):
-    """Return an active wishlist row for a guest (if any)."""
-    con = get_db_connection()
-    con.row_factory = sqlite3.Row
-    cur = con.cursor()
-    row = cur.execute("""
-        SELECT * FROM wishlists
-        WHERE guest_id = ? AND status = 'active'
-        LIMIT 1;
-    """, (guest_id,)).fetchone()
-    con.close()
-    return dict(row) if row else None
-
-
-# ============================================================
-# FETCH WISHLIST BY USER
-# ============================================================
-def get_wishlist_by_user(user_id):
-    """Return an active wishlist row for a user (if any)."""
-    con = get_db_connection()
-    con.row_factory = sqlite3.Row
-    cur = con.cursor()
-    row = cur.execute("""
-        SELECT * FROM wishlists
-        WHERE user_id = ? AND status = 'active'
-        LIMIT 1;
-    """, (user_id,)).fetchone()
-    con.close()
-    return dict(row) if row else None
-# =============================================================
-# WISHLIST MERGE OPERATIONS
-# =============================================================
-
 def get_wishlist_by_guest_id(conn, guest_id):
     cur = conn.execute(
         "SELECT * FROM wishlists WHERE guest_id = ? AND status = 'active';",
         (guest_id,),
     )
     return cur.fetchone()
+
 
 def get_wishlist_by_user_id(conn, user_id):
     cur = conn.execute(
@@ -269,18 +201,52 @@ def get_wishlist_by_user_id(conn, user_id):
     )
     return cur.fetchone()
 
+
 def create_user_wishlist(conn, user_id):
     cur = conn.execute(
-        "INSERT INTO wishlists (user_id, status, created_at) VALUES (?, 'active', datetime('now'));",
+        "INSERT INTO wishlists (user_id, status, created_at, updated_at) VALUES (?, 'active', datetime('now'), datetime('now'));",
         (user_id,),
     )
     return cur.lastrowid
 
-def transfer_wishlist_items(conn, guest_wishlist_id, user_wishlist_id):
-    conn.execute(
-        "UPDATE wishlist_items SET wishlist_id = ? WHERE wishlist_id = ?;",
-        (user_wishlist_id, guest_wishlist_id),
+
+def merge_wishlist_items_atomic(conn, guest_wishlist_id, user_wishlist_id, user_id):
+    """
+    Merge guest wishlist items into user's wishlist atomically.
+    Skip duplicate product_ids, update timestamps, and remove guest items.
+    """
+    added = 0
+    skipped = 0
+
+    cur = conn.execute(
+        "SELECT product_id FROM wishlist_items WHERE wishlist_id = ?;",
+        (guest_wishlist_id,),
     )
+    guest_items = cur.fetchall()
+
+    for row in guest_items:
+        product_id = row["product_id"]
+        existing = conn.execute(
+            "SELECT 1 FROM wishlist_items WHERE wishlist_id = ? AND product_id = ?;",
+            (user_wishlist_id, product_id),
+        ).fetchone()
+
+        if existing:
+            skipped += 1
+        else:
+            conn.execute(
+                """
+                UPDATE wishlist_items
+                SET wishlist_id = ?, updated_at = datetime('now')
+                WHERE wishlist_id = ? AND product_id = ?;
+                """,
+                (user_wishlist_id, guest_wishlist_id, product_id),
+            )
+            added += 1
+
+    conn.execute("DELETE FROM wishlist_items WHERE wishlist_id = ?;", (guest_wishlist_id,))
+    return {"added": added, "skipped": skipped}
+
 
 def mark_wishlist_merged(conn, guest_id):
     conn.execute("""
@@ -290,19 +256,10 @@ def mark_wishlist_merged(conn, guest_id):
     """, (guest_id,))
 
 
-# def delete_guest_wishlist(conn, guest_id):
-#     conn.execute("DELETE FROM wishlists WHERE guest_id = ?;", (guest_id,))
-
-def record_wishlist_merge_audit(conn, user_wishlist_id, user_id, guest_id):
-    conn.execute(
-        """
-        INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, action, message)
-        VALUES (?, ?, ?, NULL, 'merge', ?);
-        """,
-        (
-            user_wishlist_id,
-            user_id,
-            guest_id,
-            f"Merged wishlist items from guest {guest_id} → user {user_id}",
-        ),
-    )
+def insert_wishlist_merge_audit(conn, user_wishlist_id, guest_wishlist_id,
+                                user_id, guest_id, added, skipped):
+    message = f"Merged guest {guest_id} into user {user_id}: added={added}, skipped={skipped}"
+    conn.execute("""
+        INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, action, message, created_at)
+        VALUES (?, ?, ?, NULL, 'merge', ?, datetime('now'));
+    """, (user_wishlist_id, user_id, guest_id, message))
