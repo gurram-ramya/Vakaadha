@@ -317,7 +317,7 @@ def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id
     Entire block executes atomically.
     """
     try:
-        with transaction(conn):
+        with transaction():
             user = upsert_user_from_firebase(firebase_uid, email, name)
             if not user:
                 logging.error("User creation failed; aborting merge.")

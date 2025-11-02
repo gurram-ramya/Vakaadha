@@ -164,6 +164,16 @@ def require_auth(optional=False):
                         "name": decoded.get("name"),
                         "email_verified": decoded.get("email_verified", False),
                     }
+        
+                    # Enrich user context from DB (ensures user_id present)
+                    from domain.users import repository
+                    db_user = repository.get_user_by_uid(g.user["firebase_uid"])
+                    if db_user:
+                        if isinstance(db_user, dict):
+                            g.user["user_id"] = db_user.get("user_id")
+                        else:
+                            g.user["user_id"] = db_user["user_id"]
+
                     g.actor.update({
                         "is_authenticated": True,
                         "firebase_uid": g.user["firebase_uid"],

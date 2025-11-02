@@ -183,7 +183,8 @@ def transaction():
     except Exception:
         con.rollback()
         raise
-
+    finally:
+        con.close()
 
 # =============================================================
 # Utilities

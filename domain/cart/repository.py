@@ -2,6 +2,7 @@
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+from db import query_one, execute
 
 # =============================================================
 # Core Cart Data Access Layer
@@ -136,12 +137,13 @@ def add_or_update_cart_item(conn, cart_id: int, variant_id: int, quantity: int, 
         conn.execute(
             """
             UPDATE cart_items
-            SET quantity = ?, price_cents = ?, locked_price_until = ?, updated_at = datetime('now')
+            SET quantity = quantity + ?, price_cents = ?, locked_price_until = ?, updated_at = datetime('now')
             WHERE cart_id = ? AND variant_id = ?;
             """,
             (quantity, price_cents, lock_until, cart_id, variant_id),
         )
         return False
+
     conn.execute(
         """
         INSERT INTO cart_items (cart_id, variant_id, quantity, price_cents, locked_price_until)
@@ -323,3 +325,7 @@ def compute_cart_totals(conn, cart_id: int):
     row = cur.fetchone()
     subtotal = row["subtotal_cents"] or 0
     return {"subtotal_cents": subtotal, "total_cents": subtotal}
+def is_cart_already_merged(cart_id):
+    """Return True if a cart has been marked merged to prevent duplicate merges."""
+    row = query_one("SELECT merged_at FROM carts WHERE cart_id = ?", (cart_id,))
+    return bool(row and row.get("merged_at"))

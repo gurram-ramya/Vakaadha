@@ -226,16 +226,29 @@ def ensure_wishlist_for_guest(guest_id: str):
     return {"wishlist_id": wishlist_id, "guest_id": guest_id}
 
 
-def ensure_wishlist_for_user(user_id: int):
-    wishlist_id = repo.get_or_create_wishlist(user_id=user_id)
-    return {"wishlist_id": wishlist_id, "user_id": user_id}
+# def ensure_wishlist_for_user(user_id: int):
+#     wishlist_id = repo.get_or_create_wishlist(user_id=user_id)
+#     return {"wishlist_id": wishlist_id, "user_id": user_id}
 
+def ensure_wishlist_for_user(user_id):
+    """Guarantee a wishlist exists for this user."""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT wishlist_id FROM wishlists WHERE user_id = ? AND status = 'active';",
+            (user_id,)
+        ).fetchone()
+        if row:
+            return row["wishlist_id"]
+        wishlist_id = repo.create_user_wishlist(conn, user_id)
+        # conn.commit()
+        return wishlist_id
 
 # ============================================================
 # GET WISHLIST ITEMS
 # ============================================================
 def get_wishlist(user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
+
     items = repo.get_items(wishlist_id)
     return {"wishlist_id": wishlist_id, "count": len(items), "items": items}
 
@@ -244,7 +257,7 @@ def get_wishlist(user_id=None, guest_id=None):
 # GET WISHLIST COUNT
 # ============================================================
 def get_count(user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     return repo.get_count(wishlist_id)
 
 
@@ -252,7 +265,7 @@ def get_count(user_id=None, guest_id=None):
 # ADD / REMOVE / CLEAR
 # ============================================================
 def add_to_wishlist(product_id, user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     if not repo.product_exists(product_id):
         return {"status": "error", "message": "Product not found"}
     repo.add_item(wishlist_id, product_id, user_id, guest_id)
@@ -260,13 +273,13 @@ def add_to_wishlist(product_id, user_id=None, guest_id=None):
 
 
 def remove_from_wishlist(product_id, user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     repo.remove_item(wishlist_id, product_id, user_id, guest_id)
     return {"status": "success", "message": "Product removed from wishlist"}
 
 
 def clear_wishlist(user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     repo.clear_items(wishlist_id, user_id, guest_id)
     return {"status": "success", "message": "Wishlist cleared"}
 
@@ -275,7 +288,7 @@ def clear_wishlist(user_id=None, guest_id=None):
 # MOVE TO CART
 # ============================================================
 def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
-    wishlist_id = repo.get_or_create_wishlist(user_id, guest_id)
+    wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     if not repo.product_exists(product_id):
         return {"status": "error", "message": "Product not found"}
 
@@ -287,14 +300,14 @@ def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
         cart_id = cart_info["cart_id"]
 
         conn = get_db_connection()
-        existing = conn.execute(
-            "SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?;",
-            (cart_id, variant_id),
-        ).fetchone()
-        desired_qty = (existing["quantity"] + 1) if existing else 1
-        conn.close()
+        # existing = conn.execute(
+        #     "SELECT quantity FROM cart_items WHERE cart_id = ? AND variant_id = ?;",
+        #     (cart_id, variant_id),
+        # ).fetchone()
+        # desired_qty = (existing["quantity"] + 1) if existing else 1
+        # conn.close()
 
-        cart_data = cart_service.add_item(cart_id, variant_id, desired_qty)
+        cart_data = cart_service.add_item(cart_id, variant_id, 1)
         repo.remove_item(wishlist_id, product_id, user_id, guest_id)
         repo.log_audit(
             "remove",
@@ -303,7 +316,7 @@ def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
             guest_id,
             product_id,
             variant_id=variant_id,
-            message=f"Moved product {product_id} (variant {variant_id}) to cart (qty={desired_qty})",
+            message=f"Moved product {product_id} (variant {variant_id}) to cart (qty=+1)",
         )
         return {
             "status": "success",
@@ -363,3 +376,11 @@ def archive_wishlist(wishlist_id):
     repo.update_wishlist_status(wishlist_id, "archived")
     repo.log_audit("archive", wishlist_id, message="Wishlist archived")
     return {"status": "success", "message": "Wishlist archived"}
+
+def update_wishlist_status(wishlist_id, status):
+    with get_db_connection() as con:
+        con.execute(
+            "UPDATE wishlists SET status = ?, updated_at = datetime('now') WHERE wishlist_id = ?;",
+            (status, wishlist_id),
+        )
+        con.commit()

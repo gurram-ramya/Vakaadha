@@ -1,4 +1,4 @@
-# domain/users/repository.py 
+# domain/users/repository.py
 from db import query_one, query_all, execute, transaction
 from utils.cache import cached, user_cache, profile_cache, lock
 
@@ -9,7 +9,8 @@ from utils.cache import cached, user_cache, profile_cache, lock
 @cached(cache=user_cache, lock=lock)
 def get_user_by_uid(firebase_uid):
     """Fetch a user record by Firebase UID (cached)."""
-    return query_one("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
+    row = query_one("SELECT * FROM users WHERE firebase_uid = ?", (firebase_uid,))
+    return dict(row) if row else None
 
 
 @cached(cache=user_cache, lock=lock)
@@ -18,24 +19,35 @@ def get_user_by_email(email):
     return query_one("SELECT * FROM users WHERE email = ?", (email,))
 
 
-def insert_user(firebase_uid, email, name):
-    """
-    Insert a new user, return created record.
-    Ensures transaction safety and cache invalidation.
-    """
-    with transaction():
-        execute("""
-            INSERT INTO users (firebase_uid, email, name, created_at, updated_at)
-            VALUES (?, ?, ?, datetime('now'), datetime('now'))
-        """, (firebase_uid, email, name))
-    try:
-        user_cache.pop(firebase_uid, None)
-        if email:
-            user_cache.pop(email, None)
-    except Exception:
-        pass
-    return get_user_by_uid(firebase_uid)
+# def insert_user(firebase_uid, email, name):
+#     """
+#     Insert a new user, return created record.
+#     Ensures transaction safety and cache invalidation.
+#     """
+#     with transaction():
+#         execute("""
+#             INSERT INTO users (firebase_uid, email, name, created_at, updated_at)
+#             VALUES (?, ?, ?, datetime('now'), datetime('now'))
+#         """, (firebase_uid, email, name))
+#     try:
+#         user_cache.pop(firebase_uid, None)
+#         if email:
+#             user_cache.pop(email, None)
+#     except Exception:
+#         pass
+#     return get_user_by_uid(firebase_uid)
+from db import get_db_connection
 
+def insert_user(firebase_uid, email, name):
+    con = get_db_connection()
+    con.execute(
+        """
+        INSERT INTO users (firebase_uid, email, name, created_at, updated_at)
+        VALUES (?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (firebase_uid, email, name),
+    )
+    return get_user_by_uid(firebase_uid)
 
 def link_firebase_uid(user_id, firebase_uid):
     """Attach a Firebase UID to an existing user record (e.g., from email match)."""
@@ -125,6 +137,20 @@ def is_cart_already_merged(cart_id):
     return bool(row and row.get("merged_at"))
 
 
+def has_cart_for_user(user_id):
+    """Return True if user already has an active cart."""
+    row = query_one("SELECT 1 FROM carts WHERE user_id = ? AND status = 'active' LIMIT 1;", (user_id,))
+    return bool(row)
+
+
+def create_user_cart(user_id):
+    """Create an active cart for the given user."""
+    execute("""
+        INSERT INTO carts (user_id, status, created_at, updated_at)
+        VALUES (?, 'active', datetime('now'), datetime('now'))
+    """, (user_id,))
+
+
 # ===========================================================
 # WISHLIST MERGE HELPERS
 # ===========================================================
@@ -133,3 +159,43 @@ def is_wishlist_already_merged(wishlist_id):
     """Return True if a wishlist has already been marked as merged."""
     row = query_one("SELECT status FROM wishlists WHERE wishlist_id = ?", (wishlist_id,))
     return row and row.get("status") == "merged"
+
+
+def has_wishlist_for_user(user_id):
+    """Return True if user already has an active wishlist."""
+    row = query_one("SELECT 1 FROM wishlists WHERE user_id = ? AND status = 'active' LIMIT 1;", (user_id,))
+    return bool(row)
+
+
+def create_user_wishlist(user_id):
+    """Create an active wishlist for the given user."""
+    execute("""
+        INSERT INTO wishlists (user_id, status, created_at, updated_at)
+        VALUES (?, 'active', datetime('now'), datetime('now'))
+    """, (user_id,))
+
+
+def find_guest_wishlist(guest_id):
+    """Return guest wishlist by guest_id if active."""
+    return query_one("SELECT * FROM wishlists WHERE guest_id = ? AND status = 'active';", (guest_id,))
+
+
+def assign_wishlist_to_user(wishlist_id, user_id):
+    """Reassign a guest wishlist to a user after merge."""
+    execute("""
+        UPDATE wishlists
+           SET user_id = ?, guest_id = NULL, updated_at = datetime('now')
+         WHERE wishlist_id = ?;
+    """, (user_id, wishlist_id))
+
+
+# ===========================================================
+# USER AUDIT HELPERS
+# ===========================================================
+
+def record_user_merge_audit(user_id, guest_id, message):
+    """Record user merge events for observability."""
+    execute("""
+        INSERT INTO user_audit_log (user_id, guest_id, event_type, message, created_at)
+        VALUES (?, ?, 'merge', ?, datetime('now'));
+    """, (user_id, guest_id, message))
