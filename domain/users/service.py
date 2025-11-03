@@ -258,25 +258,83 @@ def upsert_user_from_firebase(firebase_uid, email, name):
         logging.info(f"Created new user {email}")
         return new_user
 
+    # except Exception as e:
+    #     if "UNIQUE constraint failed" in str(e):
+    #         logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
+    #         existing = repository.get_user_by_email(email)
+    #         if existing:
+    #             repository.update_user_last_login(existing["user_id"])
+    #             return existing
+    #     logging.exception(f"upsert_user_from_firebase failed for {email}")
+    #     return None
     except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
-            existing = repository.get_user_by_email(email)
-            if existing:
-                repository.update_user_last_login(existing["user_id"])
-                return existing
+            from db import get_db_connection
+            conn = get_db_connection()
+            try:
+                existing = repository.get_user_by_email(email)
+                if existing:
+                    repository.update_user_last_login(existing["user_id"])
+                    conn.close()
+                    return existing
+            finally:
+                conn.close()
         logging.exception(f"upsert_user_from_firebase failed for {email}")
         return None
 
 
-def ensure_user_profile(user_id):
-    """Guarantee that a user profile exists and return it."""
+
+# def ensure_user_profile(user_id):
+#     """Guarantee that a user profile exists and return it."""
+#     try:
+#         repository.insert_user_profile(user_id)
+#     except Exception:
+#         # ignore constraint errors (already exists)
+#         pass
+#     return repository.get_user_profile(user_id)
+
+def ensure_user_profile(user_id, conn=None):
+    """
+    Guarantee that a user profile exists for this user.
+    Uses provided connection if available; otherwise opens its own.
+    """
+    from db import get_db_connection
+    internal_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        internal_conn = True
+
     try:
-        repository.insert_user_profile(user_id)
-    except Exception:
-        # ignore constraint errors (already exists)
-        pass
-    return repository.get_user_profile(user_id)
+        row = conn.execute(
+            "SELECT profile_id FROM user_profiles WHERE user_id = ?;",
+            (user_id,),
+        ).fetchone()
+        if row:
+            if internal_conn:
+                conn.close()
+            return repository.get_user_profile(user_id)
+
+        conn.execute(
+            """
+            INSERT INTO user_profiles (user_id, dob, gender, avatar_url)
+            VALUES (?, NULL, NULL, NULL);
+            """,
+            (user_id,),
+        )
+
+        if internal_conn:
+            conn.commit()
+            conn.close()
+
+        return repository.get_user_profile(user_id)
+
+    except Exception as e:
+        if internal_conn:
+            conn.rollback()
+            conn.close()
+        raise e
+
 
 
 def update_profile(conn, firebase_uid, updates):
@@ -367,7 +425,7 @@ def merge_guest_cart_if_any(conn, user_id, guest_id):
         return {"merged_items": 0, "status": "skipped"}
 
     merge_result = cart_service.merge_guest_into_user(user_id, guest_id)
-    cart_repo.mark_cart_merged(conn, guest_cart["cart_id"])
+    # cart_repo.mark_cart_merged(conn, guest_cart["cart_id"])
 
     conn.execute(
         "UPDATE cart_items SET user_id = ? WHERE cart_id = ?;",

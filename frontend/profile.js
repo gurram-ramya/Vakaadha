@@ -621,9 +621,24 @@ async function afterFirebaseAuth(user, silent = false, providedName = null) {
       console.error("[SYNC ERROR]", err);
     }
 
+    // setAuth({ ...getAuth(), user_id: backendUser?.user_id || null });
+    // if (guestId) localStorage.removeItem("guest_id");
+    // if (!silent) toast("Signed in");
+
     setAuth({ ...getAuth(), user_id: backendUser?.user_id || null });
     if (guestId) localStorage.removeItem("guest_id");
+
+    // Force profile refresh and DOM population
+    try {
+      const me = await apiRequest("/api/users/me");
+      populateProfile(me);
+      show("profile");
+    } catch (err) {
+      console.error("[POST-AUTH PROFILE REFRESH ERROR]", err);
+    }
+
     if (!silent) toast("Signed in");
+
   } finally {
     console.groupEnd();
   }

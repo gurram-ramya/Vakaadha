@@ -226,27 +226,63 @@ def ensure_wishlist_for_guest(guest_id: str):
     return {"wishlist_id": wishlist_id, "guest_id": guest_id}
 
 
-# def ensure_wishlist_for_user(user_id: int):
-#     wishlist_id = repo.get_or_create_wishlist(user_id=user_id)
-#     return {"wishlist_id": wishlist_id, "user_id": user_id}
+# def ensure_wishlist_for_user(user_id):
+#     """Guarantee a wishlist exists for this user."""
+#     with get_db_connection() as conn:
+#         row = conn.execute(
+#             "SELECT wishlist_id FROM wishlists WHERE user_id = ? AND status = 'active';",
+#             (user_id,)
+#         ).fetchone()
+#         if row:
+#             return row["wishlist_id"]
+#         wishlist_id = repo.create_user_wishlist(conn, user_id)
+#         # conn.commit()
+#         return wishlist_id
+    
+def ensure_wishlist_for_user(user_id, conn=None):
+    """
+    Guarantee a wishlist exists for this user.
+    Uses the provided connection if available; otherwise opens its own.
+    Ensures the transaction is committed if created internally.
+    """
+    internal_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        internal_conn = True
 
-def ensure_wishlist_for_user(user_id):
-    """Guarantee a wishlist exists for this user."""
-    with get_db_connection() as conn:
+    try:
         row = conn.execute(
             "SELECT wishlist_id FROM wishlists WHERE user_id = ? AND status = 'active';",
-            (user_id,)
+            (user_id,),
         ).fetchone()
         if row:
+            if internal_conn:
+                conn.close()
             return row["wishlist_id"]
+
         wishlist_id = repo.create_user_wishlist(conn, user_id)
-        # conn.commit()
+
+        if internal_conn:
+            conn.commit()
+            conn.close()
+
         return wishlist_id
+
+    except Exception as e:
+        if internal_conn:
+            conn.rollback()
+            conn.close()
+        raise e
+
+
 
 # ============================================================
 # GET WISHLIST ITEMS
 # ============================================================
 def get_wishlist(user_id=None, guest_id=None):
+    if not user_id and not guest_id:
+        return {"status": "error", "message": "No valid user or guest context"}
+
     wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
 
     items = repo.get_items(wishlist_id)
@@ -257,6 +293,9 @@ def get_wishlist(user_id=None, guest_id=None):
 # GET WISHLIST COUNT
 # ============================================================
 def get_count(user_id=None, guest_id=None):
+    if not user_id and not guest_id:
+        return {"status": "error", "message": "No valid user or guest context"}
+
     wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     return repo.get_count(wishlist_id)
 
@@ -265,6 +304,8 @@ def get_count(user_id=None, guest_id=None):
 # ADD / REMOVE / CLEAR
 # ============================================================
 def add_to_wishlist(product_id, user_id=None, guest_id=None):
+    if not user_id and not guest_id:
+        return {"status": "error", "message": "No valid user or guest context"}
     wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     if not repo.product_exists(product_id):
         return {"status": "error", "message": "Product not found"}
@@ -273,12 +314,16 @@ def add_to_wishlist(product_id, user_id=None, guest_id=None):
 
 
 def remove_from_wishlist(product_id, user_id=None, guest_id=None):
+    if not user_id and not guest_id:
+        return {"status": "error", "message": "No valid user or guest context"}
     wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     repo.remove_item(wishlist_id, product_id, user_id, guest_id)
     return {"status": "success", "message": "Product removed from wishlist"}
 
 
 def clear_wishlist(user_id=None, guest_id=None):
+    if not user_id and not guest_id:
+        return {"status": "error", "message": "No valid user or guest context"}
     wishlist_id = repo.get_or_create_wishlist(user_id=user_id, guest_id=guest_id)
     repo.clear_items(wishlist_id, user_id, guest_id)
     return {"status": "success", "message": "Wishlist cleared"}

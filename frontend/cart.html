@@ -58,11 +58,25 @@
     <h2 class="cart-title">Your Shopping Cart</h2>
 
     <!-- Empty State -->
-    <div id="cart-empty" class="cart-empty hidden">
+    <!-- <div id="cart-empty" class="cart-empty hidden">
       <img src="./assets/empty-cart.svg" alt="Empty Cart" class="empty-cart-img" />
       <p>Your cart feels empty!</p>
       <a href="index.html" class="continue-btn">Continue Shopping</a>
+    </div> -->
+    <div id="cart-empty" class="cart-empty">
+      <div class="cart-illustration">
+        <div class="bag">
+          <i class="fa-solid fa-bag-shopping"></i>
+          <span class="spark one"></span>
+          <span class="spark two"></span>
+          <span class="spark three"></span>
+        </div>
+      </div>
+      <h3>Your cart is empty</h3>
+      <p>Start exploring new arrivals and exclusive VAKAADHA drops.</p>
+      <a href="index.html" class="continue-btn">Discover Now</a>
     </div>
+
 
     <!-- Cart Layout -->
     <div class="cart-layout">
@@ -151,6 +165,7 @@
   </footer>
 
   <!-- CART LOGIC -->
+  <script src="./auth.js"></script>
   <script src="./api/client.js"></script>
   <script src="./cart.js" defer></script>
 </body>

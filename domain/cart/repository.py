@@ -50,15 +50,11 @@ def create_user_cart(conn, user_id: int):
     return cur.lastrowid
 
 
-def mark_cart_merged(conn, cart_id: int):
+def mark_cart_merged(conn, cart_id):
     conn.execute(
-        """
-        UPDATE carts
-        SET status = 'merged', merged_at = datetime('now'), updated_at = datetime('now')
-        WHERE cart_id = ?;
-        """,
-        (cart_id,),
+        "INSERT INTO cart_events (cart_id, event_type, event_time) VALUES (?, 'merge', datetime('now'));"
     )
+
 
 
 def mark_cart_converted(conn, cart_id: int):
@@ -234,20 +230,20 @@ def merge_cart_items_atomic(conn, guest_cart_id: int, user_cart_id: int, user_id
             )
             updated += 1
         else:
+            # Simply reassign the item to the new cart; no user_id column exists
             conn.execute(
                 """
                 UPDATE cart_items
-                SET cart_id = ?, user_id = ?, updated_at = datetime('now')
+                SET cart_id = ?, updated_at = datetime('now')
                 WHERE cart_id = ? AND variant_id = ?;
                 """,
-                (user_cart_id, user_id, guest_cart_id, variant_id),
+                (user_cart_id, guest_cart_id, variant_id),
             )
             added += 1
 
-    conn.execute(
-        "DELETE FROM cart_items WHERE cart_id = ?;", (guest_cart_id,)
-    )
+    conn.execute("DELETE FROM cart_items WHERE cart_id = ?;", (guest_cart_id,))
     return {"added": added, "updated": updated}
+
 
 
 def insert_cart_merge_audit(conn, user_cart_id: int, guest_cart_id: int,
@@ -325,7 +321,23 @@ def compute_cart_totals(conn, cart_id: int):
     row = cur.fetchone()
     subtotal = row["subtotal_cents"] or 0
     return {"subtotal_cents": subtotal, "total_cents": subtotal}
-def is_cart_already_merged(cart_id):
-    """Return True if a cart has been marked merged to prevent duplicate merges."""
-    row = query_one("SELECT merged_at FROM carts WHERE cart_id = ?", (cart_id,))
-    return bool(row and row.get("merged_at"))
+def is_cart_already_merged(cart_id: int) -> bool:
+    """
+    Return True if the cart has been marked as merged.
+    Must not close the shared Flask connection during a transaction.
+    """
+    # Use local cursor from current transaction-safe connection.
+    from flask import g
+    con = g.get("db")
+    if con is None:
+        # Fallback for non-Flask test contexts
+        from db import get_db_connection
+        con = get_db_connection()
+
+    cur = con.execute("SELECT merged_at FROM carts WHERE cart_id = ?;", (cart_id,))
+    row = cur.fetchone()
+
+    # Access using key, not .get()
+    merged = bool(row and row["merged_at"])
+    return merged
+

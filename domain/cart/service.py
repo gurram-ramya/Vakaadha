@@ -166,7 +166,7 @@ def merge_guest_into_user(user_id: int, guest_id: str):
         user_cart_id = user_cart["cart_id"]
 
         merge_result = repo.merge_cart_items_atomic(conn, guest_cart_id, user_cart_id, user_id)
-        repo.mark_cart_merged(conn, guest_cart_id)
+        # repo.mark_cart_merged(conn, guest_cart_id)
         repo.insert_cart_merge_audit(
             conn,
             user_cart_id,
