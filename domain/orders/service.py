@@ -1,82 +1,101 @@
-# domain/order/service.py — checkout transition (Phase 3)
-# --------------------------------------------------------
-# This module performs the critical Cart → Order transition.
-# It validates pricing, refreshes stock/price snapshots, and
-# creates immutable order records while marking the original cart
-# as 'converted' for audit traceability.
+# domain/orders/service.py — Order Business Logic Layer
 
-import logging
+import uuid
 from datetime import datetime
 from db import get_db_connection
-from utils import pricing
-from domain.cart import service as cart_service
+from domain.orders import repository as repo
+from domain.cart import repository as cart_repo
 
 
-def convert_cart_to_order(cart_id: int, user_id: int):
-    """
-    Convert an active cart into an order atomically.
-
-    Steps:
-    1. Fetch full cart contents using cart_service.fetch_cart()
-    2. Validate the cart isn't empty
-    3. Refresh and lock prices (via utils.pricing.refresh_price_if_needed)
-    4. Compute subtotal & total (via utils.pricing.compute_totals)
-    5. Insert order header (orders table)
-    6. Clone each cart item into order_items
-    7. Mark original cart status='converted'
-    8. Commit the transaction and return the new order_id
-    """
+# =============================================================
+# ORDER CREATION
+# =============================================================
+def create_order_from_cart(user_id: int, cart_id: int, address_id: int, payment_method: str):
     conn = get_db_connection()
     with conn:
-        # 1️⃣ Fetch active cart
-        cart = cart_service.fetch_cart(cart_id)
-        items = cart["items"]
-        if not items:
-            raise ValueError("Cart is empty — cannot create order")
+        # Fetch cart items and totals
+        cart_items = cart_repo.get_cart_items(conn, cart_id)
+        totals = cart_repo.compute_cart_totals(conn, cart_id)
 
-        # 2️⃣ Refresh or validate price lock for every item
-        for item in items:
-            # Refresh if expired or catalog price decreased
-            item["price_cents"] = pricing.refresh_price_if_needed(conn, item)
+        if not cart_items:
+            raise ValueError("Cart is empty")
 
-        # 3️⃣ Compute totals for checkout display
-        totals = pricing.compute_totals(items)
-        subtotal = totals["subtotal_cents"]
-        total = totals["total_cents"]
+        subtotal_cents = totals["subtotal_cents"]
+        shipping_cents = 0  # Placeholder; integrate shipping rules later
+        discount_cents = 0
+        total_cents = subtotal_cents + shipping_cents - discount_cents
 
-        # 4️⃣ Insert order header
-        cur = conn.execute("""
-            INSERT INTO orders (user_id, source_cart_id, status, subtotal_cents, total_cents, created_at)
-            VALUES (?, ?, 'pending', ?, ?, datetime('now'))
-        """, (user_id, cart_id, subtotal, total))
+        order_no = f"ORD-{uuid.uuid4().hex[:10].upper()}"
 
-
-        order_id = cur.lastrowid
-
-        # 5️⃣ Clone cart items → order_items table
-        for item in items:
-            conn.execute("""
-                INSERT INTO order_items (order_id, product_id, variant_id, quantity, price_cents)
-                VALUES (?, ?, ?, ?, ?)
-            """, (order_id, item["product_id"], item["variant_id"], item["quantity"], item["price_cents"]))
-
-        # 6️⃣ Mark cart as 'converted' (so it can’t be reused)
-        cart_service.convert_cart_to_order(cart_id)
-
-        # 7️⃣ Finalize transaction
-        conn.commit()
-        logging.info(f"[Order Created] cart={cart_id} → order={order_id}")
-
-        # 8️⃣ Return minimal data for frontend redirect
-        return {"order_id": order_id, "total_cents": total}
-
-# temporary safe
-
-def reduce_inventory(conn, order_id):
-    conn.execute("""
-        UPDATE inventory
-        SET quantity = quantity - (
-            SELECT quantity FROM order_items WHERE order_items.variant_id = inventory.variant_id AND order_items.order_id = ?
+        order_id = repo.insert_order(
+            conn,
+            user_id=user_id,
+            source_cart_id=cart_id,
+            order_no=order_no,
+            payment_method=payment_method,
+            subtotal_cents=subtotal_cents,
+            shipping_cents=shipping_cents,
+            discount_cents=discount_cents,
+            total_cents=total_cents,
+            address_id=address_id,
         )
-        WHERE variant_id IN (SELECT variant_id FROM order_items WHERE order_id = ?)
-    """, (order_id, order_id))
+
+        for item in cart_items:
+            repo.insert_order_item(
+                conn,
+                order_id=order_id,
+                product_id=item["product_id"],
+                variant_id=item["variant_id"],
+                quantity=item["quantity"],
+                price_cents=item["price_cents"],
+            )
+
+        cart_repo.mark_cart_converted(conn, cart_id)
+
+        return {
+            "order_id": order_id,
+            "order_no": order_no,
+            "user_id": user_id,
+            "total_cents": total_cents,
+            "payment_method": payment_method,
+            "status": "pending",
+        }
+
+
+# =============================================================
+# ORDER RETRIEVAL
+# =============================================================
+def list_user_orders(user_id: int):
+    conn = get_db_connection()
+    with conn:
+        rows = repo.get_orders_by_user(conn, user_id)
+        return [dict(r) for r in rows]
+
+
+def get_order_details(order_id: int):
+    conn = get_db_connection()
+    with conn:
+        data = repo.get_order_details(conn, order_id)
+        if not data:
+            return None
+
+        order = dict(data["order"])
+        items = [dict(i) for i in data["items"]]
+
+        order["items"] = items
+        return order
+
+
+# =============================================================
+# STATUS UPDATES
+# =============================================================
+def update_order_status(order_id: int, status: str):
+    conn = get_db_connection()
+    with conn:
+        repo.update_order_status(conn, order_id, status)
+
+
+def update_payment_status(order_id: int, payment_status: str):
+    conn = get_db_connection()
+    with conn:
+        repo.update_payment_status(conn, order_id, payment_status)

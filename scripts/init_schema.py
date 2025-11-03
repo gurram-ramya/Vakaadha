@@ -63,20 +63,47 @@ CREATE TABLE IF NOT EXISTS user_payment_methods (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_user ON user_payment_methods(user_id);
 
+-- =========================
+-- PAYMENT TRANSACTIONS
+-- =========================
+CREATE TABLE IF NOT EXISTS payments (
+  payment_txn_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id           INTEGER NOT NULL,                         -- link to orders
+  user_id            INTEGER NOT NULL,
+  provider           TEXT NOT NULL DEFAULT 'razorpay',
+  razorpay_order_id  TEXT UNIQUE,
+  razorpay_payment_id TEXT,
+  razorpay_signature TEXT,
+  amount_cents       INTEGER NOT NULL,
+  currency           TEXT NOT NULL DEFAULT 'INR',
+  status             TEXT NOT NULL DEFAULT 'created'
+                     CHECK (status IN ('created','authorized','captured','failed','refunded')),
+  method             TEXT,                                     -- e.g. card, upi, netbanking
+  email              TEXT,
+  contact            TEXT,
+  refund_id          TEXT,                                     -- for refunds
+  raw_response       TEXT,                                     -- full JSON payload if needed
+  created_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+  updated_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+  FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
 
 -- =========================
--- ADDRESSES
+-- ADDRESSES (Aligned with Frontend)
 -- =========================
 CREATE TABLE IF NOT EXISTS addresses (
   address_id    INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       INTEGER NOT NULL,
-  full_name     TEXT,
-  phone         TEXT,
+  name          TEXT NOT NULL,                -- full name
+  phone         TEXT NOT NULL,
   line1         TEXT NOT NULL,
   line2         TEXT,
   city          TEXT NOT NULL,
   state         TEXT NOT NULL,
-  postal_code   TEXT NOT NULL,
+  pincode       TEXT NOT NULL,                -- renamed from postal_code
   country       TEXT NOT NULL DEFAULT 'IN',
   type          TEXT NOT NULL DEFAULT 'shipping',
   is_default    INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +112,7 @@ CREATE TABLE IF NOT EXISTS addresses (
   FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_addresses_user ON addresses(user_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_default ON addresses(is_default);
 
 -- =========================
 -- CATALOG (unchanged)

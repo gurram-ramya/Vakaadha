@@ -1,128 +1,87 @@
 # domain/addresses/service.py
-import logging
 
-# -------------------------------------------------------------
-# Fetch all addresses for a user
-# -------------------------------------------------------------
-def list_addresses(conn, user_id):
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT address_id, name, line1, line2, city, state, pincode, phone, is_default
-        FROM user_addresses
-        WHERE user_id = ?
-        ORDER BY is_default DESC, created_at DESC
-    """, (user_id,))
-    rows = cur.fetchall()
-    return [dict(r) for r in rows]
+from domain.addresses import repository as repo
 
 
-# -------------------------------------------------------------
-# Add a new address
-# -------------------------------------------------------------
-def add_address(conn, user_id, data):
-    required = ["name", "line1", "city", "state", "pincode", "phone"]
-    for key in required:
-        if not data.get(key):
-            raise ValueError(f"Missing required field: {key}")
+# -----------------------------
+# Service Layer — Business Logic
+# -----------------------------
 
-    is_default = 1 if data.get("is_default") else 0
-    cur = conn.cursor()
-
-    # If marking as default, unset others
-    if is_default:
-        cur.execute("UPDATE user_addresses SET is_default = 0 WHERE user_id = ?", (user_id,))
-
-    cur.execute("""
-        INSERT INTO user_addresses (user_id, name, line1, line2, city, state, pincode, phone, is_default)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user_id,
-        data["name"],
-        data["line1"],
-        data.get("line2"),
-        data["city"],
-        data["state"],
-        data["pincode"],
-        data["phone"],
-        is_default,
-    ))
-
-    address_id = cur.lastrowid
-    logging.info({
-        "event": "address_add",
-        "user_id": user_id,
-        "address_id": address_id
-    })
-    return get_address(conn, user_id, address_id)
-
-
-# -------------------------------------------------------------
-# Get a single address
-# -------------------------------------------------------------
-def get_address(conn, user_id, address_id):
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT address_id, name, line1, line2, city, state, pincode, phone, is_default
-        FROM user_addresses
-        WHERE user_id = ? AND address_id = ?
-    """, (user_id, address_id))
-    row = cur.fetchone()
-    return dict(row) if row else None
-
-
-# -------------------------------------------------------------
-# Update existing address
-# -------------------------------------------------------------
-def update_address(conn, user_id, address_id, data):
-    addr = get_address(conn, user_id, address_id)
-    if not addr:
-        return None
-
-    fields = ["name", "line1", "line2", "city", "state", "pincode", "phone"]
-    updates = []
-    values = []
+def normalize_address_data(data: dict) -> dict:
+    """Trim and normalize incoming address data."""
+    fields = ["name", "phone", "line1", "line2", "city", "state", "pincode"]
+    normalized = {}
     for f in fields:
-        if f in data:
-            updates.append(f"{f} = ?")
-            values.append(data[f])
-
-    if not updates and "is_default" not in data:
-        return addr  # nothing to update
-
-    # Handle default toggle
-    if data.get("is_default"):
-        cur = conn.cursor()
-        cur.execute("UPDATE user_addresses SET is_default = 0 WHERE user_id = ?", (user_id,))
-        cur.execute("UPDATE user_addresses SET is_default = 1 WHERE user_id = ? AND address_id = ?", (user_id, address_id))
-    else:
-        if updates:
-            query = f"UPDATE user_addresses SET {', '.join(updates)} WHERE user_id = ? AND address_id = ?"
-            values.extend([user_id, address_id])
-            cur = conn.cursor()
-            cur.execute(query, tuple(values))
-
-    logging.info({
-        "event": "address_update",
-        "user_id": user_id,
-        "address_id": address_id
-    })
-    return get_address(conn, user_id, address_id)
+        val = (data.get(f) or "").strip()
+        normalized[f] = val
+    normalized["state"] = normalized["state"].upper()
+    normalized["country"] = data.get("country", "IN").strip().upper()
+    normalized["type"] = data.get("type", "shipping")
+    normalized["is_default"] = int(data.get("is_default", 0))
+    return normalized
 
 
-# -------------------------------------------------------------
-# Delete address
-# -------------------------------------------------------------
-def delete_address(conn, user_id, address_id):
-    cur = conn.cursor()
-    cur.execute("""
-        DELETE FROM user_addresses
-        WHERE user_id = ? AND address_id = ?
-    """, (user_id, address_id))
-    deleted = cur.rowcount > 0
-    logging.info({
-        "event": "address_delete",
-        "user_id": user_id,
-        "address_id": address_id,
-        "deleted": deleted
-    })
-    return deleted
+def list_addresses(conn, user_id: int):
+    """Return all addresses for the user."""
+    return repo.get_all_addresses(conn, user_id)
+
+
+def get_address(conn, user_id: int, address_id: int):
+    """Fetch one address by id, validating ownership."""
+    address = repo.get_address_by_id(conn, user_id, address_id)
+    if not address:
+        raise ValueError("Address not found")
+    return address
+
+
+def create_address(conn, user_id: int, payload: dict):
+    """Validate, normalize, and create a new address."""
+    data = normalize_address_data(payload)
+
+    required = ["name", "phone", "line1", "city", "state", "pincode"]
+    missing = [f for f in required if not data.get(f)]
+    if missing:
+        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+
+    addresses = repo.get_all_addresses(conn, user_id)
+    if not addresses:
+        data["is_default"] = 1
+
+    addr_id = repo.create_address(conn, user_id, data)
+    return repo.get_address_by_id(conn, user_id, addr_id)
+
+
+def update_address(conn, user_id: int, address_id: int, payload: dict):
+    """Update an existing address."""
+    existing = repo.get_address_by_id(conn, user_id, address_id)
+    if not existing:
+        raise ValueError("Address not found")
+
+    data = normalize_address_data(payload)
+    repo.update_address(conn, user_id, address_id, data)
+    return repo.get_address_by_id(conn, user_id, address_id)
+
+
+def delete_address(conn, user_id: int, address_id: int):
+    """Delete address and ensure default consistency."""
+    target = repo.get_address_by_id(conn, user_id, address_id)
+    if not target:
+        raise ValueError("Address not found")
+
+    repo.delete_address(conn, user_id, address_id)
+
+    if target["is_default"]:
+        remaining = repo.get_all_addresses(conn, user_id)
+        if remaining:
+            first_id = remaining[0]["address_id"]
+            repo.set_default_address(conn, user_id, first_id)
+
+
+def set_default(conn, user_id: int, address_id: int):
+    """Set one address as default."""
+    target = repo.get_address_by_id(conn, user_id, address_id)
+    if not target:
+        raise ValueError("Address not found")
+
+    repo.set_default_address(conn, user_id, address_id)
+    return repo.get_address_by_id(conn, user_id, address_id)

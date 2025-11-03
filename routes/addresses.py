@@ -1,95 +1,76 @@
 # routes/addresses.py
-import logging
+# import logging
+# from flask import Blueprint, jsonify, request, g
+# from db import get_db_connection
+# from utils.auth import require_auth
+# from domain.addresses import service as address_service
+
+# routes/addresses.py
+
 from flask import Blueprint, jsonify, request, g
-from db import get_db_connection
-from utils.auth import require_auth
-from domain.addresses import service as address_service
+from domain.addresses import service
 
 addresses_bp = Blueprint("addresses", __name__, url_prefix="/api/addresses")
 
-# -------------------------------------------------------------
-# GET /api/addresses
-# -------------------------------------------------------------
-@addresses_bp.route("", methods=["GET"])
-@require_auth()
+
+# -----------------------------
+# Address Routes — REST Endpoints
+# -----------------------------
+
+@addresses_bp.get("")
 def list_addresses():
-    conn = get_db_connection()
-    try:
-        user_id = g.user["user_id"]
-        addresses = address_service.list_addresses(conn, user_id)
-        return jsonify(addresses), 200
-    except Exception as e:
-        logging.exception("Error listing addresses")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+    user_id = g.user["user_id"]
+    items = service.list_addresses(g.db, user_id)
+    return jsonify(items), 200
 
 
-# -------------------------------------------------------------
-# POST /api/addresses
-# -------------------------------------------------------------
-@addresses_bp.route("", methods=["POST"])
-@require_auth()
-def add_address():
-    conn = get_db_connection()
+@addresses_bp.get("/<int:address_id>")
+def get_address(address_id):
+    user_id = g.user["user_id"]
     try:
-        user_id = g.user["user_id"]
-        data = request.get_json(silent=True) or {}
-        new_addr = address_service.add_address(conn, user_id, data)
-        conn.commit()
+        addr = service.get_address(g.db, user_id, address_id)
+        return jsonify(addr), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@addresses_bp.post("")
+def create_address():
+    user_id = g.user["user_id"]
+    payload = request.get_json(force=True)
+    try:
+        new_addr = service.create_address(g.db, user_id, payload)
         return jsonify(new_addr), 201
     except ValueError as e:
-        conn.rollback()
-        return jsonify({"error": "invalid_request", "message": str(e)}), 400
-    except Exception as e:
-        conn.rollback()
-        logging.exception("Error adding address")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        return jsonify({"error": str(e)}), 400
 
 
-# -------------------------------------------------------------
-# PUT /api/addresses/<id>
-# -------------------------------------------------------------
-@addresses_bp.route("/<int:address_id>", methods=["PUT"])
-@require_auth()
+@addresses_bp.put("/<int:address_id>")
 def update_address(address_id):
-    conn = get_db_connection()
+    user_id = g.user["user_id"]
+    payload = request.get_json(force=True)
     try:
-        user_id = g.user["user_id"]
-        data = request.get_json(silent=True) or {}
-        updated = address_service.update_address(conn, user_id, address_id, data)
-        if not updated:
-            conn.rollback()
-            return jsonify({"error": "not_found"}), 404
-        conn.commit()
+        updated = service.update_address(g.db, user_id, address_id, payload)
         return jsonify(updated), 200
-    except Exception as e:
-        conn.rollback()
-        logging.exception("Error updating address")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
 
 
-# -------------------------------------------------------------
-# DELETE /api/addresses/<id>
-# -------------------------------------------------------------
-@addresses_bp.route("/<int:address_id>", methods=["DELETE"])
-@require_auth()
+@addresses_bp.delete("/<int:address_id>")
 def delete_address(address_id):
-    conn = get_db_connection()
+    user_id = g.user["user_id"]
     try:
-        user_id = g.user["user_id"]
-        deleted = address_service.delete_address(conn, user_id, address_id)
-        conn.commit()
-        if not deleted:
-            return jsonify({"error": "not_found"}), 404
-        return jsonify({"status": "deleted", "address_id": address_id}), 200
-    except Exception as e:
-        conn.rollback()
-        logging.exception("Error deleting address")
-        return jsonify({"error": "internal_error", "message": str(e)}), 500
-    finally:
-        conn.close()
+        service.delete_address(g.db, user_id, address_id)
+        return jsonify({"status": "deleted"}), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@addresses_bp.post("/<int:address_id>/default")
+def set_default(address_id):
+    user_id = g.user["user_id"]
+    try:
+        addr = service.set_default(g.db, user_id, address_id)
+        return jsonify(addr), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404

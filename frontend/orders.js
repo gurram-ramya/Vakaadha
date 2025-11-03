@@ -1,79 +1,89 @@
-document.addEventListener("DOMContentLoaded", () => {
+// public/js/orders.js — synced with backend /api/orders
+document.addEventListener("DOMContentLoaded", async () => {
   const ordersList = document.getElementById("ordersList");
   const orderModal = document.getElementById("orderModal");
   const orderDetails = document.getElementById("orderDetails");
   const closeBtn = orderModal.querySelector(".close");
 
-  const orders = JSON.parse(localStorage.getItem("orders") || "[]");
-
-  if (!orders.length) {
-    ordersList.innerHTML = "<p>No orders placed yet.</p>";
+  const user = JSON.parse(localStorage.getItem("user"));
+  if (!user || !user.user_id) {
+    ordersList.innerHTML = "<p>Please log in to view orders.</p>";
     return;
   }
 
-  // Render Orders
-  ordersList.innerHTML = orders.map(order => {
-    const firstItem = order.items[0];
-    return `
-      <div class="order-card">
-        <div class="order-header">
-          <span>Order ID: ${order.id}</span>
-          <span>Status: ${order.status}</span>
-        </div>
-        <div class="order-items">
-          <img src="${firstItem.image || './placeholder.png'}" alt="${firstItem.name}"/>
-          <div>
-            <p>${firstItem.name} (${firstItem.size || "-"}) × ${firstItem.qty || 1}</p>
-            <p><strong>₹${order.total}</strong></p>
-            <p><small>${order.date}</small></p>
-          </div>
-        </div>
-        <button class="view-btn" data-id="${order.id}">View Details</button>
-      </div>
-    `;
-  }).join("");
+  try {
+    const res = await fetch(`/api/orders/user/${user.user_id}`);
+    if (!res.ok) throw new Error("Failed to fetch orders");
+    const orders = await res.json();
 
-  // Handle modal open
-  ordersList.addEventListener("click", (e) => {
+    if (!orders.length) {
+      ordersList.innerHTML = "<p>No orders placed yet.</p>";
+      return;
+    }
+
+    ordersList.innerHTML = orders.map(order => {
+      const firstItem = order.items?.[0] || {};
+      return `
+        <div class="order-card">
+          <div class="order-header">
+            <span>Order #${order.order_no || order.order_id}</span>
+            <span>Status: ${order.status}</span>
+          </div>
+          <div class="order-items">
+            <img src="${firstItem.image_url || './placeholder.png'}" alt="${firstItem.product_name || ''}"/>
+            <div>
+              <p>${firstItem.product_name || 'Unknown'} (${firstItem.size || "-"}) × ${firstItem.quantity || 1}</p>
+              <p><strong>₹${(order.total_cents / 100).toFixed(2)}</strong></p>
+              <p><small>${order.created_at || ''}</small></p>
+            </div>
+          </div>
+          <button class="view-btn" data-id="${order.order_id}">View Details</button>
+        </div>
+      `;
+    }).join("");
+  } catch (err) {
+    ordersList.innerHTML = `<p>Error loading orders: ${err.message}</p>`;
+  }
+
+  // Modal logic
+  ordersList.addEventListener("click", async (e) => {
     const btn = e.target.closest(".view-btn");
     if (!btn) return;
 
-    const id = parseInt(btn.dataset.id, 10);
-    const order = orders.find(o => o.id === id);
+    const orderId = parseInt(btn.dataset.id, 10);
+    try {
+      const res = await fetch(`/api/orders/${orderId}`);
+      if (!res.ok) throw new Error("Failed to fetch order details");
+      const order = await res.json();
 
-    if (order) {
       orderDetails.innerHTML = `
-        <h3>Order ID: ${order.id}</h3>
+        <h3>Order #${order.order_no || order.order_id}</h3>
         <p><strong>Status:</strong> ${order.status}</p>
-        <p><strong>Date:</strong> ${order.date}</p>
-        <p><strong>Payment:</strong> ${order.payment}</p>
-        <h4>Delivery Address:</h4>
-        <p>${order.address.name}<br>
-        ${order.address.street}, ${order.address.city} - ${order.address.zip}</p>
+        <p><strong>Date:</strong> ${order.created_at}</p>
+        <p><strong>Payment:</strong> ${order.payment_status}</p>
+        <h4>Shipping Address:</h4>
+        <p>${order.address?.name || ""}<br>
+        ${order.address?.line1 || ""}, ${order.address?.city || ""} - ${order.address?.pincode || ""}</p>
         <h4>Items:</h4>
         ${order.items.map(item => `
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
-            <img src="${item.image || './placeholder.png'}" width="50"/>
+            <img src="${item.image_url || './placeholder.png'}" width="50"/>
             <div>
-              <p>${item.name} (${item.size || "-"}) × ${item.qty || 1}</p>
-              <p>₹${item.price} each</p>
+              <p>${item.product_name} (${item.size || "-"}) × ${item.quantity}</p>
+              <p>₹${(item.price_cents / 100).toFixed(2)} each</p>
             </div>
           </div>
         `).join("")}
-        <h4>Total: ₹${order.total}</h4>
+        <h4>Total: ₹${(order.total_cents / 100).toFixed(2)}</h4>
       `;
       orderModal.classList.remove("hidden");
+    } catch (err) {
+      alert("Failed to load order details");
     }
   });
 
-  // Close modal
-  closeBtn.addEventListener("click", () => {
-    orderModal.classList.add("hidden");
-  });
-
+  closeBtn.addEventListener("click", () => orderModal.classList.add("hidden"));
   window.addEventListener("click", (e) => {
-    if (e.target === orderModal) {
-      orderModal.classList.add("hidden");
-    }
+    if (e.target === orderModal) orderModal.classList.add("hidden");
   });
 });
