@@ -225,6 +225,7 @@ from domain.cart import service as cart_service
 from domain.cart import repository as cart_repo
 from domain.wishlist import repository as wishlist_repo
 from db import transaction
+from db import get_db_connection
 
 # ===========================================================
 # USER SERVICE (Business Logic Layer)
@@ -270,7 +271,7 @@ def upsert_user_from_firebase(firebase_uid, email, name):
     except Exception as e:
         if "UNIQUE constraint failed" in str(e):
             logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
-            from db import get_db_connection
+            # from db import get_db_connection
             conn = get_db_connection()
             try:
                 existing = repository.get_user_by_email(email)
@@ -299,7 +300,7 @@ def ensure_user_profile(user_id, conn=None):
     Guarantee that a user profile exists for this user.
     Uses provided connection if available; otherwise opens its own.
     """
-    from db import get_db_connection
+    # from db import get_db_connection
     internal_conn = False
     if conn is None:
         conn = get_db_connection()
@@ -368,28 +369,79 @@ def update_profile(conn, firebase_uid, updates):
 # ===========================================================
 # CORE LOGIN → MERGE LOGIC (Atomic and Commit-Safe)
 # ===========================================================
+# def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
+#     """
+#     Called on user login. Guarantees user record, profile,
+#     and merges any guest cart/wishlist into the user's account.
+#     Entire block executes atomically.
+#     """
+#     try:
+#         with transaction():
+#             user = upsert_user_from_firebase(firebase_uid, email, name)
+#             if not user:
+#                 logging.error("User creation failed; aborting merge.")
+#                 return None, {"cart": {"status": "error"}, "wishlist": {"status": "error"}}
+
+#             user_id = user["user_id"]
+#             ensure_user_profile(user_id)
+
+#             merge_result = {"cart": {"status": "none"}, "wishlist": {"status": "none"}}
+
+#             # Skip redundant merges if no guest_id or same-session merge already done
+#             if guest_id:
+#                 merge_result["cart"] = merge_guest_cart_if_any(conn, user_id, guest_id)
+#                 merge_result["wishlist"] = merge_guest_wishlist_if_any(conn, user_id, guest_id)
+
+#             if update_last_login:
+#                 repository.update_user_last_login(user_id)
+
+#         return user, merge_result
+
+#     except Exception as e:
+#         logging.exception(f"ensure_user_with_merge failed: {e}")
+#         return None, {"cart": {"status": "error"}, "wishlist": {"status": "error"}}
+
+# ===========================================================
+# CORE LOGIN → MERGE LOGIC (FIXED CONNECTION + ATOMIC MERGE)
+# ===========================================================
+
+
 def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
     """
-    Called on user login. Guarantees user record, profile,
-    and merges any guest cart/wishlist into the user's account.
-    Entire block executes atomically.
+    Guarantees user record, profile, and merges guest data atomically.
+    Works correctly whether called with open conn or within Flask request context.
     """
+    # from db import transaction
+
+    # if caller passed closed or None conn, reacquire safely
+    if conn is None:
+        conn = get_db_connection()
+
     try:
-        with transaction():
+        with transaction() as tx:
             user = upsert_user_from_firebase(firebase_uid, email, name)
             if not user:
                 logging.error("User creation failed; aborting merge.")
                 return None, {"cart": {"status": "error"}, "wishlist": {"status": "error"}}
 
             user_id = user["user_id"]
-            ensure_user_profile(user_id)
+            ensure_user_profile(user_id, conn=tx)
 
             merge_result = {"cart": {"status": "none"}, "wishlist": {"status": "none"}}
 
-            # Skip redundant merges if no guest_id or same-session merge already done
+            # Only merge if a valid guest_id exists
             if guest_id:
-                merge_result["cart"] = merge_guest_cart_if_any(conn, user_id, guest_id)
-                merge_result["wishlist"] = merge_guest_wishlist_if_any(conn, user_id, guest_id)
+                try:
+                    merge_result["cart"] = merge_guest_cart_if_any(tx, user_id, guest_id)
+                except Exception as e:
+                    logging.warning(f"Cart merge failed: {e}")
+                    merge_result["cart"] = {"status": "error"}
+
+                try:
+                    merge_result["wishlist"] = merge_guest_wishlist_if_any(tx, user_id, guest_id)
+                except Exception as e:
+                    logging.warning(f"Wishlist merge failed: {e}")
+                    merge_result["wishlist"] = {"status": "error"}
 
             if update_last_login:
                 repository.update_user_last_login(user_id)
@@ -414,7 +466,7 @@ def merge_guest_cart_if_any(conn, user_id, guest_id):
         repository.assign_cart_to_user(guest_cart["cart_id"], user_id)
         cart_repo.insert_audit_event(
             conn, guest_cart["cart_id"], user_id, guest_id,
-            "reassign", f"Guest cart reassigned to user {user_id}"
+            "update", f"Guest cart reassigned to user {user_id}"
         )
         logging.info(f"Guest cart {guest_cart['cart_id']} reassigned to user {user_id}")
         return {"merged_items": 0, "status": "reassigned"}
@@ -467,7 +519,7 @@ def merge_guest_wishlist_if_any(conn, user_id, guest_id):
             (user_id, guest_wishlist["wishlist_id"]),
         )
         wishlist_repo.log_audit(
-            "reassign",
+            "update",
             guest_wishlist["wishlist_id"],
             user_id,
             guest_id,

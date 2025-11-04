@@ -1,16 +1,14 @@
+<!-- frontend/order_confirmation.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Payment • VAKAADHA</title>
-  <link rel="stylesheet" href="./payment.css"/> <!-- Reuse same palette -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Order Confirmation – VAKAADHA</title>
+  <link rel="stylesheet" href="./order_confirmation.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
   <script src="./navbar.js"></script>
-  <style>
-    
-  </style>
 </head>
 <body>
   <!-- HEADER -->
@@ -28,27 +26,21 @@
       <a href="./cart.html" aria-label="Cart">
         <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
       </a>
-      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
-      
+
       <div class="dropdown">
         <a href="./profile.html" aria-label="Profile">
-          
           <i class="fas fa-user"></i> <span id="user-display"></span>
         </a>
         <div class="dropdown-content">
           <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
           <hr class="dropdown-divider"/> 
-
-          <!-- Static Placeholders -->
-          <a href="#">Orders</a>
-          <a href="#">Wishlist</a>
+          <a href="orders.html">Orders</a>
+          <a href="wishlist.html">Wishlist</a>
           <a href="#">Gift Cards</a>
           <a href="#">Contact Us</a>
           <a href="#">Saved Cards</a>
           <a href="#">Saved VPA</a>
           <a href="#">Saved Addresses</a>
-
-          <!-- Logged-in View -->
           <div id="logged-in-links" class="hidden">
             <hr class="dropdown-divider"/>
             <a href="profile.html">Settings</a>
@@ -59,43 +51,32 @@
           </div>
         </div>
       </div>
-
     </nav>
   </header>
 
-  <!-- MAIN -->
-  <main class="payment-container">
-    <h2>Checkout</h2>
+  <main class="confirmation-container">
+    <div class="confirmation-card" id="confirmationCard">
+      <div class="confirmation-header">
+        <i class="fas fa-check-circle success-icon"></i>
+        <h2>Thank you for your purchase!</h2>
+        <p>Your order has been placed successfully.</p>
+      </div>
 
-    <!-- Selected Address -->
-    <div class="section">
-      <h3>Delivery Address</h3>
-      <div id="deliveryAddress"><p>No address selected</p></div>
-    </div>
+      <div id="orderSummary" class="order-summary">
+        <!-- Populated dynamically -->
+      </div>
 
-    <!-- Order Summary -->
-    <div class="section">
-      <h3>Order Summary</h3>
-      <div id="orderSummary"></div>
-      <p><strong>Total: ₹<span id="orderTotal">0</span></strong></p>
-    </div>
-
-    <!-- Payment Options -->
-    <div class="section">
-      <h3>Payment Method</h3>
-      <div class="payment-methods">
-        <label><input type="radio" name="payment" value="UPI" checked/> UPI</label>
-        <label><input type="radio" name="payment" value="Card"/> Debit/Credit Card</label>
-        <label><input type="radio" name="payment" value="NetBanking"/> Net Banking</label>
-        <label><input type="radio" name="payment" value="COD"/> Cash on Delivery</label>
+      <div class="confirmation-actions">
+        <a href="orders.html" class="btn">View My Orders</a>
+        <a href="index.html" class="btn secondary">Continue Shopping</a>
       </div>
     </div>
-
-    <button id="placeOrder">Place Order</button>
   </main>
 
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  <script src="payment.js"></script>
-  <!-- <script src="./script.js"></script> -->
+  <footer>
+    <p>© 2025 VAKAADHA. All rights reserved.</p>
+  </footer>
+
+  <script src="./order_confirmation.js"></script>
 </body>
 </html>

@@ -144,7 +144,7 @@
 // })();
 
 // ============================================================
-// navbar.js — Auth-first; unified token/guest logic
+// navbar.js — Auth-first; unified token/guest logic (logout fixed)
 // ============================================================
 
 (function () {
@@ -160,12 +160,35 @@
     lastFetch: 0,
   };
 
+  // // ------------------------------------------------------------
+  // // Core request
+  // // ------------------------------------------------------------
+  // async function safeApiRequest(endpoint, options = {}) {
+  //   try {
+  //     return await window.apiRequest(endpoint, options);
+  //   } catch (err) {
+  //     console.error("[navbar.js] API fail:", err);
+  //     if (err.status === 410) {
+  //       console.warn("[navbar.js] Guest session expired; resetting");
+  //       if (window.resetGuestId) window.resetGuestId();
+  //     }
+  //     throw err;
+  //   }
+  // }
+
   // ------------------------------------------------------------
   // Core request
   // ------------------------------------------------------------
   async function safeApiRequest(endpoint, options = {}) {
+    const token = localStorage.getItem("auth_token");
+    const guestId = !token ? localStorage.getItem("guest_id") : null;
+    const headers = options.headers || {};
+
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
+
     try {
-      return await window.apiRequest(endpoint, options);
+      return await window.apiRequest(url, { ...options, headers });
     } catch (err) {
       console.error("[navbar.js] API fail:", err);
       if (err.status === 410) {
@@ -233,6 +256,36 @@
   }
 
   // ------------------------------------------------------------
+  // Global auth shim (updated logout)
+  // ------------------------------------------------------------
+  window.auth = {
+    async initSession() {
+      const auth = getAuth?.();
+      if (!auth) return null;
+      return auth;
+    },
+    async getCurrentUser() {
+      const auth = getAuth?.();
+      return auth ? { name: auth.name, email: auth.email } : null;
+    },
+    async getToken() {
+      const auth = getAuth?.();
+      return auth ? auth.idToken : null;
+    },
+    async logout() {
+      try {
+        const fbAuth = firebase.auth();
+        await fbAuth.signOut(); // ensures onAuthStateChanged(null)
+      } catch (e) {
+        console.warn("Firebase signOut error:", e);
+      }
+      clearAuth?.();
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("guest_id");
+    },
+  };
+
+  // ------------------------------------------------------------
   // User Display
   // ------------------------------------------------------------
   function updateNavbarUser(user) {
@@ -249,15 +302,23 @@
     if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
   }
 
+  // ------------------------------------------------------------
+  // Logout handler (with guard flag)
+  // ------------------------------------------------------------
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
     logoutLink.addEventListener("click", async (e) => {
       e.preventDefault();
+      window.__logout_in_progress__ = true;
       try {
         await window.auth.logout();
         window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
       } finally {
+        updateNavbarUser(null);
+        document.querySelector("#profile-form")?.reset();
+        document.getElementById("profileSection")?.classList.add("hidden");
+        document.getElementById("homeSection")?.classList.remove("hidden");
         location.href = "/";
       }
     });
@@ -267,19 +328,12 @@
   // Initialization
   // ------------------------------------------------------------
   async function initializeNavbar() {
-    // wait for session establishment
-    if (window.auth?.initSession) {
-      await window.auth.initSession();
-    }
-
+    if (window.auth?.initSession) await window.auth.initSession();
     const user = await (window.auth?.getCurrentUser?.() || null);
     updateNavbarUser(user);
-
     await updateNavbarCounts(true);
     wireLogout();
-
     setInterval(() => updateNavbarCounts(false), 60000);
-
     window.updateNavbarCounts = updateNavbarCounts;
     window.updateNavbarUser = updateNavbarUser;
   }

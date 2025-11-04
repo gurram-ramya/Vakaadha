@@ -25,7 +25,6 @@ def create_payment():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # =============================================================
 # VERIFY PAYMENT
 # =============================================================
@@ -39,12 +38,17 @@ def verify_payment():
     if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
         return jsonify({"error": "Missing verification data"}), 400
 
-    verified = payment_service.verify_payment_signature(
+    verified, order_id = payment_service.verify_payment_signature(
         razorpay_order_id, razorpay_payment_id, razorpay_signature
     )
+
     if not verified:
         return jsonify({"status": "failed", "reason": "invalid signature"}), 400
-    return jsonify({"status": "success"})
+
+    from domain.orders.service import update_payment_status
+    update_payment_status(order_id, "paid")
+
+    return jsonify({"status": "success", "order_id": order_id})
 
 
 # =============================================================

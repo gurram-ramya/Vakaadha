@@ -169,17 +169,20 @@ def get_count(wishlist_id):
 # AUDIT LOG
 # ============================================================
 
-def log_audit(action, wishlist_id, user_id=None, guest_id=None,
-              product_id=None, variant_id=None, con=None, message=None):
-    event_type = action if action in ('merge','convert','expire','archive','delete','update') else 'update'
-    connection = con or get_db_connection()
-    connection.execute("""
-        INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, event_type, message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'));
-    """, (wishlist_id, user_id, guest_id, product_id, event_type, message))
-    if con is None:
-        connection.commit()
-        connection.close()
+# def log_audit(action, wishlist_id, user_id=None, guest_id=None,
+#               product_id=None, variant_id=None, con=None, message=None):
+#     event_type = action if action in ('merge','convert','expire','archive','delete','update') else 'update'
+#     connection = con or get_db_connection()
+#     connection.execute("""
+#         INSERT INTO wishlist_audit (wishlist_id, user_id, guest_id, product_id, event_type, message, created_at)
+#         VALUES (?, ?, ?, ?, ?, ?, datetime('now'));
+#     """, (wishlist_id, user_id, guest_id, product_id, event_type, message))
+#     if con is None:
+#         connection.commit()
+#         connection.close()
+def log_audit(*args, **kwargs):
+    return  # audit disabled
+
 
 
 

@@ -116,27 +116,37 @@
   window.clearAuth  = clearAuth;
 
   // ---------------- Auth shim for navbar/profile/cart ----------------
-  window.auth = {
-    async initSession() {
-      const auth = getAuth();
-      if (!auth) return null;
-      return auth;
-    },
-    async getCurrentUser() {
-      const auth = getAuth();
-      return auth ? { name: auth.name, email: auth.email } : null;
-    },
-    async getToken() {
-      const auth = getAuth();
-      return auth ? auth.idToken : null;
-    },
-    async logout() {
-      clearAuth();
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("guest_id");
-    },
-  };
+  // window.auth = {
+  //   async initSession() {
+  //     const auth = getAuth();
+  //     if (!auth) return null;
+  //     return auth;
+  //   },
+  //   async getCurrentUser() {
+  //     const auth = getAuth();
+  //     return auth ? { name: auth.name, email: auth.email } : null;
+  //   },
+  //   async getToken() {
+  //     const auth = getAuth();
+  //     return auth ? auth.idToken : null;
+  //   },
+  //   async logout() {
+  //     clearAuth();
+  //     localStorage.removeItem("auth_token");
+  //     localStorage.removeItem("guest_id");
+  //   },
+  // };
 
+  // Preserve existing window.auth from auth.js if loaded first
+  if (!window.auth) {
+    console.warn("[client.js] fallback auth shim active (auth.js not loaded)");
+    window.auth = {
+      async initSession() { return null; },
+      async getCurrentUser() { return null; },
+      async getToken() { return null; },
+      async logout() { localStorage.clear(); },
+    };
+  }
 
   console.log("[client.js] async token fix active; Authorization resolved string; guest_id only when unauthenticated");
 })();

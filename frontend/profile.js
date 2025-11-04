@@ -530,8 +530,26 @@ function wireHandlers() {
   });
 
   // Logout (restored)
+  // els.logout?.addEventListener("click", async () => {
+  //   console.debug("[LOGOUT] Performing full logout");
+  //   try {
+  //     if (window.auth?.logout) {
+  //       await window.auth.logout();
+  //     } else {
+  //       await auth().signOut();
+  //     }
+  //   } catch (err) {
+  //     console.warn("[LOGOUT] Firebase logout failed:", err);
+  //     try { await auth().signOut(); } catch {}
+  //   }
+  //   clearAuth();
+  //   location.href = "index.html";
+  // });
+
+  // Logout (delegated to global navbar logout)
   els.logout?.addEventListener("click", async () => {
-    console.debug("[LOGOUT] Performing full logout");
+    console.debug("[LOGOUT] Triggered from profile section");
+    window.__logout_in_progress__ = true;
     try {
       if (window.auth?.logout) {
         await window.auth.logout();
@@ -543,8 +561,9 @@ function wireHandlers() {
       try { await auth().signOut(); } catch {}
     }
     clearAuth();
-    location.href = "index.html";
+    location.href = "/";
   });
+
 }
 
 /* ---------------- Auth state ---------------- */
@@ -552,11 +571,19 @@ function initAuthState() {
   console.debug("[AUTH] Setting up Firebase auth listener");
   auth().onAuthStateChanged(async (user) => {
     console.debug("[AUTHSTATE] Changed:", user ? user.uid : "none");
+
+    // Guard: skip handling while logout is in progress
+    if (window.__logout_in_progress__) {
+      console.debug("[AUTHSTATE] Skipped (logout in progress)");
+      return;
+    }
+
     if (!user) {
       clearAuth();
       show("auth");
       return;
     }
+
     try {
       await afterFirebaseAuth(user, true);
       show("profile");
@@ -566,6 +593,7 @@ function initAuthState() {
     }
   });
 }
+
 
 /* ---------------- Sync + Profile ---------------- */
 async function afterFirebaseAuth(user, silent = false, providedName = null) {

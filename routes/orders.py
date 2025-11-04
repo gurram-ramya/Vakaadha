@@ -92,3 +92,12 @@ def update_payment_status(order_id):
         return jsonify({"message": "Payment status updated"}), 200
     except Exception as e:
         return jsonify({"error": f"Failed to update payment status: {e}"}), 500
+
+@orders_bp.route("/confirmation/<int:order_id>", methods=["GET"])
+def get_order_confirmation(order_id):
+    conn = get_db()
+    order = orders_service.get_order_confirmation_details(order_id, conn)
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+    return jsonify(order), 200
+

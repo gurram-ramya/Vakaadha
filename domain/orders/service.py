@@ -99,3 +99,23 @@ def update_payment_status(order_id: int, payment_status: str):
     conn = get_db_connection()
     with conn:
         repo.update_payment_status(conn, order_id, payment_status)
+
+def get_order_confirmation_details(order_id: int, conn):
+    order_data = orders_repo.get_order_with_items_and_address(order_id, conn)
+    if not order_data:
+        return None
+
+    order = order_data["order"]
+    items = order_data.get("items", [])
+    address = order_data.get("address", {})
+
+    # Extend the payload for frontend expectations
+    return {
+        **order,
+        "items": items,
+        "address": address,
+        "confirmation_status": order.get("payment_status", "pending"),
+        "razorpay_payment_id": order.get("razorpay_payment_id"),
+        "payment_txn_id": order.get("payment_txn_id"),
+    }
+

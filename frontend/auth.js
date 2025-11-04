@@ -219,12 +219,74 @@
   }
 
   // ---------------- Init session ----------------
+  // async function initSession() {
+  //   // Mirror backend guest cookie to localStorage before auth logic
+  //   const g = getCookie(GUEST_KEY);
+  //   if (g) try { localStorage.setItem(GUEST_KEY, g); } catch {}
+
+  //   if (!(window.firebase && firebase.auth)) { applyNavbar(null); return; }
+
+  //   await new Promise(resolve => {
+  //     const unsub = firebase.auth().onAuthStateChanged(async (user) => {
+  //       unsub();
+
+  //       // --- Anonymous guest path ---
+  //       if (!user) {
+  //         clearSession();
+  //         applyNavbar(null);
+  //         return resolve();
+  //       }
+
+  //       // --- Authenticated user path ---
+  //       const token = await getFreshToken();
+  //       if (!token) { clearSession(); applyNavbar(null); return resolve(); }
+
+  //       try {
+  //         // always send current guest_id (may be null if backend already rotated)
+  //         const guest_id = localStorage.getItem(GUEST_KEY);
+  //         const regRes = await fetch("/api/auth/register", {
+  //           method: "POST",
+  //           headers: {
+  //             "Content-Type": "application/json",
+  //             Authorization: `Bearer ${token}`,
+  //           },
+  //           body: JSON.stringify({ guest_id }),
+  //         });
+
+  //         if (!regRes.ok) throw new Error("register failed");
+
+  //         const data = await regRes.json();
+  //         if (data?.user) setUserCached(data.user);
+  //         applyNavbar(data.user || null);
+
+  //         // backend replaces guest cookie → sync new guest_id for continuity
+  //         const newGuest = getCookie(GUEST_KEY);
+  //         if (newGuest) {
+  //           try { localStorage.setItem(GUEST_KEY, newGuest); } catch {}
+  //         } else {
+  //           localStorage.removeItem(GUEST_KEY);
+  //         }
+
+  //       } catch (err) {
+  //         console.error("[auth.js] register/login flow failed", err);
+  //         clearSession();
+  //         applyNavbar(null);
+  //       }
+
+  //       resolve();
+  //     });
+  //   });
+  // }
+
   async function initSession() {
     // Mirror backend guest cookie to localStorage before auth logic
     const g = getCookie(GUEST_KEY);
     if (g) try { localStorage.setItem(GUEST_KEY, g); } catch {}
 
-    if (!(window.firebase && firebase.auth)) { applyNavbar(null); return; }
+    if (!(window.firebase && firebase.auth)) {
+      applyNavbar(null);
+      return;
+    }
 
     await new Promise(resolve => {
       const unsub = firebase.auth().onAuthStateChanged(async (user) => {
@@ -239,7 +301,11 @@
 
         // --- Authenticated user path ---
         const token = await getFreshToken();
-        if (!token) { clearSession(); applyNavbar(null); return resolve(); }
+        if (!token) {
+          clearSession();
+          applyNavbar(null);
+          return resolve();
+        }
 
         try {
           // always send current guest_id (may be null if backend already rotated)
@@ -259,12 +325,13 @@
           if (data?.user) setUserCached(data.user);
           applyNavbar(data.user || null);
 
-          // backend replaces guest cookie → sync new guest_id for continuity
+          // --- FIX: remove guest_id for authenticated sessions ---
+          try { localStorage.removeItem(GUEST_KEY); } catch {}
+
+          // backend may still rotate a new guest cookie; clean local copy if present
           const newGuest = getCookie(GUEST_KEY);
-          if (newGuest) {
+          if (newGuest && !token) {
             try { localStorage.setItem(GUEST_KEY, newGuest); } catch {}
-          } else {
-            localStorage.removeItem(GUEST_KEY);
           }
 
         } catch (err) {
@@ -277,6 +344,7 @@
       });
     });
   }
+
 
   // ---------------- Current user ----------------
   async function getCurrentUser() {

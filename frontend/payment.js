@@ -145,6 +145,11 @@ document.addEventListener("DOMContentLoaded", () => {
             }),
           });
           const verifyData = await verifyResp.json();
+
+          showToast("Payment successful!", "#28a745");
+          setTimeout(() => {
+            window.location.href = `/order_confirmation.html?order_id=${order_id}`;
+          }, 1500);
           if (!verifyResp.ok || verifyData.status !== "success") {
             showToast("Payment verification failed", "#dc3545");
             return;

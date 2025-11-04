@@ -224,6 +224,7 @@ import { apiRequest } from "./api/client.js";
 
   els.form?.addEventListener("submit", saveAddress);
 
+
   // -------------------------------
   // Init on DOM Ready
   // -------------------------------
@@ -234,7 +235,36 @@ import { apiRequest } from "./api/client.js";
       renderAddresses([]);
       return;
     }
-    loadAddresses();
+
+    await loadAddresses();
     if (window.updateNavbarCounts) window.updateNavbarCounts();
+
+    // ---- Proceed to Payment ----
+    const proceedBtn = document.getElementById("proceedToPayment");
+    if (proceedBtn) {
+      proceedBtn.addEventListener("click", async () => {
+        try {
+          const data = await apiRequest(ENDPOINT);
+          if (!Array.isArray(data) || !data.length) {
+            toast("Add an address first", true);
+            return;
+          }
+
+          const selected = data.find(a => a.is_default) || data[0];
+          sessionStorage.setItem("selectedAddress", JSON.stringify(selected));
+
+          const items = JSON.parse(sessionStorage.getItem("checkout_items") || "[]");
+          if (!items.length) {
+            toast("No items in checkout", true);
+            return;
+          }
+
+          window.location.href = "payment.html";
+        } catch (err) {
+          console.error("Proceed to payment failed:", err);
+          toast("Unable to continue", true);
+        }
+      });
+    }
   });
 })();

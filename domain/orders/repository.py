@@ -93,3 +93,39 @@ def update_payment_status(conn, order_id, payment_status):
         """,
         (payment_status, order_id),
     )
+
+def get_order_with_items_and_address(order_id: int, conn):
+    order_sql = """
+        SELECT o.*, p.razorpay_payment_id, p.payment_txn_id
+        FROM orders o
+        LEFT JOIN payments p ON o.order_id = p.order_id
+        WHERE o.order_id = ?;
+    """
+    cur = conn.execute(order_sql, (order_id,))
+    order = cur.fetchone()
+    if not order:
+        return None
+
+    items_sql = """
+        SELECT oi.*, pr.name AS product_name, pv.size
+        FROM order_items oi
+        JOIN products pr ON oi.product_id = pr.product_id
+        JOIN product_variants pv ON oi.variant_id = pv.variant_id
+        WHERE oi.order_id = ?;
+    """
+    cur = conn.execute(items_sql, (order_id,))
+    items = cur.fetchall()
+
+    addr_sql = """
+        SELECT * FROM addresses
+        WHERE address_id = (SELECT shipping_address_id FROM orders WHERE order_id = ?);
+    """
+    cur = conn.execute(addr_sql, (order_id,))
+    address = cur.fetchone()
+
+    return {
+        "order": order,
+        "items": items,
+        "address": address
+    }
+

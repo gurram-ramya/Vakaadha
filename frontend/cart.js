@@ -427,7 +427,18 @@
     }
     if (remove) removeItem(Number(e.target.closest(".cart-item").dataset.id));
     if (clear) clearCart();
-    if (checkout) window.location.href = "checkout.html";
+    // if (checkout) window.location.href = "checkout.html";
+    if (checkout) {
+      const cart = await CartAPI.get();
+      if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
+        toast("Your cart is empty", true);
+        return;
+      }
+      // Persist cart items for next page
+      sessionStorage.setItem("checkout_items", JSON.stringify(cart.items));
+      window.location.href = "addresses.html";
+    }
+
   });
 
   // ----------------------------
