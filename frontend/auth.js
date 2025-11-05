@@ -419,40 +419,11 @@
   }
 
   // ---------------- Backend ----------------
-  // async function fetchMe(token) {
-  //   return fetch("/api/users/me", {
-  //     headers: { Authorization: `Bearer ${token}` },
-  //   });
-  // }
-
   async function fetchMe(token) {
-    try {
-      const res = await fetch("/api/users/me", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-      });
-
-      // explicit error handling
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("[auth.js] fetchMe failed:", res.status, text);
-        throw new Error(`fetchMe failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (!data || typeof data !== "object") throw new Error("Invalid user payload");
-
-      return data;
-    } catch (err) {
-      console.error("[auth.js] fetchMe exception:", err);
-      return null;
-    }
+    return fetch("/api/users/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
   }
-
 
 
   async function backendLogout(token) {

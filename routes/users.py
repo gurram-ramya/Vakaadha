@@ -252,24 +252,50 @@ def session_info():
 # ===========================================================
 # GET /api/users/me
 # ===========================================================
+# @users_bp.route("/api/users/me", methods=["GET"], endpoint="get_user_profile")
+# @require_auth()
+# def get_user_profile():
+#     conn = None
+#     try:
+#         conn = get_db_connection()
+#         firebase_uid = g.user["firebase_uid"]
+
+#         user_profile = user_service.get_user_with_profile(conn, firebase_uid)
+#         if not user_profile:
+#             return error_response(404, "user_not_found")
+
+#         user_profile["email_verified"] = g.user.get("email_verified", False)
+#         return jsonify(user_profile), 200
+
+#     except Exception as e:
+#         logging.exception("Error in /api/users/me")
+#         return error_response(500, "internal_error", str(e))
+#     finally:
+#         if conn:
+#             conn.close()
+
 @users_bp.route("/api/users/me", methods=["GET"], endpoint="get_user_profile")
-@require_auth()
+@require_auth(optional=True)
 def get_user_profile():
     conn = None
     try:
+        user = getattr(g, "user", None)
+        if not user or not user.get("firebase_uid"):
+            return jsonify({"error": "unauthorized", "message": "Login required"}), 401
+
         conn = get_db_connection()
-        firebase_uid = g.user["firebase_uid"]
+        firebase_uid = user["firebase_uid"]
 
         user_profile = user_service.get_user_with_profile(conn, firebase_uid)
         if not user_profile:
-            return error_response(404, "user_not_found")
+            return jsonify({"error": "user_not_found"}), 404
 
-        user_profile["email_verified"] = g.user.get("email_verified", False)
+        user_profile["email_verified"] = user.get("email_verified", False)
         return jsonify(user_profile), 200
 
     except Exception as e:
         logging.exception("Error in /api/users/me")
-        return error_response(500, "internal_error", str(e))
+        return jsonify({"error": "internal_error", "message": str(e)}), 500
     finally:
         if conn:
             conn.close()

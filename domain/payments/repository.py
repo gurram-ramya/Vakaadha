@@ -1,77 +1,82 @@
 # domain/payments/repository.py
+import logging
 
-import sqlite3
-from typing import Optional, Dict, Any
-from db import get_db_connection
+# ============================================================
+# Payments Repository — low-level DB operations
+# ============================================================
 
-
-# =============================================================
-# INSERT / UPDATE
-# =============================================================
-def insert_payment(conn, order_id: int, user_id: int, provider: str, amount_cents: int,
-                   currency: str = "INR", razorpay_order_id: Optional[str] = None):
-    cur = conn.execute(
-        """
-        INSERT INTO payments (
-            order_id, user_id, provider, amount_cents, currency,
-            razorpay_order_id, status, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'created', datetime('now'), datetime('now'));
-        """,
-        (order_id, user_id, provider, amount_cents, currency, razorpay_order_id),
-    )
-    return cur.lastrowid
-
-
-def update_payment_status(conn, razorpay_order_id: str, status: str,
-                          razorpay_payment_id: Optional[str] = None,
-                          razorpay_signature: Optional[str] = None,
-                          raw_response: Optional[str] = None):
-    conn.execute(
-        """
-        UPDATE payments
-        SET status = ?, razorpay_payment_id = ?, razorpay_signature = ?,
-            raw_response = ?, updated_at = datetime('now')
-        WHERE razorpay_order_id = ?;
-        """,
-        (status, razorpay_payment_id, razorpay_signature, raw_response, razorpay_order_id),
-    )
+def create_payment(conn, order_id, user_id, provider, amount_cents, method,
+                   razorpay_order_id=None, email=None, contact=None):
+    """
+    Insert a new payment transaction record into the DB.
+    Used when a Razorpay order is created or COD order initialized.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO payments (
+                order_id, user_id, provider, razorpay_order_id,
+                amount_cents, method, email, contact, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'created')
+        """, (order_id, user_id, provider, razorpay_order_id,
+              amount_cents, method, email, contact))
+        conn.commit()
+        payment_id = cur.lastrowid
+        logging.info(f"[payments.repo] Created payment_txn_id={payment_id} for order={order_id}")
+        return get_payment_by_id(conn, payment_id)
+    except Exception as e:
+        logging.exception("Failed to create payment record")
+        raise
 
 
-def mark_refunded(conn, razorpay_payment_id: str, refund_id: str, raw_response: Optional[str] = None):
-    conn.execute(
-        """
-        UPDATE payments
-        SET status = 'refunded', refund_id = ?, raw_response = ?, updated_at = datetime('now')
-        WHERE razorpay_payment_id = ?;
-        """,
-        (refund_id, raw_response, razorpay_payment_id),
-    )
+def update_payment_status(conn, razorpay_order_id, status,
+                          razorpay_payment_id=None, signature=None, raw_response=None):
+    """
+    Update payment transaction status (e.g. authorized, captured, failed).
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE payments
+               SET status = ?, 
+                   razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                   razorpay_signature = COALESCE(?, razorpay_signature),
+                   raw_response = COALESCE(?, raw_response),
+                   updated_at = datetime('now')
+             WHERE razorpay_order_id = ?
+        """, (status, razorpay_payment_id, signature, raw_response, razorpay_order_id))
+        conn.commit()
+
+        if cur.rowcount == 0:
+            logging.warning(f"[payments.repo] No payment found for Razorpay order: {razorpay_order_id}")
+        else:
+            logging.info(f"[payments.repo] Updated status='{status}' for razorpay_order_id={razorpay_order_id}")
+
+        return get_payment_by_razorpay_order_id(conn, razorpay_order_id)
+    except Exception as e:
+        logging.exception("Failed to update payment status")
+        raise
 
 
-# =============================================================
-# FETCH
-# =============================================================
-def get_payment_by_order_id(conn, order_id: int) -> Optional[Dict[str, Any]]:
-    cur = conn.execute("SELECT * FROM payments WHERE order_id = ?;", (order_id,))
-    return cur.fetchone()
+def get_payment_by_id(conn, payment_txn_id):
+    """Fetch a single payment transaction by its internal ID."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM payments WHERE payment_txn_id = ?", (payment_txn_id,))
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
-def get_payment_by_razorpay_order_id(conn, razorpay_order_id: str) -> Optional[Dict[str, Any]]:
-    cur = conn.execute("SELECT * FROM payments WHERE razorpay_order_id = ?;", (razorpay_order_id,))
-    return cur.fetchone()
+def get_payment_by_order(conn, order_id):
+    """Fetch payment info linked to an order."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM payments WHERE order_id = ?", (order_id,))
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
-def get_payments_by_user(conn, user_id: int):
-    cur = conn.execute(
-        """
-        SELECT payment_txn_id, order_id, provider, amount_cents, currency,
-               status, razorpay_order_id, razorpay_payment_id, refund_id,
-               created_at, updated_at
-        FROM payments
-        WHERE user_id = ?
-        ORDER BY created_at DESC;
-        """,
-        (user_id,),
-    )
-    return cur.fetchall()
+def get_payment_by_razorpay_order_id(conn, razorpay_order_id):
+    """Fetch payment info using Razorpay order ID."""
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM payments WHERE razorpay_order_id = ?", (razorpay_order_id,))
+    row = cur.fetchone()
+    return dict(row) if row else None

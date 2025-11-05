@@ -224,3 +224,95 @@ main.payment-container {
 .hidden {
   display: none;
 }
+
+/* Address modal */
+
+/* ---------------- Address Modal Cards ---------------- */
+.address-card {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.address-card:hover {
+  background: #f1f1f1;
+  border-color: #888;
+}
+
+.address-card strong {
+  font-size: 1rem;
+  color: #222;
+}
+
+.address-card button.small {
+  margin-top: 8px;
+  display: inline-block;
+  background: #333;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.address-card button.small:hover {
+  background: #555;
+}
+
+/* ---------------- Modal Layout ---------------- */
+.modal-content {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#addressListModal {
+  margin-top: 10px;
+}
+
+/* ---------------- Order Summary Items ---------------- */
+.order-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.order-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-right: 10px;
+}
+
+.order-info {
+  flex: 1;
+}
+
+.order-name {
+  display: block;
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: #222;
+}
+
+.order-qty {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.order-price {
+  font-weight: 600;
+  color: #111;
+  min-width: 60px;
+  text-align: right;
+}

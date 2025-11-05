@@ -1,102 +1,161 @@
-# routes/addresses.py
-# import logging
-# from flask import Blueprint, jsonify, request, g
-# from db import get_db_connection
-# from utils.auth import require_auth
-# from domain.addresses import service as address_service
-
-# routes/addresses.py
-# routes/addresses.py
+# routes/addresses.py — robust, consistent with cart/wishlist behavior
+import logging
 from flask import Blueprint, jsonify, request, g
-from domain.addresses import service
 from utils.auth import require_auth
+from domain.addresses import repository, service
 
 addresses_bp = Blueprint("addresses", __name__, url_prefix="/api/addresses")
 
-# -----------------------------
-# Address Routes — REST Endpoints
-# -----------------------------
 
-@addresses_bp.get("")
-@require_auth()
+# ===========================================================
+# Helpers
+# ===========================================================
+def _json_error(code, error, message=None):
+    payload = {"error": error}
+    if message:
+        payload["message"] = message
+    return jsonify(payload), code
+
+
+def _get_user_id():
+    """Return user_id if authenticated; else None."""
+    user = getattr(g, "user", None)
+    if not user or not isinstance(user, dict):
+        return None
+    return user.get("user_id")
+
+
+# ===========================================================
+# GET /api/addresses
+# ===========================================================
+@addresses_bp.route("", methods=["GET"])
+@require_auth(optional=True)
 def list_addresses():
-    user_id = g.user["user_id"]
-    items = service.list_addresses(g.db, user_id)
-    return jsonify(items), 200
+    """List all saved addresses for authenticated user."""
+    user_id = _get_user_id()
+    if not user_id:
+        # Not logged in — consistent with wishlist/cart behavior
+        return jsonify([]), 200
 
-
-@addresses_bp.get("/<int:address_id>")
-@require_auth()
-def get_address(address_id):
-    user_id = g.user["user_id"]
     try:
-        addr = service.get_address(g.db, user_id, address_id)
-        return jsonify(addr), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-
-
-@addresses_bp.post("")
-@require_auth()
-def create_address():
-    try:
-        user = getattr(g, "user", None)
-        if not user or "user_id" not in user:
-            return jsonify({"error": "unauthorized"}), 401
-
-        user_id = user["user_id"]
-        payload = request.get_json(force=True) or {}
-        if not isinstance(payload, dict):
-            return jsonify({"error": "Invalid JSON payload"}), 400
-
-        required = ["name", "phone", "line1", "city", "state", "pincode"]
-        missing = [f for f in required if not payload.get(f)]
-        if missing:
-            return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
-
-        new_addr = service.create_address(g.db, user_id, payload)
-        return jsonify(new_addr), 201
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        rows = repository.list_addresses(user_id)
+        return jsonify(rows or []), 200
     except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({"error": "internal_error", "detail": str(e)}), 500
+        logging.exception("Failed to list addresses")
+        return _json_error(500, "server_error", str(e))
 
 
-@addresses_bp.put("/<int:address_id>")
-@require_auth()
+# ===========================================================
+# POST /api/addresses
+# ===========================================================
+@addresses_bp.route("", methods=["POST"])
+@require_auth(optional=True)
+def create_address():
+    """Create a new address (requires authenticated user)."""
+    user_id = _get_user_id()
+    if not user_id:
+        return _json_error(401, "unauthorized", "Please log in to manage addresses")
+
+    data = request.get_json(silent=True) or {}
+    valid, result = service.validate_address(data)
+    if not valid:
+        return _json_error(400, "validation_failed", result)
+
+    try:
+        created = repository.create_address(user_id, result)
+        return jsonify(created), 201
+    except Exception as e:
+        logging.exception("Failed to create address")
+        return _json_error(500, "server_error", str(e))
+
+
+# ===========================================================
+# PUT /api/addresses/<id>
+# ===========================================================
+@addresses_bp.route("/<int:address_id>", methods=["PUT"])
+@require_auth(optional=True)
 def update_address(address_id):
-    user_id = g.user["user_id"]
-    payload = request.get_json(force=True)
+    """Update an existing address (user-only)."""
+    user_id = _get_user_id()
+    if not user_id:
+        return _json_error(401, "unauthorized", "Please log in to manage addresses")
+
+    data = request.get_json(silent=True) or {}
+    valid, result = service.validate_address(data)
+    if not valid:
+        return _json_error(400, "validation_failed", result)
+
     try:
-        updated = service.update_address(g.db, user_id, address_id, payload)
+        existing = repository.get_address_by_id(user_id, address_id)
+        if not existing:
+            return _json_error(404, "not_found", "Address not found")
+
+        updated = repository.update_address(user_id, address_id, result)
         return jsonify(updated), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logging.exception("Failed to update address")
+        return _json_error(500, "server_error", str(e))
 
 
-@addresses_bp.delete("/<int:address_id>")
-@require_auth()
+# ===========================================================
+# DELETE /api/addresses/<id>
+# ===========================================================
+@addresses_bp.route("/<int:address_id>", methods=["DELETE"])
+@require_auth(optional=True)
 def delete_address(address_id):
-    user_id = g.user["user_id"]
+    """Delete an address for current user."""
+    user_id = _get_user_id()
+    if not user_id:
+        return _json_error(401, "unauthorized", "Please log in to manage addresses")
+
     try:
-        service.delete_address(g.db, user_id, address_id)
-        return jsonify({"status": "deleted"}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
+        ok = repository.delete_address(user_id, address_id)
+        if not ok:
+            return _json_error(404, "not_found", "Address not found")
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        logging.exception("Failed to delete address")
+        return _json_error(500, "server_error", str(e))
 
 
-@addresses_bp.post("/<int:address_id>/default")
-@require_auth()
-def set_default(address_id):
-    user_id = g.user["user_id"]
+# ===========================================================
+# PATCH /api/addresses/<id>/default
+# ===========================================================
+@addresses_bp.route("/<int:address_id>/default", methods=["PATCH"])
+@require_auth(optional=True)
+def set_default_address(address_id):
+    """Set an address as default (user-only)."""
+    user_id = _get_user_id()
+    if not user_id:
+        return _json_error(401, "unauthorized", "Please log in to manage addresses")
+
     try:
-        addr = service.set_default(g.db, user_id, address_id)
+        existing = repository.get_address_by_id(user_id, address_id)
+        if not existing:
+            return _json_error(404, "not_found", "Address not found")
+
+        repository.set_default_address(user_id, address_id)
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        logging.exception("Failed to set default address")
+        return _json_error(500, "server_error", str(e))
+
+# ===========================================================
+# GET /api/addresses/<id>
+# ===========================================================
+@addresses_bp.route("/<int:address_id>", methods=["GET"])
+@require_auth(optional=True)
+def get_single_address(address_id):
+    """Fetch a single address by ID for the current user."""
+    user_id = _get_user_id()
+    if not user_id:
+        return _json_error(401, "unauthorized", "Please log in to manage addresses")
+
+    try:
+        addr = repository.get_address_by_id(user_id, address_id)
+        if not addr:
+            return _json_error(404, "not_found", "Address not found")
         return jsonify(addr), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-
-
-
-
-
+    except Exception as e:
+        logging.exception("Failed to fetch address by ID")
+        return _json_error(500, "server_error", str(e))

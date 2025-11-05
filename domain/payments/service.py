@@ -1,120 +1,153 @@
 # domain/payments/service.py
-
+import logging
 import razorpay
 import json
-import hmac
-import hashlib
+from datetime import datetime
+
+from domain.payments import repository as payments_repo
+from domain.orders import service as orders_service
 from db import get_db_connection
-from domain.payments import repository as repo
-from config import RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET
+
+from flask import current_app
 
 
-# =============================================================
-# CLIENT INIT
-# =============================================================
-def _razorpay_client():
-    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+# ============================================================
+# Payment Service — business logic layer
+# ============================================================
+
+def _get_razorpay_client():
+    """Initialize and return Razorpay client from config."""
+    key_id = current_app.config.get("RAZORPAY_KEY_ID")
+    key_secret = current_app.config.get("RAZORPAY_KEY_SECRET")
+    if not key_id or not key_secret:
+        raise RuntimeError("Razorpay API keys missing in configuration")
+    return razorpay.Client(auth=(key_id, key_secret))
 
 
-# =============================================================
-# ORDER CREATION
-# =============================================================
-def create_payment_order(user_id: int, order_id: int, amount_cents: int):
+def create_payment_order(user_id, address_id, payment_method="UPI"):
     """
-    Creates a Razorpay order and stores it in the payments table.
+    Create a payment order.
+    For COD: skip Razorpay and mark payment as 'created'.
+    For online payments: create a Razorpay order and record it in DB.
     """
     conn = get_db_connection()
-    client = _razorpay_client()
-    amount_paise = amount_cents  # already in paise since DB uses cents as paise
+    try:
+        # Step 1: Create internal order from cart
+        order = orders_service.create_order_from_cart(conn, user_id, address_id, payment_method)
+        order_id = order["order_id"]
+        total_amount = order["total_amount_cents"]
 
-    rp_order = client.order.create({
-        "amount": amount_paise,
-        "currency": "INR",
-        "payment_capture": 1
-    })
+        provider = "razorpay"
+        email = order.get("email")
+        contact = order.get("phone")
 
-    with conn:
-        payment_id = repo.insert_payment(
-            conn,
+        # Step 2: Handle COD separately
+        if payment_method.upper() == "COD":
+            payment = payments_repo.create_payment(
+                conn=conn,
+                order_id=order_id,
+                user_id=user_id,
+                provider=provider,
+                amount_cents=total_amount,
+                method="COD",
+                email=email,
+                contact=contact,
+            )
+            logging.info(f"[payment.service] COD order created order_id={order_id}")
+            return {
+                "order_id": order_id,
+                "payment_method": "COD",
+                "payment_status": "pending",
+                "razorpay_order_id": None,
+            }
+
+        # Step 3: Online Payment (Razorpay)
+        client = _get_razorpay_client()
+        razorpay_order = client.order.create({
+            "amount": total_amount,      # amount in paise
+            "currency": "INR",
+            "payment_capture": "1",
+            "notes": {
+                "user_id": user_id,
+                "order_id": order_id,
+            }
+        })
+
+        razorpay_order_id = razorpay_order.get("id")
+        payments_repo.create_payment(
+            conn=conn,
             order_id=order_id,
             user_id=user_id,
-            provider="razorpay",
-            amount_cents=amount_cents,
-            currency="INR",
-            razorpay_order_id=rp_order["id"]
+            provider=provider,
+            amount_cents=total_amount,
+            method=payment_method,
+            razorpay_order_id=razorpay_order_id,
+            email=email,
+            contact=contact,
         )
 
-    return {
-        "payment_id": payment_id,
-        "razorpay_order_id": rp_order["id"],
-        "razorpay_key_id": RAZORPAY_KEY_ID,
-        "amount": amount_paise,
-        "currency": "INR"
-    }
+        logging.info(f"[payment.service] Razorpay order created: {razorpay_order_id}")
+        return {
+            "order_id": order_id,
+            "razorpay_order_id": razorpay_order_id,
+            "amount": total_amount,
+            "currency": "INR",
+            "key_id": current_app.config.get("RAZORPAY_KEY_ID"),
+        }
+
+    except Exception as e:
+        logging.exception("Failed to create payment order")
+        raise
+    finally:
+        conn.close()
 
 
-# =============================================================
-# PAYMENT VERIFICATION
-# =============================================================
-def verify_payment_signature(razorpay_order_id: str, razorpay_payment_id: str, razorpay_signature: str):
+def verify_payment(razorpay_order_id, razorpay_payment_id, razorpay_signature):
     """
-    Verify Razorpay webhook or frontend signature to ensure payment authenticity.
+    Verify Razorpay payment signature and update payment + order status.
     """
-    generated = hmac.new(
-        RAZORPAY_KEY_SECRET.encode(),
-        f"{razorpay_order_id}|{razorpay_payment_id}".encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-    if generated != razorpay_signature:
-        return False
-
     conn = get_db_connection()
-    with conn:
-        repo.update_payment_status(
-            conn,
-            razorpay_order_id,
-            status="paid",
-            razorpay_payment_id=razorpay_payment_id,
-            razorpay_signature=razorpay_signature,
-            raw_response=json.dumps({"verified": True})
-        )
-    return True
+    try:
+        client = _get_razorpay_client()
+        params_dict = {
+            "razorpay_order_id": razorpay_order_id,
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_signature": razorpay_signature,
+        }
 
+        # Step 1: Verify the signature
+        try:
+            client.utility.verify_payment_signature(params_dict)
+            verified = True
+        except razorpay.errors.SignatureVerificationError:
+            verified = False
 
-# =============================================================
-# REFUND
-# =============================================================
-def initiate_refund(razorpay_payment_id: str, amount_cents: int):
-    client = _razorpay_client()
-    refund = client.payment.refund(razorpay_payment_id, {"amount": amount_cents})
+        # Step 2: Update payment record
+        if verified:
+            payments_repo.update_payment_status(
+                conn=conn,
+                razorpay_order_id=razorpay_order_id,
+                status="captured",
+                razorpay_payment_id=razorpay_payment_id,
+                signature=razorpay_signature,
+                raw_response=json.dumps(params_dict),
+            )
 
-    conn = get_db_connection()
-    with conn:
-        repo.mark_refunded(conn, razorpay_payment_id, refund_id=refund["id"], raw_response=json.dumps(refund))
-    return refund
+            # Get order_id from payment record
+            payment = payments_repo.get_payment_by_razorpay_order_id(conn, razorpay_order_id)
+            if payment:
+                orders_service.update_payment_status(conn, payment["order_id"], "paid")
+                orders_service.update_order_status(conn, payment["order_id"], "confirmed")
 
+            logging.info(f"[payment.service] Payment verified and captured for {razorpay_order_id}")
+            return {"status": "success", "message": "Payment verified successfully"}
+        else:
+            payments_repo.update_payment_status(conn, razorpay_order_id, status="failed")
+            logging.warning(f"[payment.service] Payment verification failed for {razorpay_order_id}")
+            return {"status": "failed", "message": "Invalid payment signature"}
 
-# =============================================================
-# FETCH PAYMENTS
-# =============================================================
-def list_user_payments(user_id: int):
-    conn = get_db_connection()
-    with conn:
-        rows = repo.get_payments_by_user(conn, user_id)
-        return [
-            {
-                "payment_txn_id": r["payment_txn_id"],
-                "order_id": r["order_id"],
-                "provider": r["provider"],
-                "amount": r["amount_cents"] / 100.0,
-                "currency": r["currency"],
-                "status": r["status"],
-                "razorpay_order_id": r["razorpay_order_id"],
-                "razorpay_payment_id": r["razorpay_payment_id"],
-                "refund_id": r["refund_id"],
-                "created_at": r["created_at"],
-                "updated_at": r["updated_at"],
-            }
-            for r in rows
-        ]
+    except Exception as e:
+        logging.exception("Error verifying payment")
+        raise
+    finally:
+        conn.close()
