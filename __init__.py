@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlite3 import Error as DBError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from db import get_db_connection
+from db import get_db_connection, init_db_for_app
 # from utils.auth import initialize_firebase
 import uuid, time
 import psutil, os, time
@@ -116,24 +116,28 @@ def create_app():
         response.headers["X-Request-ID"] = g.request_id
         return response
 
-
     # ---------------------------------------------------------
-    # Database lifecycle
+    # ✅ Centralized Database Lifecycle (managed by db.py)
     # ---------------------------------------------------------
-    @app.before_request
-    def before_request():
-        g.user = None
-        try:
-            g.db = get_db_connection()
-        except DBError as e:
-            logging.error(f"Database connection failed: {e}")
-            g.db = None
+    # This replaces the manual before_request / teardown_request DB logic.
+    init_db_for_app(app)
+    # # ---------------------------------------------------------
+    # # Database lifecycle
+    # # ---------------------------------------------------------
+    # @app.before_request
+    # def before_request():
+    #     g.user = None
+    #     try:
+    #         g.db = get_db_connection()
+    #     except DBError as e:
+    #         logging.error(f"Database connection failed: {e}")
+    #         g.db = None
 
-    @app.teardown_request
-    def teardown_request(exception):
-        db = getattr(g, "db", None)
-        if db is not None:
-            db.close()
+    # @app.teardown_request
+    # def teardown_request(exception):
+    #     db = getattr(g, "db", None)
+    #     if db is not None:
+    #         db.close()
 
     # ---------------------------------------------------------
     # Security Headers

@@ -1,0 +1,124 @@
+<!-- frontend/addresses.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Addresses • VAKAADHA</title>
+  <link rel="stylesheet" href="./address.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="navbar">
+    <a href="index.html" class="logo">VAKAADHA</a>
+
+    <input type="checkbox" id="menu-toggle"/>
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+
+    <nav class="nav-links">
+      <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html" aria-label="Wishlist">
+        <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
+      </a>
+      <a href="./cart.html" aria-label="Cart">
+        <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
+      </a>
+      
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
+          <hr class="dropdown-divider"/> 
+
+          <a href="#">Orders</a>
+          <a href="#">Wishlist</a>
+          <a href="#">Gift Cards</a>
+          <a href="#">Contact Us</a>
+          <a href="#">Saved Cards</a>
+          <a href="#">Saved VPA</a>
+          <a href="#">Saved Addresses</a>
+
+          <div id="logged-in-links" class="hidden">
+            <hr class="dropdown-divider"/>
+            <a href="profile.html">Settings</a>
+            <a href="orders.html">My Orders</a>
+            <a href="wishlist.html">Wishlist</a>
+            <a href="addresses.html">Addresses</a>
+            <a href="#" id="logout">Logout</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main class="profile-container">
+    <h2>My Addresses</h2>
+
+    <!-- Address List -->
+    <section id="address-list" class="address-list"></section>
+
+    <div class="address-actions">
+      <button id="addAddressBtn" class="primary-btn">+ Add New Address</button>
+      <button id="proceedToPayment" class="primary-btn proceed-btn" disabled>Proceed to Payment</button>
+    </div>
+  </main>
+
+  <!-- Modal Overlay -->
+  <div id="addressModal" class="modal hidden">
+    <div class="modal-content">
+      <span class="close-btn" id="closeModal">&times;</span>
+      <h3 id="modalTitle">Add Address</h3>
+
+      <form id="addressForm">
+        <label>Full Name:
+          <input type="text" id="addrName" required />
+        </label>
+        <label>Phone:
+          <input type="text" id="addrPhone" required />
+        </label>
+        <label>Address Line 1:
+          <input type="text" id="addrLine1" required />
+        </label>
+        <label>Address Line 2:
+          <input type="text" id="addrLine2" />
+        </label>
+        <label>City:
+          <input type="text" id="addrCity" required />
+        </label>
+        <label>State:
+          <input type="text" id="addrState" required />
+        </label>
+        <label>Pincode:
+          <input type="text" id="addrPincode" required />
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="addrDefault" /> Set as default
+        </label>
+
+        <div class="form-buttons">
+          <button type="submit" class="primary-btn">Save Address</button>
+          <button type="button" id="cancelForm" class="secondary-btn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>© 2025 VAKAADHA. All rights reserved.</p>
+  </footer>
+
+  <!-- Shared Scripts -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
+  <script src="./auth.js"></script>
+  <script src="./api/client.js"></script>
+  <script src="./navbar.js"></script>
+  <script type="module" src="./addresses.js"></script>
+</body>
+</html>

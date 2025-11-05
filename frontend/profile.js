@@ -333,19 +333,21 @@
 const { apiRequest, getAuth, setAuth, clearAuth } = window;
 
 /* ---------------- Firebase init ---------------- */
-const firebaseConfig = {
-  apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
-  authDomain: "vakaadha.firebaseapp.com",
-  projectId: "vakaadha",
-  storageBucket: "vakaadha.appspot.com",
-  messagingSenderId: "395786980107",
-  appId: "1:395786980107:web:6678e452707296df56b00e",
-};
-if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-const auth = () => firebase.auth();
-auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
-  console.warn("[profile.js] LOCAL persistence failed:", e);
-});
+// const firebaseConfig = {
+//   apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
+//   authDomain: "vakaadha.firebaseapp.com",
+//   projectId: "vakaadha",
+//   storageBucket: "vakaadha.appspot.com",
+//   messagingSenderId: "395786980107",
+//   appId: "1:395786980107:web:6678e452707296df56b00e",
+// };
+// if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+// const auth = () => firebase.auth();
+// auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch((e) => {
+//   console.warn("[profile.js] LOCAL persistence failed:", e);
+// });
+
+const auth = () => window.firebase.auth();
 
 /* ---------------- DOM refs ---------------- */
 const $ = (s) => document.querySelector(s);

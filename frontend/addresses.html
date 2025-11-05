@@ -1,16 +1,186 @@
+
+
+
 <!-- frontend/addresses.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Address Book • VAKAADHA</title>
-  <!-- <link rel="stylesheet" href="profile.css" /> -->
+  <title>Addresses • VAKAADHA</title>
+
   <link rel="stylesheet" href="./address.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
   <script src="./navbar.js"></script>
+
+  <style>
+    .profile-container {
+      max-width: 900px;
+      margin: 60px auto;
+      padding: 20px;
+      text-align: center;
+    }
+
+    #address-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .address-card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 14px;
+      background: #fafafa;
+      text-align: left;
+      transition: transform 0.2s ease;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .address-card:hover {
+      transform: scale(1.02);
+    }
+
+    .address-card.selected {
+      border: 2px solid #000;
+      background: #fff;
+    }
+
+    .address-info {
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+
+    .address-actions button {
+      margin-right: 6px;
+      margin-top: 6px;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .default-btn {
+      background: #444;
+      color: white;
+    }
+
+    .set-default-btn {
+      background: #e0e0e0;
+    }
+
+    .edit-btn {
+      background: #008CBA;
+      color: white;
+    }
+
+    .delete-btn {
+      background: #b00020;
+      color: white;
+    }
+
+    #addAddressBtn {
+      margin-top: 20px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #111;
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    #proceedToPayment {
+      margin-top: 30px;
+      padding: 12px 18px;
+      border: none;
+      border-radius: 8px;
+      background: #222;
+      color: #fff;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    /* Modal Styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .modal-content {
+      background: #fff;
+      padding: 25px 30px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 480px;
+      text-align: left;
+      transform: translateY(40px);
+      animation: slideIn 0.3s ease forwards;
+    }
+
+    @keyframes slideIn {
+      to { transform: translateY(0); }
+    }
+
+    .modal-content h3 {
+      margin-bottom: 15px;
+    }
+
+    .modal-content label {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+    }
+
+    .modal-content input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 4px;
+      margin-bottom: 12px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+
+    .modal-buttons button {
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #saveAddressBtn {
+      background: #111;
+      color: white;
+    }
+
+    #cancelModalBtn {
+      background: #ccc;
+    }
+  </style>
 </head>
+
 <body>
   <!-- HEADER -->
   <header class="navbar">
@@ -27,18 +197,15 @@
       <a href="./cart.html" aria-label="Cart">
         <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
       </a>
-      <!--<a href="./profile.html" aria-label="Profile"><i class="fas fa-user"></i></a> -->
       
       <div class="dropdown">
         <a href="./profile.html" aria-label="Profile">
-          
           <i class="fas fa-user"></i> <span id="user-display"></span>
         </a>
         <div class="dropdown-content">
           <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
           <hr class="dropdown-divider"/> 
 
-          <!-- Static Placeholders -->
           <a href="#">Orders</a>
           <a href="#">Wishlist</a>
           <a href="#">Gift Cards</a>
@@ -47,7 +214,6 @@
           <a href="#">Saved VPA</a>
           <a href="#">Saved Addresses</a>
 
-          <!-- Logged-in View -->
           <div id="logged-in-links" class="hidden">
             <hr class="dropdown-divider"/>
             <a href="profile.html">Settings</a>
@@ -58,55 +224,98 @@
           </div>
         </div>
       </div>
-
     </nav>
   </header>
 
   <main class="profile-container">
     <h2>Select or Add Address</h2>
-
-    <!-- Existing addresses list -->
     <div id="address-list"></div>
-
-    <!-- Add new address button -->
     <button id="addAddressBtn">+ Add New Address</button>
-
-    <!-- Address form (hidden initially) -->
-    <form id="addressForm" style="display:none; margin-top:20px;">
-      <h3>Add Address</h3>
-      <label>
-        Full Name:
-        <input type="text" id="addrName" required />
-      </label><br><br>
-      <label>
-        Street:
-        <br>
-        <input type="text" id="addrStreet" required />
-      </label><br><br>
-      <label>
-        City:
-        <br>
-        <input type="text" id="addrCity" required />
-      </label><br><br>
-      <label>
-        ZIP:
-        <br>
-        <input type="text" id="addrZip" required />
-      </label><br><br>
-      <button type="submit">Save Address</button>
-      <button type="button" id="cancelForm">Cancel</button>
-    </form>
-    
-    <button id="proceedToPayment">Proceed to Payment</button>
+    <button id="proceedToPayment" disabled>Proceed to Payment</button>
   </main>
 
+  <!-- Modal for Add/Edit Address -->
+  <div class="modal" id="addressModal">
+    <div class="modal-content">
+      <h3 id="modalTitle">Add Address</h3>
+      <label>Full Name: <input type="text" id="addrName" required></label>
+      <label>Phone: <input type="text" id="addrPhone" required></label>
+      <label>Street Line 1: <input type="text" id="addrLine1" required></label>
+      <label>Street Line 2: <input type="text" id="addrLine2"></label>
+      <label>City: <input type="text" id="addrCity" required></label>
+      <label>State: <input type="text" id="addrState" required></label>
+      <label>Pincode: <input type="text" id="addrZip" required></label>
+      <div class="modal-buttons">
+        <button id="saveAddressBtn">Save</button>
+        <button id="cancelModalBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-  <!-- <script type="module" src="api/client.js"></script> -->
-  <script type="module" src="./addresses.js"></script>
-  <script>
-    document.getElementById("proceedToPayment").addEventListener("click", () => {
-      window.location.href = "payment.html";
-    });
-  </script>
+  <!-- CONTACT + INFO SECTION -->
+  <div class="contact-policy">
+    <section class="info-section" data-aos="fade-up">
+      <div class="info-left">
+        <div class="about-buttons">
+          <button type="button" onclick="openModal('aboutModal')"><h2>About Us</h2></button>
+        </div>
+      </div>
+
+      <div class="info-right">
+        <h2>Follow Us On</h2>
+        <div class="social-icons">
+          <a href="https://x.com" target="_blank" rel="noopener"><i class="fa-brands fa-x-twitter"></i></a>
+          <a href="https://instagram.com" target="_blank" rel="noopener"><i class="fab fa-instagram"></i></a>
+          <a href="https://facebook.com" target="_blank" rel="noopener"><i class="fab fa-facebook"></i></a>
+          <a href="https://youtube.com" target="_blank" rel="noopener"><i class="fab fa-youtube"></i></a>
+          <a href="https://wa.me/7893153335" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i></a>
+          <a href="tel:+917893153335" target="_blank" rel="noopener" style="font-size: 1.5rem;"><i class="fa-solid fa-phone"></i></a>
+          <a href="mailto:contact.vakaadha@gmail.com"><i class="fa-solid fa-envelope"></i></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="policies-section" data-aos="fade-up">
+      <div class="policy-links">
+        <a href="privacy-policy.html">Privacy Policy</a>
+        <a href="refund-policy.html">Refund & Return Policy</a>
+        <a href="terms-of-service.html">Terms of Service</a>
+        <a href="shipping-policy.html">Shipping Policy</a>
+      </div>
+    </section>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" style="
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+  "></div>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>© 2025 VAKAADHA. All rights reserved.</p>
+  </footer>
+
+  <!-- Runtime dependencies -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
+  <!-- <script src="./auth.js"></script>
+  <script src="./api/client.js"></script>
+  <script src="./navbar.js"></script>
+  <script type="module" src="./addresses.js" ></script> -->
+  <script src="./auth.js" defer></script>
+  <script src="./api/client.js" defer></script>
+  <script src="./navbar.js" defer></script>
+  <script src="./addresses.js" defer></script>
 </body>
 </html>

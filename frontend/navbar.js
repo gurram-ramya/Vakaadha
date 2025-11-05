@@ -160,21 +160,7 @@
     lastFetch: 0,
   };
 
-  // // ------------------------------------------------------------
-  // // Core request
-  // // ------------------------------------------------------------
-  // async function safeApiRequest(endpoint, options = {}) {
-  //   try {
-  //     return await window.apiRequest(endpoint, options);
-  //   } catch (err) {
-  //     console.error("[navbar.js] API fail:", err);
-  //     if (err.status === 410) {
-  //       console.warn("[navbar.js] Guest session expired; resetting");
-  //       if (window.resetGuestId) window.resetGuestId();
-  //     }
-  //     throw err;
-  //   }
-  // }
+
 
   // ------------------------------------------------------------
   // Core request

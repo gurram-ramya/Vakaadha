@@ -165,30 +165,10 @@ def executemany(sql: str, seq_of_params: Iterable[Sequence[Any]]) -> int:
     return cur.rowcount
 
 
-# @contextmanager
-# def transaction():
-#     """
-#     Transaction context manager for atomic flows.
-#     Usage:
-#         with transaction() as con:
-#             con.execute(...)
-#             con.execute(...)
-#     Rolls back on error, commits otherwise.
-#     """
-#     con = get_db_connection()
-#     try:
-#         con.execute("BEGIN IMMEDIATE")
-#         yield con
-#         con.commit()
-#     except Exception:
-#         con.rollback()
-#         raise
-#     finally:
-#         con.close()
-
 @contextmanager
 def transaction():
-    con = get_db_connection()
+    db_path = current_app.config.get("DATABASE_PATH", "vakaadha.db")
+    con = _connect(db_path)
     try:
         con.execute("BEGIN IMMEDIATE")
         yield con
@@ -197,7 +177,7 @@ def transaction():
         con.rollback()
         raise
     finally:
-        pass  # do not close here; Flask teardown will close
+        con.close()
 
 
 # =============================================================

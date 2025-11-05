@@ -242,7 +242,7 @@
 
 
 // ============================================================
-// cart.js — Revised for Auth/Guest Consistency
+// cart.js — Auth-first; waits for initSession before API usage
 // ============================================================
 
 (function () {
@@ -256,7 +256,7 @@
   const toastEl = document.getElementById("toast");
 
   // ----------------------------
-  // Toast utility
+  // Toast
   // ----------------------------
   function toast(msg, bad = false, ms = 2200) {
     if (!toastEl) return;
@@ -268,10 +268,14 @@
   }
 
   // ----------------------------
-  // API helpers
+  // Helpers
   // ----------------------------
   function getGuestId() {
-    try { return localStorage.getItem("guest_id") || null; } catch { return null; }
+    try {
+      return localStorage.getItem("guest_id") || null;
+    } catch {
+      return null;
+    }
   }
 
   async function safeApi(endpoint, options = {}) {
@@ -284,10 +288,16 @@
   }
 
   const CartAPI = {
-    async get()      { return safeApi("/api/cart", { method: "GET" }); },
-    async patch(b)   { return safeApi("/api/cart", { method: "PATCH", body: JSON.stringify(b), headers: { "Content-Type": "application/json" } }); },
+    async get() { return safeApi("/api/cart", { method: "GET" }); },
+    async patch(b) {
+      return safeApi("/api/cart", {
+        method: "PATCH",
+        body: JSON.stringify(b),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
     async remove(id) { return safeApi(`/api/cart/${id}`, { method: "DELETE" }); },
-    async clear()    { return safeApi("/api/cart/clear", { method: "DELETE" }); },
+    async clear() { return safeApi("/api/cart/clear", { method: "DELETE" }); },
   };
 
   // ----------------------------
@@ -298,6 +308,7 @@
       showEmpty();
       return;
     }
+
     emptyEl.classList.add("hidden");
     summaryEl.classList.remove("hidden");
     checkoutBtn.disabled = false;
@@ -307,11 +318,13 @@
       const name = item.product_name || item.name || "Product";
       const price = (item.price_cents / 100).toFixed(2);
       const subtotal = ((item.price_cents * item.quantity) / 100).toFixed(2);
+
       let lockBadge = "";
       if (item.locked_price_until && new Date(item.locked_price_until) > new Date()) {
         const until = new Date(item.locked_price_until).toLocaleDateString();
         lockBadge = `<div class="lock-badge">Locked until ${until}</div>`;
       }
+
       return `
         <div class="cart-item" data-id="${item.cart_item_id}">
           <div class="cart-item-left"><img src="${img}" alt="${name}" /></div>
@@ -332,6 +345,7 @@
           </div>
         </div>`;
     }).join("");
+
     itemsContainer.innerHTML = html;
 
     const subtotal = cart.totals?.subtotal_cents ??
@@ -354,16 +368,25 @@
   }
 
   // ----------------------------
-  // Load + refresh
+  // Load
   // ----------------------------
   async function loadCart() {
     try {
       const cart = await CartAPI.get();
-      if (!cart || cart.error || cart.expired) { showEmpty(); toast("Cart unavailable", true); return; }
+      if (!cart || cart.error || cart.expired) {
+        showEmpty();
+        toast("Cart unavailable", true);
+        return;
+      }
       renderCart(cart);
     } catch (err) {
-      if (err.status === 410) { toast("Cart expired", true); showEmpty(); }
-      else { toast("Error loading cart", true); console.error(err); }
+      console.error("[cart.js] loadCart failed:", err);
+      if (err.status === 410) {
+        toast("Cart expired", true);
+        showEmpty();
+      } else {
+        toast("Error loading cart", true);
+      }
     }
   }
 
@@ -373,29 +396,38 @@
   }
 
   // ----------------------------
-  // Item ops
+  // Item operations
   // ----------------------------
   async function updateQuantity(id, quantity) {
     try {
       if (quantity <= 0) return removeItem(id);
       await CartAPI.patch({ cart_item_id: id, quantity });
       await refresh();
-    } catch (err) { handleError(err, "Failed to update quantity"); }
+    } catch (err) {
+      handleError(err, "Failed to update quantity");
+    }
   }
 
   async function removeItem(id) {
-    try { await CartAPI.remove(id); toast("Item removed"); await refresh(); }
-    catch (err) { handleError(err, "Failed to remove item"); }
+    try {
+      await CartAPI.remove(id);
+      toast("Item removed");
+      await refresh();
+    } catch (err) {
+      handleError(err, "Failed to remove item");
+    }
   }
 
   async function clearCart() {
-    try { await CartAPI.clear(); toast("Cart cleared"); await refresh(); }
-    catch (err) { handleError(err, "Failed to clear cart"); }
+    try {
+      await CartAPI.clear();
+      toast("Cart cleared");
+      await refresh();
+    } catch (err) {
+      handleError(err, "Failed to clear cart");
+    }
   }
 
-  // ----------------------------
-  // Error handler
-  // ----------------------------
   function handleError(err, fallback) {
     if (!err) return toast(fallback, true);
     switch (err.status) {
@@ -405,11 +437,80 @@
       default: toast(fallback, true);
     }
   }
+  // ----------------------------
+  // Login-required popup
+  // ----------------------------
+  function showLoginPopup() {
+    const overlay = document.createElement("div");
+    overlay.id = "login-overlay";
+    Object.assign(overlay.style, {
+      position: "fixed",
+      top: 0,
+      left: 0,
+      width: "100%",
+      height: "100%",
+      background: "rgba(0,0,0,0.55)",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: "9999",
+      animation: "fadeIn 0.3s ease"
+    });
 
+    const box = document.createElement("div");
+    Object.assign(box.style, {
+      background: "#fff",
+      padding: "2rem 2.5rem",
+      borderRadius: "12px",
+      width: "90%",
+      maxWidth: "380px",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+      textAlign: "center",
+      fontFamily: "system-ui, sans-serif",
+      position: "relative"
+    });
+
+    box.innerHTML = `
+      <h2 style="margin-bottom: 0.8rem; font-size: 1.4rem;">Sign in Required</h2>
+      <p style="color:#555; font-size:0.95rem; margin-bottom:1.6rem;">
+        You need to log in or create an account to proceed with checkout.
+      </p>
+      <div style="display:flex; gap:0.8rem; justify-content:center;">
+        <button id="go-login" style="
+          background:#111;
+          color:#fff;
+          border:none;
+          border-radius:6px;
+          padding:0.6rem 1.2rem;
+          font-weight:600;
+          cursor:pointer;
+          transition:background 0.2s;
+        ">Login / Sign Up</button>
+        <button id="cancel-login" style="
+          background:#e4e4e4;
+          color:#333;
+          border:none;
+          border-radius:6px;
+          padding:0.6rem 1.2rem;
+          cursor:pointer;
+          font-weight:500;
+        ">Cancel</button>
+      </div>
+    `;
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    document.getElementById("go-login").onclick = () => {
+      overlay.remove();
+      window.location.href = "profile.html";
+    };
+    document.getElementById("cancel-login").onclick = () => overlay.remove();
+  }
   // ----------------------------
   // Event wiring
   // ----------------------------
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const minus = e.target.closest(".qty-btn.minus");
     const plus = e.target.closest(".qty-btn.plus");
     const remove = e.target.closest(".remove-btn");
@@ -425,27 +526,32 @@
       input.value = qty;
       updateQuantity(Number(item.dataset.id), qty);
     }
+
     if (remove) removeItem(Number(e.target.closest(".cart-item").dataset.id));
     if (clear) clearCart();
-    // if (checkout) window.location.href = "checkout.html";
+
     if (checkout) {
       const cart = await CartAPI.get();
       if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
         toast("Your cart is empty", true);
         return;
       }
-      // Persist cart items for next page
       sessionStorage.setItem("checkout_items", JSON.stringify(cart.items));
       window.location.href = "addresses.html";
     }
-
   });
 
   // ----------------------------
   // Init
   // ----------------------------
   document.addEventListener("DOMContentLoaded", async () => {
-    await window.auth.initSession(); // ensure session context ready
-    await loadCart();
+    try {
+      if (window.auth?.initSession) await window.auth.initSession();
+      await new Promise(r => setTimeout(r, 120));
+      await loadCart();
+    } catch (err) {
+      console.error("[cart.js] init failed:", err);
+      showEmpty();
+    }
   });
 })();

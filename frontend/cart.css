@@ -1,3 +1,7 @@
+.hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -818,4 +822,8 @@ body {
   .cart-item-left img {
     max-height: 100px;
   }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

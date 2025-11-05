@@ -84,3 +84,4 @@ def set_default_address(conn: sqlite3.Connection, user_id: int, address_id: int)
         (user_id, address_id),
     )
     conn.commit()
+

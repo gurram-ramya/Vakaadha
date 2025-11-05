@@ -76,13 +76,14 @@
   function renderWishlist(items = []) {
     if (!wishlistContainer) return;
 
-    if (!items.length) {
-      wishlistContainer.innerHTML = `
-        <p class="empty">
-          Your wishlist is empty. <a href="index.html">Shop now</a>
-        </p>`;
+    // Toggle empty state visibility
+    if (!Array.isArray(items) || items.length === 0) {
+      wishlistContainer.innerHTML = "";
+      if (emptyState) emptyState.classList.remove("hidden");
       return;
     }
+
+    if (emptyState) emptyState.classList.add("hidden");
 
     wishlistContainer.innerHTML = items
       .map((item) => {
@@ -119,6 +120,7 @@
       })
       .join("");
   }
+
 
   // ----------------------------
   // Remove Wishlist Item

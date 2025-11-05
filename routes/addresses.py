@@ -6,18 +6,19 @@
 # from domain.addresses import service as address_service
 
 # routes/addresses.py
-
+# routes/addresses.py
 from flask import Blueprint, jsonify, request, g
 from domain.addresses import service
+from utils.auth import require_auth
 
 addresses_bp = Blueprint("addresses", __name__, url_prefix="/api/addresses")
-
 
 # -----------------------------
 # Address Routes — REST Endpoints
 # -----------------------------
 
 @addresses_bp.get("")
+@require_auth()
 def list_addresses():
     user_id = g.user["user_id"]
     items = service.list_addresses(g.db, user_id)
@@ -25,6 +26,7 @@ def list_addresses():
 
 
 @addresses_bp.get("/<int:address_id>")
+@require_auth()
 def get_address(address_id):
     user_id = g.user["user_id"]
     try:
@@ -35,17 +37,34 @@ def get_address(address_id):
 
 
 @addresses_bp.post("")
+@require_auth()
 def create_address():
-    user_id = g.user["user_id"]
-    payload = request.get_json(force=True)
     try:
+        user = getattr(g, "user", None)
+        if not user or "user_id" not in user:
+            return jsonify({"error": "unauthorized"}), 401
+
+        user_id = user["user_id"]
+        payload = request.get_json(force=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Invalid JSON payload"}), 400
+
+        required = ["name", "phone", "line1", "city", "state", "pincode"]
+        missing = [f for f in required if not payload.get(f)]
+        if missing:
+            return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
         new_addr = service.create_address(g.db, user_id, payload)
         return jsonify(new_addr), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": "internal_error", "detail": str(e)}), 500
 
 
 @addresses_bp.put("/<int:address_id>")
+@require_auth()
 def update_address(address_id):
     user_id = g.user["user_id"]
     payload = request.get_json(force=True)
@@ -57,6 +76,7 @@ def update_address(address_id):
 
 
 @addresses_bp.delete("/<int:address_id>")
+@require_auth()
 def delete_address(address_id):
     user_id = g.user["user_id"]
     try:
@@ -67,6 +87,7 @@ def delete_address(address_id):
 
 
 @addresses_bp.post("/<int:address_id>/default")
+@require_auth()
 def set_default(address_id):
     user_id = g.user["user_id"]
     try:
@@ -74,3 +95,8 @@ def set_default(address_id):
         return jsonify(addr), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
+
+
+
+
+

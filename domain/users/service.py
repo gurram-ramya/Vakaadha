@@ -222,6 +222,7 @@
 import logging
 from domain.users import repository
 from domain.cart import service as cart_service
+from domain.wishlist import service as wishlist_service
 from domain.cart import repository as cart_repo
 from domain.wishlist import repository as wishlist_repo
 from db import transaction
@@ -231,58 +232,65 @@ from db import get_db_connection
 # USER SERVICE (Business Logic Layer)
 # ===========================================================
 
-def upsert_user_from_firebase(firebase_uid, email, name):
+# domain/users/service.py
+def upsert_user_from_firebase(firebase_uid, email, name, conn=None):
     """
     Ensure a user exists for the given Firebase UID.
-    Updates last_login and returns the record.
+    Uses provided connection if available to stay within transaction.
+    Safely handles duplicates via UPSERT on email.
     """
+    c = conn or get_db_connection()
+    internal = conn is None
+
     try:
+        # Check existing by Firebase UID first
         user = repository.get_user_by_uid(firebase_uid)
         if user:
-            repository.update_user_last_login(user["user_id"])
+            if conn:
+                c.execute("UPDATE users SET last_login = datetime('now') WHERE user_id = ?", (user["user_id"],))
+            else:
+                repository.update_user_last_login(user["user_id"])
             return user
 
-        if email:
-            existing = repository.get_user_by_email(email)
-            if existing:
-                # Link existing user if email already exists
-                repository.link_firebase_uid(existing["user_id"], firebase_uid)
-                repository.update_user_last_login(existing["user_id"])
-                return existing
+        # Perform UPSERT by email
+        cur = c.execute(
+            """
+            INSERT INTO users (firebase_uid, email, name, created_at, updated_at)
+            VALUES (?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(email) DO UPDATE
+                SET firebase_uid = excluded.firebase_uid,
+                    name = excluded.name,
+                    updated_at = datetime('now');
+            """,
+            (firebase_uid, email, name),
+        )
 
-        new_user = repository.insert_user(firebase_uid, email, name)
-        if not new_user:
-            logging.error(f"User insert failed for {email}")
-            return None
+        # Resolve user_id
+        row = c.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not row:
+            raise RuntimeError("User insert or update failed unexpectedly")
 
-        repository.update_user_last_login(new_user["user_id"])
-        logging.info(f"Created new user {email}")
-        return new_user
+        user_id = row["user_id"]
 
-    # except Exception as e:
-    #     if "UNIQUE constraint failed" in str(e):
-    #         logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
-    #         existing = repository.get_user_by_email(email)
-    #         if existing:
-    #             repository.update_user_last_login(existing["user_id"])
-    #             return existing
-    #     logging.exception(f"upsert_user_from_firebase failed for {email}")
-    #     return None
+        # Update last_login atomically
+        c.execute("UPDATE users SET last_login = datetime('now') WHERE user_id = ?", (user_id,))
+
+        if internal:
+            c.commit()
+
+        return dict(row)
+
     except Exception as e:
-        if "UNIQUE constraint failed" in str(e):
-            logging.warning(f"Duplicate user insert attempt for {email}, fetching existing record.")
-            # from db import get_db_connection
-            conn = get_db_connection()
-            try:
-                existing = repository.get_user_by_email(email)
-                if existing:
-                    repository.update_user_last_login(existing["user_id"])
-                    conn.close()
-                    return existing
-            finally:
-                conn.close()
-        logging.exception(f"upsert_user_from_firebase failed for {email}")
+        logging.exception(f"upsert_user_from_firebase failed for {email}: {e}")
+        if internal:
+            c.rollback()
         return None
+
+    finally:
+        if internal:
+            c.close()
+
+
 
 
 
@@ -409,17 +417,17 @@ def update_profile(conn, firebase_uid, updates):
 def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id, update_last_login=True):
     """
     Guarantees user record, profile, and merges guest data atomically.
-    Works correctly whether called with open conn or within Flask request context.
+    Simplified: removes audit merge, conflict reconciliation, and legacy merge tracking.
+    Runs both cart and wishlist merges in the same transaction context.
     """
-    # from db import transaction
 
-    # if caller passed closed or None conn, reacquire safely
     if conn is None:
         conn = get_db_connection()
 
     try:
         with transaction() as tx:
-            user = upsert_user_from_firebase(firebase_uid, email, name)
+            # Step 1: ensure user exists
+            user = upsert_user_from_firebase(firebase_uid, email, name, conn=tx)
             if not user:
                 logging.error("User creation failed; aborting merge.")
                 return None, {"cart": {"status": "error"}, "wishlist": {"status": "error"}}
@@ -429,23 +437,26 @@ def ensure_user_with_merge(conn, firebase_uid, email, name, avatar_url, guest_id
 
             merge_result = {"cart": {"status": "none"}, "wishlist": {"status": "none"}}
 
-            # Only merge if a valid guest_id exists
+            # Step 2: run simplified guest→user merges
             if guest_id:
+
                 try:
-                    merge_result["cart"] = merge_guest_cart_if_any(tx, user_id, guest_id)
+                    merge_result["cart"] = cart_service.merge_guest_cart_into_user(tx, user_id, guest_id)
                 except Exception as e:
                     logging.warning(f"Cart merge failed: {e}")
                     merge_result["cart"] = {"status": "error"}
 
                 try:
-                    merge_result["wishlist"] = merge_guest_wishlist_if_any(tx, user_id, guest_id)
+                    merge_result["wishlist"] = wishlist_service.merge_guest_wishlist_into_user(tx, user_id, guest_id)
                 except Exception as e:
                     logging.warning(f"Wishlist merge failed: {e}")
                     merge_result["wishlist"] = {"status": "error"}
 
+            # Step 3: update login timestamp
             if update_last_login:
                 repository.update_user_last_login(user_id)
 
+        # Step 4: return consolidated result
         return user, merge_result
 
     except Exception as e:

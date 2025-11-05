@@ -3,7 +3,7 @@ import logging
 import re
 from datetime import datetime
 from uuid import uuid4
-from db import get_db_connection
+from db import get_db_connection, transaction
 from domain.cart import repository as repo
 
 # =============================================================
@@ -145,59 +145,52 @@ def clear_cart(cart_id: int):
 # =============================================================
 # MERGE LOGIC (REVISED)
 # =============================================================
-def merge_guest_into_user(user_id: int, guest_id: str):
+def merge_guest_cart_into_user(conn, user_id, guest_id):
     """
-    Merge guest cart items into an existing user cart atomically.
-    No user cart is created here — creation handled in user.py.
+    Simple guest→user cart transfer. No conflict resolution.
+    Runs inside an existing transaction.
     """
-    conn = get_db_connection()
-    with conn:
-        guest_cart = repo.get_cart_by_guest_id(conn, guest_id)
-        if not guest_cart:
-            return {"status": "skipped", "reason": "no guest cart"}
+    guest_cart = repo.get_cart_by_guest(conn, guest_id)
+    if not guest_cart:
+        return {"transferred": 0, "status": "none"}
 
-        user_cart = repo.get_cart_by_user_id(conn, user_id)
-        if not user_cart:
-            # no creation here; handled externally
-            logging.info(f"No active user cart found for user_id={user_id}. Merge deferred.")
-            return {"status": "deferred", "reason": "no user cart"}
+    user_cart = repo.get_cart_by_user(conn, user_id)
+    transferred = 0
 
-        guest_cart_id = guest_cart["cart_id"]
-        user_cart_id = user_cart["cart_id"]
-
-        merge_result = repo.merge_cart_items_atomic(conn, guest_cart_id, user_cart_id, user_id)
-        # repo.mark_cart_merged(conn, guest_cart_id)
-        repo.insert_cart_merge_audit(
-            conn,
-            user_cart_id,
-            guest_cart_id,
-            user_id,
-            guest_id,
-            merge_result.get("added", 0),
-            merge_result.get("updated", 0),
+    # If no existing user cart, reassign guest cart directly
+    if not user_cart:
+        conn.execute(
+            "UPDATE carts SET user_id = ?, guest_id = NULL, updated_at = datetime('now') WHERE cart_id = ?;",
+            (user_id, guest_cart["cart_id"]),
         )
-
-        _record_audit(
-            conn,
-            user_cart_id,
-            user_id,
-            guest_id,
-            "merge",
-            f"Guest cart {guest_cart_id} merged → user {user_cart_id}",
+        conn.execute(
+            "UPDATE cart_items SET user_id = ? WHERE cart_id = ?;",
+            (user_id, guest_cart["cart_id"]),
         )
+        repo.log_addition_event(conn, user_id, None, "cart", f"Cart reassigned from guest {guest_id}")
+        return {"transferred": 0, "status": "attached"}
 
-        logging.info(
-            f"Cart merge complete for user_id={user_id}: "
-            f"guest_cart={guest_cart_id}, user_cart={user_cart_id}, "
-            f"added={merge_result.get('added')}, updated={merge_result.get('updated')}"
-        )
+    # If both exist, move unique items from guest cart to user cart
+    guest_items = repo.get_cart_items_by_cart(conn, guest_cart["cart_id"])
+    for item in guest_items:
+        existing = repo.get_cart_item(conn, user_cart["cart_id"], item["product_id"])
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO cart_items (cart_id, user_id, product_id, quantity, created_at, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                (user_cart["cart_id"], user_id, item["product_id"], item["quantity"]),
+            )
+            transferred += 1
 
-        return {
-            "status": "merged",
-            "guest_cart_id": guest_cart_id,
-            "user_cart_id": user_cart_id,
-            **merge_result,
-        }
+    # Remove guest cart and its items
+    conn.execute("DELETE FROM cart_items WHERE cart_id = ?;", (guest_cart["cart_id"],))
+    conn.execute("DELETE FROM carts WHERE cart_id = ?;", (guest_cart["cart_id"],))
+
+    repo.log_addition_event(conn, user_id, None, "cart", f"{transferred} items transferred from guest {guest_id}")
+    return {"transferred": transferred, "status": "attached"}
+
 
 
 # =============================================================

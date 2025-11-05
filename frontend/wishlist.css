@@ -1,3 +1,7 @@
+.hidden {
+  display: none !important;
+}
+
 /* Base Styles */
 body {
   margin: 0;

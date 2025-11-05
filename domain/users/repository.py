@@ -151,10 +151,6 @@ def delete_guest_cart(guest_id):
     execute("DELETE FROM carts WHERE guest_id = ?", (guest_id,))
 
 
-# def is_cart_already_merged(cart_id):
-#     """Return True if a cart has been marked merged to prevent duplicate merges."""
-#     row = query_one("SELECT merged_at FROM carts WHERE cart_id = ?", (cart_id,))
-#     return bool(row and row.get("merged_at"))
 def is_cart_already_merged(cart_id):
     con = get_db_connection()
     con.row_factory = sqlite3.Row

@@ -375,43 +375,87 @@ def move_to_cart(product_id, variant_id, user_id=None, guest_id=None):
 # ============================================================
 # MERGE GUEST → USER WISHLIST (REVISED)
 # ============================================================
-def merge_guest_wishlist_into_user(user_id: int, guest_id: str):
+# def merge_guest_wishlist_into_user(user_id: int, guest_id: str):
+#     """
+#     Merge guest wishlist into user wishlist safely.
+#     No wishlist is created automatically — creation handled in user.py.
+#     """
+#     conn = get_db_connection()
+#     with conn:
+#         guest_wishlist = repo.get_wishlist_by_guest_id(conn, guest_id)
+#         if not guest_wishlist:
+#             return {"status": "skipped", "reason": "no active guest wishlist"}
+
+#         user_wishlist = repo.get_wishlist_by_user_id(conn, user_id)
+#         if not user_wishlist:
+#             return {"status": "deferred", "reason": "no active user wishlist"}
+
+#         guest_wishlist_id = guest_wishlist["wishlist_id"]
+#         user_wishlist_id = user_wishlist["wishlist_id"]
+
+#         merge_result = repo.merge_wishlist_items_atomic(conn, guest_wishlist_id, user_wishlist_id, user_id)
+#         repo.mark_wishlist_merged(conn, guest_id)
+#         repo.insert_wishlist_merge_audit(
+#             conn,
+#             user_wishlist_id,
+#             guest_wishlist_id,
+#             user_id,
+#             guest_id,
+#             merge_result["added"],
+#             merge_result["skipped"],
+#         )
+
+#         conn.commit()
+#         return {
+#             "status": "merged",
+#             "guest_wishlist_id": guest_wishlist_id,
+#             "user_wishlist_id": user_wishlist_id,
+#             **merge_result,
+#         }
+def merge_guest_wishlist_into_user(conn, user_id, guest_id):
     """
-    Merge guest wishlist into user wishlist safely.
-    No wishlist is created automatically — creation handled in user.py.
+    Simple guest→user wishlist transfer. No conflict or merge audit.
     """
-    conn = get_db_connection()
-    with conn:
-        guest_wishlist = repo.get_wishlist_by_guest_id(conn, guest_id)
-        if not guest_wishlist:
-            return {"status": "skipped", "reason": "no active guest wishlist"}
+    guest_wishlist = repo.get_wishlist_by_guest(conn, guest_id)
+    if not guest_wishlist:
+        return {"transferred": 0, "status": "none"}
 
-        user_wishlist = repo.get_wishlist_by_user_id(conn, user_id)
-        if not user_wishlist:
-            return {"status": "deferred", "reason": "no active user wishlist"}
+    user_wishlist = repo.get_wishlist_by_user(conn, user_id)
+    transferred = 0
 
-        guest_wishlist_id = guest_wishlist["wishlist_id"]
-        user_wishlist_id = user_wishlist["wishlist_id"]
-
-        merge_result = repo.merge_wishlist_items_atomic(conn, guest_wishlist_id, user_wishlist_id, user_id)
-        repo.mark_wishlist_merged(conn, guest_id)
-        repo.insert_wishlist_merge_audit(
-            conn,
-            user_wishlist_id,
-            guest_wishlist_id,
-            user_id,
-            guest_id,
-            merge_result["added"],
-            merge_result["skipped"],
+    if not user_wishlist:
+        conn.execute(
+            "UPDATE wishlists SET user_id = ?, guest_id = NULL, updated_at = datetime('now') WHERE wishlist_id = ?;",
+            (user_id, guest_wishlist["wishlist_id"]),
         )
+        conn.execute(
+            "UPDATE wishlist_items SET user_id = ? WHERE wishlist_id = ?;",
+            (user_id, guest_wishlist["wishlist_id"]),
+        )
+        repo.log_addition_event(conn, user_id, None, "wishlist", f"Wishlist reassigned from guest {guest_id}")
+        return {"transferred": 0, "status": "attached"}
 
-        conn.commit()
-        return {
-            "status": "merged",
-            "guest_wishlist_id": guest_wishlist_id,
-            "user_wishlist_id": user_wishlist_id,
-            **merge_result,
-        }
+    # Move non-duplicate products
+    guest_items = repo.get_wishlist_items(conn, guest_wishlist["wishlist_id"])
+    for item in guest_items:
+        exists = repo.wishlist_item_exists(conn, user_wishlist["wishlist_id"], item["product_id"])
+        if not exists:
+            conn.execute(
+                """
+                INSERT INTO wishlist_items (wishlist_id, user_id, product_id, created_at, updated_at)
+                VALUES (?, ?, ?, datetime('now'), datetime('now'))
+                """,
+                (user_wishlist["wishlist_id"], user_id, item["product_id"]),
+            )
+            transferred += 1
+
+    # Remove guest wishlist and its items
+    conn.execute("DELETE FROM wishlist_items WHERE wishlist_id = ?;", (guest_wishlist["wishlist_id"],))
+    conn.execute("DELETE FROM wishlists WHERE wishlist_id = ?;", (guest_wishlist["wishlist_id"],))
+
+    repo.log_addition_event(conn, user_id, None, "wishlist", f"{transferred} products transferred from guest {guest_id}")
+    return {"transferred": transferred, "status": "attached"}
+
 
 
 # ============================================================
