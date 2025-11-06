@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Promotions & Discounts | Admin Panel</title>
+  <link rel="stylesheet" href="admin-promotions.css" />
+</head>
+<body>
+  <div class="admin-container">
+    <header>
+      <h1>Promotions & Discounts</h1>
+      <button class="btn" onclick="showPromoForm()">+ Create New Coupon</button>
+    </header>
+
+    <!-- Add New Promotion Form -->
+    <div id="promoForm" class="promo-form hidden">
+      <h2>Create Coupon</h2>
+      <form id="couponForm">
+        <label>Coupon Code</label>
+        <input type="text" id="code" placeholder="e.g. SAVE20" required>
+
+        <label>Discount Type</label>
+        <select id="type" required>
+          <option value="flat">Flat Discount</option>
+          <option value="percentage">Percentage Discount</option>
+        </select>
+
+        <label>Discount Value</label>
+        <input type="number" id="value" placeholder="e.g. 20" required>
+
+        <label>Start Date</label>
+        <input type="date" id="startDate" required>
+
+        <label>End Date</label>
+        <input type="date" id="endDate" required>
+
+        <label>Usage Limit</label>
+        <input type="number" id="usageLimit" placeholder="e.g. 100">
+
+        <label>Apply To</label>
+        <select id="applyTo" required>
+          <option value="all">All Products</option>
+          <option value="category">Specific Category</option>
+          <option value="product">Specific Product</option>
+        </select>
+
+        <div id="extraFieldContainer"></div>
+
+        <button type="submit" class="btn">Save Coupon</button>
+        <button type="button" class="btn cancel" onclick="hidePromoForm()">Cancel</button>
+      </form>
+    </div>
+
+    <!-- Coupons Table -->
+    <section class="promo-list">
+      <h2>Active Coupons</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Type</th>
+            <th>Value</th>
+            <th>Validity</th>
+            <th>Usage Limit</th>
+            <th>Apply To</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="promoTableBody">
+          <!-- Coupons will appear here -->
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    const promoForm = document.getElementById('promoForm');
+    const extraFieldContainer = document.getElementById('extraFieldContainer');
+    const promoTableBody = document.getElementById('promoTableBody');
+
+    document.getElementById('applyTo').addEventListener('change', (e) => {
+      const value = e.target.value;
+      extraFieldContainer.innerHTML = '';
+      if (value === 'category') {
+        extraFieldContainer.innerHTML = '<label>Category</label><input type="text" id="categoryName" placeholder="e.g. T-Shirts">';
+      } else if (value === 'product') {
+        extraFieldContainer.innerHTML = '<label>Product ID</label><input type="text" id="productId" placeholder="e.g. #123">';
+      }
+    });
+
+    document.getElementById('couponForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const code = document.getElementById('code').value;
+      const type = document.getElementById('type').value;
+      const value = document.getElementById('value').value;
+      const start = document.getElementById('startDate').value;
+      const end = document.getElementById('endDate').value;
+      const limit = document.getElementById('usageLimit').value || 'Unlimited';
+      const applyTo = document.getElementById('applyTo').value;
+
+      const newRow = `
+        <tr>
+          <td>${code}</td>
+          <td>${type}</td>
+          <td>${value}</td>
+          <td>${start} → ${end}</td>
+          <td>${limit}</td>
+          <td>${applyTo}</td>
+          <td><button class="btn danger" onclick="deleteRow(this)">Delete</button></td>
+        </tr>
+      `;
+      promoTableBody.insertAdjacentHTML('beforeend', newRow);
+      hidePromoForm();
+      e.target.reset();
+    });
+
+    function deleteRow(btn) {
+      btn.closest('tr').remove();
+    }
+    function showPromoForm() {
+      promoForm.classList.remove('hidden');
+    }
+    function hidePromoForm() {
+      promoForm.classList.add('hidden');
+    }
+  </script>
+  <script src="admin.js"></script>
+</body>
+</html>

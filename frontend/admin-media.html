@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Media Management</title>
+  <link rel="stylesheet" href="admin-media.css" />
+</head>
+<body>
+  <div class="media-dashboard">
+    <header>
+      <h1>🖼️ Product Media Management</h1>
+      <p>Manage, replace, or remove uploaded assets</p>
+    </header>
+
+    <!-- Upload Section -->
+    <section class="upload-section">
+      <h2>Upload New Media</h2>
+      <input type="file" id="mediaUpload" accept="image/*" multiple />
+      <button id="uploadBtn">Upload</button>
+      <p class="note">Allowed: JPG, PNG, WEBP | Max 2MB each | Recommended: 800x800px</p>
+    </section>
+
+    <!-- Media Gallery -->
+    <section class="gallery-section">
+      <h2>Uploaded Images</h2>
+      <div class="gallery" id="gallery">
+        <p class="empty-text">No media uploaded yet.</p>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const uploadBtn = document.getElementById("uploadBtn");
+    const mediaUpload = document.getElementById("mediaUpload");
+    const gallery = document.getElementById("gallery");
+
+    let images = JSON.parse(localStorage.getItem("vakaadha_media")) || [];
+
+    function renderGallery() {
+      if (images.length === 0) {
+        gallery.innerHTML = `<p class="empty-text">No media uploaded yet.</p>`;
+        return;
+      }
+
+      gallery.innerHTML = images
+        .map(
+          (img, i) => `
+        <div class="media-card">
+          <img src="${img.url}" alt="Product Image" />
+          <div class="media-controls">
+            <input type="file" id="replace-${i}" accept="image/*" hidden onchange="replaceImage(${i}, this)" />
+            <button onclick="document.getElementById('replace-${i}').click()">Replace</button>
+            <button class="delete" onclick="deleteImage(${i})">Delete</button>
+          </div>
+          <span class="filename">${img.name}</span>
+        </div>`
+        )
+        .join("");
+    }
+
+    uploadBtn.addEventListener("click", () => {
+      const files = Array.from(mediaUpload.files);
+      if (files.length === 0) {
+        alert("Please select at least one image.");
+        return;
+      }
+
+      files.forEach((file) => {
+        if (!file.type.startsWith("image/")) {
+          alert(`${file.name} is not a valid image file.`);
+          return;
+        }
+        if (file.size > 2 * 1024 * 1024) {
+          alert(`${file.name} exceeds 2MB size limit.`);
+          return;
+        }
+
+        const img = new Image();
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+          img.onload = () => {
+            if (img.width < 400 || img.height < 400) {
+              alert(`${file.name} resolution too small. Minimum 400x400 required.`);
+              return;
+            }
+
+            images.push({
+              name: file.name,
+              url: e.target.result,
+              size: file.size,
+              width: img.width,
+              height: img.height,
+              uploadedAt: new Date().toISOString(),
+            });
+            localStorage.setItem("vakaadha_media", JSON.stringify(images));
+            renderGallery();
+          };
+          img.src = e.target.result;
+        };
+
+        reader.readAsDataURL(file);
+      });
+
+      mediaUpload.value = "";
+    });
+
+    window.replaceImage = (index, input) => {
+      const file = input.files[0];
+      if (!file) return;
+
+      if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+        alert("Invalid file. Ensure it's an image under 2MB.");
+        return;
+      }
+
+      const reader = new FileReader();
+      const img = new Image();
+
+      reader.onload = (e) => {
+        img.onload = () => {
+          if (img.width < 400 || img.height < 400) {
+            alert("Resolution too low. Minimum 400x400px required.");
+            return;
+          }
+
+          images[index] = {
+            name: file.name,
+            url: e.target.result,
+            size: file.size,
+            width: img.width,
+            height: img.height,
+            uploadedAt: new Date().toISOString(),
+          };
+          localStorage.setItem("vakaadha_media", JSON.stringify(images));
+          renderGallery();
+        };
+        img.src = e.target.result;
+      };
+
+      reader.readAsDataURL(file);
+    };
+
+    window.deleteImage = (index) => {
+      if (confirm("Delete this image?")) {
+        images.splice(index, 1);
+        localStorage.setItem("vakaadha_media", JSON.stringify(images));
+        renderGallery();
+      }
+    };
+
+    renderGallery();
+  </script>
+  <script src="admin.js"></script>
+</body>
+</html>
+

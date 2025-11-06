@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Analytics Dashboard</title>
+  <link rel="stylesheet" href="admin-analytics.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div class="analytics-dashboard">
+    <header>
+      <h1>📈 Analytics Summary</h1>
+      <p>Real-time business insights for your store</p>
+    </header>
+
+    <!-- Stats Summary -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>Total Sales (Selected Range)</h3>
+        <p id="rangeSales">₹0</p>
+      </div>
+      <div class="stat-card">
+        <h3>Active Users</h3>
+        <p id="activeUsers">0</p>
+      </div>
+      <div class="stat-card">
+        <h3>Low Stock Products</h3>
+        <p id="lowStock">0</p>
+      </div>
+    </div>
+
+    <!-- Filter and Chart -->
+    <section class="chart-section">
+      <div class="chart-header">
+        <h2>🕒 Sales Trend</h2>
+
+        <div class="custom-select" id="timeSelect">
+          <div class="select-trigger">Last 7 Days</div>
+          <div class="options">
+            <div class="option selected" data-value="week">Last 7 Days</div>
+            <div class="option" data-value="month">This Month</div>
+            <div class="option" data-value="year">This Year</div>
+          </div>
+        </div>
+      </div>
+      <canvas id="salesChart"></canvas>
+    </section>
+
+    <!-- Top Products -->
+    <section class="chart-section">
+      <h2>🔥 Top-Selling Products</h2>
+      <canvas id="topProductsChart"></canvas>
+    </section>
+
+    <!-- Low Stock Alert -->
+    <section class="low-stock-section">
+      <h2>⚠️ Low Stock Alerts</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Available Stock</th>
+          </tr>
+        </thead>
+        <tbody id="lowStockList"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <script>
+    // --- Simulated Data ---
+    const salesDataSets = {
+      week: [1200, 1500, 1100, 1900, 2300, 2100, 2500],
+      month: Array.from({ length: 30 }, () => Math.floor(Math.random() * 3000) + 1000),
+      year: Array.from({ length: 12 }, () => Math.floor(Math.random() * 60000) + 20000),
+    };
+
+    const labels = {
+      week: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      month: Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`),
+      year: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    };
+
+    const topProducts = [
+      { name: "3D Vakaadha Tee", sales: 320 },
+      { name: "Classic Black Tee", sales: 280 },
+      { name: "White Edition Tee", sales: 190 },
+      { name: "Blue Street Tee", sales: 160 },
+      { name: "Neon Glow Tee", sales: 140 },
+    ];
+
+    const lowStockItems = [
+      { name: "Black Edition Tee", stock: 4 },
+      { name: "Red Glow Tee", stock: 6 },
+      { name: "Urban Fit Tee", stock: 3 },
+    ];
+
+    // --- Initialize Stats ---
+    document.getElementById("activeUsers").textContent = "128";
+    document.getElementById("lowStock").textContent = lowStockItems.length;
+
+    // Populate Low Stock Table
+    const lowStockList = document.getElementById("lowStockList");
+    lowStockItems.forEach(item => {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${item.name}</td><td>${item.stock}</td>`;
+      lowStockList.appendChild(row);
+    });
+
+    // --- Charts Setup ---
+    const salesCtx = document.getElementById("salesChart").getContext("2d");
+    const salesChart = new Chart(salesCtx, {
+      type: "line",
+      data: {
+        labels: labels.week,
+        datasets: [{
+          label: "Sales (₹)",
+          data: salesDataSets.week,
+          borderColor: "#3498db",
+          backgroundColor: "rgba(52,152,219,0.2)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true } },
+        animation: { duration: 800, easing: "easeInOutQuad" },
+      },
+    });
+
+    // Top Products Chart
+    const topCtx = document.getElementById("topProductsChart").getContext("2d");
+    new Chart(topCtx, {
+      type: "bar",
+      data: {
+        labels: topProducts.map(p => p.name),
+        datasets: [{
+          label: "Units Sold",
+          data: topProducts.map(p => p.sales),
+          backgroundColor: ["#3498db", "#1abc9c", "#9b59b6", "#f39c12", "#e74c3c"],
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } },
+      },
+    });
+
+    // --- Update Chart Function ---
+    function updateSalesChart(range) {
+      const data = salesDataSets[range];
+      salesChart.data.labels = labels[range];
+      salesChart.data.datasets[0].data = data;
+      salesChart.update();
+      document.getElementById("rangeSales").textContent =
+        `₹${data.reduce((a, b) => a + b, 0).toLocaleString()}`;
+    }
+
+    // --- Custom Dropdown Logic ---
+    const select = document.getElementById("timeSelect");
+    const trigger = select.querySelector(".select-trigger");
+    const options = select.querySelectorAll(".option");
+
+    trigger.addEventListener("click", () => {
+      select.classList.toggle("active");
+    });
+
+    options.forEach(option => {
+      option.addEventListener("click", () => {
+        trigger.textContent = option.textContent;
+        options.forEach(opt => opt.classList.remove("selected"));
+        option.classList.add("selected");
+        select.classList.remove("active");
+
+        const value = option.getAttribute("data-value");
+        updateSalesChart(value);
+      });
+    });
+
+    window.addEventListener("click", e => {
+      if (!select.contains(e.target)) select.classList.remove("active");
+    });
+
+    // --- Initial Render ---
+    updateSalesChart("week");
+  </script>
+  <script src="admin.js"></script>
+</body>
+</html>

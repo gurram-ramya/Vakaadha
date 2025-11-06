@@ -225,6 +225,7 @@ def create_app():
     from routes.addresses import addresses_bp
     from routes.wishlist import bp as wishlist_bp
     # from routes.payments_service import payments_bp
+    from routes.admin import admin_bp
 
     app.register_blueprint(users_bp)
     app.register_blueprint(cart_bp)
@@ -233,8 +234,9 @@ def create_app():
     app.register_blueprint(addresses_bp)
     app.register_blueprint(wishlist_bp)
     # app.register_blueprint(payments_bp)
+    app.register_blueprint(admin_bp)
 
-    logging.info("Blueprints registered: users, cart, catalog, orders, addresses, wishlist, payments")
+    logging.info("Blueprints registered: users, cart, catalog, orders, addresses, wishlist, payments, admin")
 
     # ---------------------------------------------------------
     # Apply rate limits to sensitive routes AFTER registration

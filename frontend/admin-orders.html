@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Management | Admin</title>
+  <link rel="stylesheet" href="admin-orders.css">
+</head>
+<body>
+
+  <header class="orders-header">
+    <h1>Order Management</h1>
+    <div class="order-filters">
+      <select id="orderStatusFilter">
+        <option value="all">All Orders</option>
+        <option value="active">Active</option>
+        <option value="fulfilled">Fulfilled</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="orders-container">
+    <table class="orders-table">
+      <thead>
+        <tr>
+          <th>Order ID</th>
+          <th>Customer</th>
+          <th>Product</th>
+          <th>Amount (₹)</th>
+          <th>Payment</th>
+          <th>Shipment</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="ordersBody">
+        <!-- Example data -->
+        <tr>
+          <td>#1001</td>
+          <td>Ramya</td>
+          <td>3D T-Shirt (M / Black)</td>
+          <td>799</td>
+          <td><span class="pay-status paid">Paid</span></td>
+          <td><span class="ship-status processing">Processing</span></td>
+          <td><span class="order-status active">Active</span></td>
+          <td class="order-controls">
+            <button class="btn-update">Update</button>
+            <button class="btn-refund">Refund</button>
+          </td>
+        </tr>
+        <tr>
+          <td>#1002</td>
+          <td>Sai</td>
+          <td>Graphic Hoodie (L / Grey)</td>
+          <td>1299</td>
+          <td><span class="pay-status pending">Pending</span></td>
+          <td><span class="ship-status shipped">Shipped</span></td>
+          <td><span class="order-status fulfilled">Fulfilled</span></td>
+          <td class="order-controls">
+            <button class="btn-update">Update</button>
+            <button class="btn-refund">Refund</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+  <script src="admin.js"></script>
+</body>
+</html>

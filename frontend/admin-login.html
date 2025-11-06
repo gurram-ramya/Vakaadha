@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VAKAADHA — Admin Login</title>
+  <link rel="stylesheet" href="admin-login.css">
+</head>
+<body>
+  <div class="login-container">
+    <h1>VAKAADHA Admin Panel</h1>
+    <p class="subtitle">Login as Administrator</p>
+
+    <form id="adminLoginForm">
+      <label>Email</label>
+      <input type="email" id="adminEmail" placeholder="admin@vakaadha.com" required />
+
+      <label>Password</label>
+      <input type="password" id="adminPassword" placeholder="Enter password" required />
+
+      <button type="submit" class="btn-login">Login</button>
+    </form>
+
+    <p class="note">For authorized admins only.</p>
+  </div>
+  <script src="admin.js"></script>
+</body>
+</html>
