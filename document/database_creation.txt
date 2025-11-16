@@ -1,0 +1,24 @@
+
+1. Create an empty database
+Use the call operator so PowerShell accepts the path.
+
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost -p 5432 -c "CREATE DATABASE vakaadha;"
+
+2. Restore your dump into that new database
+From the same directory where the .dump file is located:
+
+& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -U postgres -h localhost -p 5432 -d vakaadha vakaadha_full.dump
+
+Note: Replace the paths for your pc, "C:\Program Files\PostgreSQL\18\bin"
+
+
+
+
+
+
+
+
+
+create the dump for the existing database.
+
+PS C:\Users\cvjg9\OneDrive\Documents\GitHub\Vakaadha> & "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" -U postgres -h localhost -p 5432 -F c -b -v -f "vakaadha_full.dump" vakaadha

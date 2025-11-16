@@ -60,60 +60,76 @@
 
   // ---------------- Core request wrapper ----------------
   async function apiRequest(endpoint, { method = "GET", headers = {}, body, _retried } = {}) {
-    const token = await getToken();
-    const h = {
-      ...(body && typeof body === "object" ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    };
 
-    let url = API_BASE + endpoint;
-
-    if (!token) {
-      const gid = getGuestId();
-      if (gid && !/([?&])guest_id=/.test(url)) {
-        url += (url.includes("?") ? "&" : "?") + "guest_id=" + encodeURIComponent(gid);
-      }
-    }
-
-    let res;
-    try {
-      res = await fetch(url, {
-        method,
-        headers: h,
-        body: body && typeof body === "object" ? JSON.stringify(body) : body,
-        credentials: "include",
+      // [DEBUG] Client-side request trace
+      console.log("CLIENT DEBUG → request start", {
+          endpoint,
+          method,
+          cookies: document.cookie,
+          local_guest: localStorage.getItem("guest_id"),
+          token_present: !!(await getToken())
       });
-    } catch (err) {
-      console.error("[client.js] network error:", err);
-      throw err;
-    }
 
-    if (res.status === 410) return { expired: true, status: 410 };
+      const token = await getToken();
+      const h = {
+          ...(body && typeof body === "object" ? { "Content-Type": "application/json" } : {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...headers,
+      };
 
-    if (res.status === 401 && !_retried) {
-      try {
-        if (window.auth?.initSession) await window.auth.initSession();
-      } catch (err) {
-        console.error("[client.js] reinit after 401 failed:", err);
+      const gid = getGuestId();
+      if (gid) {
+          h["X-Guest-Id"] = gid;
       }
-      return apiRequest(endpoint, { method, headers, body, _retried: true });
-    }
 
-    let data = null;
-    try {
-      data = await res.json();
-    } catch {}
+      let url = API_BASE + endpoint;
 
-    if (!res.ok) {
-      const err = new Error(data?.error || `API ${res.status}`);
-      err.status = res.status;
-      err.payload = data;
-      throw err;
-    }
+      if (!token) {
+          const gid = getGuestId();
+          if (gid && !/([?&])guest_id=/.test(url)) {
+              url += (url.includes("?") ? "&" : "?") + "guest_id=" + encodeURIComponent(gid);
+          }
+      }
 
-    return data;
+      let res;
+      try {
+          res = await fetch(url, {
+              method,
+              headers: h,
+              body: body && typeof body === "object" ? JSON.stringify(body) : body,
+              credentials: "include",
+          });
+      } catch (err) {
+          console.error("[client.js] network error:", err);
+          throw err;
+      }
+
+      if (res.status === 410) return { expired: true, status: 410 };
+
+      if (res.status === 401 && !_retried) {
+          try {
+              if (window.auth?.initSession) await window.auth.initSession();
+          } catch (err) {
+              console.error("[client.js] reinit after 401 failed:", err);
+          }
+          return apiRequest(endpoint, { method, headers, body, _retried: true });
+      }
+
+      let data = null;
+      try {
+          data = await res.json();
+      } catch {}
+
+      if (!res.ok) {
+          const err = new Error(data?.error || `API ${res.status}`);
+          err.status = res.status;
+          err.payload = data;
+          throw err;
+      }
+
+      return data;
   }
+
 
   // ---------------- Convenience wrappers ----------------
   const apiClient = {

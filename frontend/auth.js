@@ -171,16 +171,16 @@
 // -----------------------------------------------------------------------------------------------
 
 
-// frontend/auth.js — unified guest/user continuity (corrected async + token persistence)
+// frontend/auth.js — corrected guest continuity + backend merge alignment
+// frontend/auth.js — corrected guest cleanup after login
 (function () {
   const TOKEN_KEY = "auth_token";
   const USER_KEY  = "user_info";
-  const GUEST_KEY = "guest_id"; // backend cookie source of truth
+  const GUEST_KEY = "guest_id";
 
   if (window.__auth_js_bound__) return;
   window.__auth_js_bound__ = true;
 
-  /* ---------------- Firebase initialization ---------------- */
   if (!window.firebase?.apps?.length) {
     const firebaseConfig = {
       apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
@@ -195,61 +195,41 @@
 
   try {
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-  } catch (e) {
-    console.warn("[auth.js] Firebase persistence setup failed:", e);
-  }
+  } catch {}
 
-  // ---------------- Cookie ----------------
   function getCookie(name) {
     const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
     return m ? decodeURIComponent(m[2]) : null;
   }
 
-  // ---------------- Storage ----------------
   function setToken(t) {
     try {
       if (t) localStorage.setItem(TOKEN_KEY, t);
       else localStorage.removeItem(TOKEN_KEY);
-    } catch (err) {
-      console.error("[auth.js] setToken failed:", err);
-    }
+    } catch {}
   }
 
-  // function getToken() {
-  //   try {
-  //     return localStorage.getItem(TOKEN_KEY) || null;
-  //   } catch {
-  //     return null;
-  //   }
-  // }
-  // ---------------- Firebase token fetch ----------------
   async function getToken() {
     try {
       const user = window.firebase?.auth?.currentUser;
       if (user) {
-        // Always ensure a valid token
         const token = await user.getIdToken(true);
         if (token) {
-          localStorage.setItem("auth_token", token);
+          localStorage.setItem(TOKEN_KEY, token);
           return token;
         }
       }
-
-      // fallback for pre-existing token cache
-      return localStorage.getItem("auth_token") || null;
-    } catch (err) {
-      console.error("[auth.js] getToken() failed:", err);
+      return localStorage.getItem(TOKEN_KEY) || null;
+    } catch {
       return null;
     }
   }
 
-  function setUserCached(user) {
+  function setUserCached(u) {
     try {
-      if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+      if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
       else localStorage.removeItem(USER_KEY);
-    } catch (err) {
-      console.error("[auth.js] setUserCached failed:", err);
-    }
+    } catch {}
   }
 
   function clearSession() {
@@ -257,52 +237,45 @@
     setUserCached(null);
   }
 
-  // ---------------- Backend ----------------
   async function fetchMe(token) {
     return fetch("/api/users/me", {
       headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
     });
   }
-
 
   async function backendLogout(token) {
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
-    } catch (err) {
-      console.error("[auth.js] backendLogout failed:", err);
-    }
+    } catch {}
   }
 
-  // ---------------- UI ----------------
   function applyNavbar(userOrNull) {
-    if (typeof window.updateNavbarUser === "function")
-      window.updateNavbarUser(userOrNull || null);
-    if (typeof window.updateNavbarCounts === "function")
-      window.updateNavbarCounts();
+    if (window.updateNavbarUser) window.updateNavbarUser(userOrNull);
+    if (window.updateNavbarCounts) window.updateNavbarCounts();
   }
 
-  // ---------------- Firebase token ----------------
   async function getFreshToken() {
-    if (!window.firebase?.auth?.currentUser) return null;
+    const u = window.firebase?.auth?.currentUser;
+    if (!u) return null;
     try {
-      const tok = await firebase.auth().currentUser.getIdToken(true);
-      setToken(tok);
-      return tok;
-    } catch (err) {
-      console.error("[auth.js] getFreshToken failed:", err);
+      const t = await u.getIdToken(true);
+      setToken(t);
+      return t;
+    } catch {
       clearSession();
       return null;
     }
   }
 
-  // ---------------- Init session ---------------
   async function initSession() {
     try {
-      const g = getCookie(GUEST_KEY);
-      if (g) localStorage.setItem(GUEST_KEY, g);
+      const ck = getCookie(GUEST_KEY);
+      if (ck) localStorage.setItem(GUEST_KEY, ck);
     } catch {}
 
     if (!(window.firebase && firebase.auth)) {
@@ -314,14 +287,12 @@
       const unsub = firebase.auth().onAuthStateChanged(async (user) => {
         unsub();
 
-        // --- Anonymous guest path ---
         if (!user) {
           clearSession();
           applyNavbar(null);
           return resolve();
         }
 
-        // --- Authenticated user path ---
         const token = await getFreshToken();
         if (!token) {
           clearSession();
@@ -329,13 +300,14 @@
           return resolve();
         }
 
-        // ensure token stored before register
         setToken(token);
 
         try {
           const guest_id = localStorage.getItem(GUEST_KEY);
+
           const regRes = await fetch("/api/auth/register", {
             method: "POST",
+            credentials: "include",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
@@ -349,20 +321,13 @@
           if (data?.user) setUserCached(data.user);
           applyNavbar(data.user || null);
 
-          // --- remove old guest_id when authenticated ---
-          try {
-            localStorage.removeItem(GUEST_KEY);
-          } catch {}
+          try { localStorage.removeItem(GUEST_KEY); } catch {}
 
-          // backend may issue rotated guest cookie → sync it
-          const newGuest = getCookie(GUEST_KEY);
-          if (newGuest && !token) {
-            try {
-              localStorage.setItem(GUEST_KEY, newGuest);
-            } catch {}
-          }
-        } catch (err) {
-          console.error("[auth.js] register/login flow failed", err);
+          // clear guest cookie after merge
+          document.cookie =
+            "guest_id=; Path=/; Max-Age=0; SameSite=None; Secure";
+
+        } catch {
           clearSession();
           applyNavbar(null);
         }
@@ -372,50 +337,46 @@
     });
   }
 
-  // ---------------- Current user ----------------
   async function getCurrentUser() {
     try {
       const cached = JSON.parse(localStorage.getItem(USER_KEY) || "null");
       if (cached) return cached;
     } catch {}
-    const t = getToken();
+
+    const t = await getToken();
     if (!t) return null;
+
     try {
       const res = await fetchMe(t);
       if (!res.ok) return null;
+
       const me = await res.json();
       setUserCached(me);
       return me;
-    } catch (err) {
-      console.error("[auth.js] getCurrentUser failed:", err);
+    } catch {
       return null;
     }
   }
 
-  // ---------------- Logout ----------------
   async function logout() {
-    const t = getToken();
-    await backendLogout(t);
+    const tok = await getToken();
+    await backendLogout(tok);
     clearSession();
 
     if (window.firebase?.auth?.currentUser) {
-      try {
-        await firebase.auth().signOut();
-      } catch (err) {
-        console.error("[auth.js] Firebase signOut failed:", err);
-      }
+      try { await firebase.auth().signOut(); } catch {}
     }
-
-    try {
-      const newGuest = getCookie(GUEST_KEY);
-      if (newGuest) localStorage.setItem(GUEST_KEY, newGuest);
-    } catch {}
 
     applyNavbar(null);
     window.location.href = "index.html";
   }
 
-  // ---------------- Export ----------------
-  window.auth = { initSession, getCurrentUser, getToken, logout };
+  window.auth = {
+    initSession,
+    getCurrentUser,
+    getToken,
+    logout,
+  };
+
   document.addEventListener("DOMContentLoaded", initSession);
 })();

@@ -1,0 +1,50 @@
+Your machine clock is still **behind** Firebase’s signing clock by roughly **1 second**.
+Nothing in your backend code will fix this.
+Nothing in the frontend code will fix this.
+Guest merge, wishlist merge, user creation, cart logic — all remain blocked.
+Firebase rejects every token before require_auth even runs.
+
+You fix this only by eliminating the clock drift on your Windows host.
+
+Direct actions:
+
+1. Force time sync repeatedly until the offset collapses.
+   Run in elevated PowerShell:
+
+```
+net stop w32time
+w32tm /unregister
+w32tm /register
+net start w32time
+w32tm /config /manualpeerlist:"time.google.com,0x9" /syncfromflags:manual /reliable:YES /update
+w32tm /resync /force
+```
+
+2. Verify offset immediately:
+
+```
+w32tm /stripchart /computer:time.google.com /dataonly /samples:5
+```
+
+Look at the offsets. They must show **0.0x seconds** or negative values (server ahead of you).
+Currently Firebase logs show:
+`1763158366 < 1763158367`
+This means server = 1s behind token.
+
+3. If offset never stabilizes:
+   Disable Windows set-time permissions for non-admin apps. Some apps adjust clock slightly.
+   Stop them:
+
+```
+sc query w32time
+```
+
+Ensure nothing else manages time (VMware Tools, virtual clocks, VPN agents, corporate sync daemons).
+
+4. If on a laptop, disable “Set time automatically” then re-enable.
+
+5. As a last resort:
+   Manually adjust clock forward by **+2 seconds**.
+   This immediately satisfies Firebase because your machine time becomes ahead of the token issue time.
+
+The merge problem cannot be debugged until tokens validate.

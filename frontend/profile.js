@@ -623,10 +623,14 @@ async function afterFirebaseAuth(user, silent = false, providedName = null) {
     let backendUser = null;
     try {
       console.debug("[SYNC] -> POST /api/auth/register");
-      const body = guestId ? { guest_id: guestId } : {};
+      const body = {};
       if (providedName) body.name = providedName;
+
       const regRes = await apiRequest("/api/auth/register", {
         method: "POST",
+        headers: {
+          "X-Guest-Id": guestId || ""
+        },
         body,
       });
       console.debug("[SYNC] register() returned:", regRes);
@@ -667,7 +671,17 @@ async function afterFirebaseAuth(user, silent = false, providedName = null) {
       console.error("[POST-AUTH PROFILE REFRESH ERROR]", err);
     }
 
-    if (!silent) toast("Signed in");
+    // if (!silent) toast("Signed in");
+    if (!silent) {
+      toast("Signed in");
+      // small delay to let the toast show
+      setTimeout(() => {
+        window.location.href = "index.html";
+      }, 500);
+    } else {
+      // silent state restoration just keeps profile page visible
+      show("profile");
+    }
 
   } finally {
     console.groupEnd();
