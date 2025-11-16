@@ -395,16 +395,16 @@ body {
 
 /* Modal Content */
 .modal-content {
-    background-color: #d6c0b3d1;
+  background-color: #ffefe6d1;
   margin: 5% auto;
   padding: 25px 30px;
   border-radius: 14px;
   width: 90%;
-  max-width: 650px;
+  max-width: 950px;
   position: relative;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
   animation: modalFadeIn 0.4s ease;
-  border: 2px solid #5D4037; /* lighter brown border */
+  border: 2px solid #5D4037;
 }
 
 /* Close Button */
@@ -634,7 +634,7 @@ body {
 }
 
 .modal-content h2 {
-  font-size: 2.2rem;
+  font-size: 1.5rem;
   margin-bottom: 20px;
   color: #493628;
 }
@@ -1081,8 +1081,32 @@ body {
   font-size: 1rem;
 }
 
+
 .contact-policy{
   border: solid 1px black;
+}
+
+.product-link{
+  text-decoration: none;
+}
+
+
+/* == View More Button == */
+.view-all-btn {
+  display: block;
+  margin: 20px auto;
+  padding: 12px 24px;
+  background-color: #493628;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.view-all-btn:hover {
+  background-color: #6b4c3b;
 }
 
 /* === PROFILE DROPDOWN MENU === */

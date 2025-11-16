@@ -97,7 +97,7 @@
 
         <a href="details.html?id=${prod.product_id}" class="product-link">
           <img src="${img}" alt="${escapeHtml(prod.name || "Product")}">
-          <h3>${escapeHtml(prod.name || "")}</h3>
+          <h3 style="text-decoration: none;">${escapeHtml(prod.name || "")}</h3>
         </a>
 
         <p class="price">${price}</p>

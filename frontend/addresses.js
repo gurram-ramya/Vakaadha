@@ -81,7 +81,7 @@
           <strong>${addr.name}</strong><br>
           ${addr.line1}${addr.line2 ? ", " + addr.line2 : ""}<br>
           ${addr.city}, ${addr.state} - ${addr.pincode}<br>
-          📞 ${addr.phone}
+          ${addr.phone}
         </div>
       `;
 

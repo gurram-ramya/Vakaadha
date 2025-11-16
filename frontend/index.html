@@ -52,10 +52,11 @@
   <section class="featured-products">
     <h2>Top Picks for You</h2>
     <div class="product-row" id="productGrid"></div>
-    <button class="wishlist-btn" data-product-id="${prod.product_id}">
+    <!-- <button class="wishlist-btn" data-product-id="${prod.product_id}">
       <i class="${window.currentWishlist?.has(prod.product_id) ? "fas" : "far"} fa-heart"></i>
-    </button>
+    </button> -->
   </section>
+  <button class="view-all-btn" onclick="location.href='collections.html'">View All Products</button>
 
   <!-- Floating Background Icons -->
   <div class="floating-icons">
@@ -120,10 +121,10 @@
     <!-- POLICIES SECTION -->
     <section class="policies-section" data-aos="fade-up">
       <div class="policy-links">
-        <a href="privacy-policy.html">Privacy Policy</a>
-        <a href="refund-policy.html">Refund & Return Policy</a>
-        <a href="terms-of-service.html">Terms of Service</a>
-        <a href="shipping-policy.html">Shipping Policy</a>
+        <a href="#" onclick="loadPolicy('privacy-policy.html')">Privacy Policy</a>
+        <a href="#" onclick="loadPolicy('refund-policy.html')">Refund & Return Policy</a>
+        <a href="#" onclick="loadPolicy('terms-of-service.html')">Terms of Service</a>
+        <a href="#" onclick="loadPolicy('shipping-policy.html')">Shipping Policy</a>
       </div>
     </section>
   </div>
@@ -157,6 +158,21 @@
     </div>
   </div>
 
+
+  <!-- UNIVERSAL POLICY MODAL -->
+  <div id="policyModal" class="modal">
+    <div class="modal-content" id="policyContent">
+      <span class="close" onclick="closeModal('policyModal')">&times;</span>
+      <div id="policy-body">Loading...</div>
+    </div>
+  </div>
+
+
+
+
+
+
+
   <!-- Simple modal helpers -->
   <script>
     function openModal(id) {
@@ -173,7 +189,21 @@
         if (event.target === modal) modal.style.display = "none";
       });
     };
+    function loadPolicy(file) {
+      fetch(file)
+        .then(response => response.text())
+        .then(html => {
+          document.getElementById("policy-body").innerHTML = html;
+          openModal("policyModal");
+        })
+        .catch(err => {
+          document.getElementById("policy-body").innerHTML = "<p>Error loading page.</p>";
+          openModal("policyModal");
+        });
+    }
+
   </script>
+  
 
   <!-- ✅ Load Scripts in Correct Order -->
   <!-- <script src="./navbar.js"></script> -->
