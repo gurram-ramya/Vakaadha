@@ -282,7 +282,7 @@ DB_PARAMS = {
     "port": int(os.getenv("PGPORT") or 5432),
     "database": os.getenv("PGDATABASE") or "vakaadha",
     "user": os.getenv("PGUSER") or "postgres",
-    "password": os.getenv("PGPASSWORD") or "Ramya@1704",
+    "password": os.getenv("PGPASSWORD") or "Domain@123",
 }
 
 MIN_CONN = int(os.getenv("PGPOOL_MIN", 1))
