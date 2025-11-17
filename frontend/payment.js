@@ -358,7 +358,7 @@
           <strong>${addr.name}</strong><br>
           ${addr.line1}${addr.line2 ? ", " + addr.line2 : ""}<br>
           ${addr.city}, ${addr.state} - ${addr.pincode}<br>
-          📞 ${addr.phone}
+          ${addr.phone}
         </div>
       `;
       deliveryAddressDiv.dataset.addressId = addr.address_id || addressId;
@@ -371,6 +371,15 @@
   }
 
   // ---------------- Cart Summary ----------------
+  function getSelectedItemsFromStorage() {
+    try {
+      return JSON.parse(localStorage.getItem("checkout_items")) || null;
+    } catch {
+      return null;
+    }
+  }
+
+
   async function getCart() {
     const token = localStorage.getItem("auth_token");
     const guestId = localStorage.getItem("guest_id");
@@ -382,13 +391,19 @@
   }
 
   async function loadCartSummary() {
-    try {
-      const cart = await getCart();
-      const items = cart.items || [];
-      if (!items.length) {
-        orderSummaryDiv.innerHTML = `<p>Your cart is empty.</p>`;
-        orderTotalEl.textContent = "0";
-        return 0;
+     try {
+      // 1️⃣ Try to load selected items first
+      const selected = getSelectedItemsFromStorage();
+
+      let items = [];
+
+      if (selected && selected.length) {
+        console.log("🟢 Using selected items for checkout:", selected);
+        items = selected;   // 👍 Only selected items
+      } else {
+        console.log("⚠️ No selection found → fallback to full cart");
+        const cart = await getCart();
+        items = cart.items || [];
       }
 
       let total = 0;

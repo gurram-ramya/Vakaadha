@@ -559,31 +559,65 @@ async function updateQuantity(id, quantity) {
     // Checkbox selection
     if (checkbox) recalcSelectedTotals();
 
-    // Checkout — ONLY SELECTED PRODUCTS
+  //   // Checkout — ONLY SELECTED PRODUCTS
+  //   if (checkout) {
+  //     const items = document.querySelectorAll(".cart-item");
+  //     const selected = [];
+
+  //     items.forEach((item) => {
+  //       const check = item.querySelector(".cart-select");
+  //       if (check && check.checked) {
+  //         const id = Number(item.dataset.id);
+  //         selected.push(id);
+  //       }
+  //     });
+
+  //     if (selected.length === 0) {
+  //       toast("Select at least one product", true);
+  //       return;
+  //     }
+
+  //     const cart = await CartAPI.get();
+  //     const finalItems = cart.items.filter((i) => selected.includes(i.cart_item_id));
+
+  //     sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
+  //     window.location.href = "addresses.html";
+  //   }
+  // });
+
+  //  -----------------------------
+  // Checkout — ONLY SELECTED PRODUCTS
+  // ----------------------------
+  // Checkout — ONLY SELECTED PRODUCTS
     if (checkout) {
       const items = document.querySelectorAll(".cart-item");
-      const selected = [];
+      const selectedIds = [];
 
       items.forEach((item) => {
         const check = item.querySelector(".cart-select");
         if (check && check.checked) {
-          const id = Number(item.dataset.id);
-          selected.push(id);
+          selectedIds.push(Number(item.dataset.id));
         }
       });
 
-      if (selected.length === 0) {
+      if (selectedIds.length === 0) {
         toast("Select at least one product", true);
         return;
       }
 
+      // Fetch fresh cart for accurate quantities
       const cart = await CartAPI.get();
-      const finalItems = cart.items.filter((i) => selected.includes(i.cart_item_id));
 
+      // Filter only selected products
+      const finalItems = cart.items.filter(i => selectedIds.includes(i.cart_item_id));
+
+      // Save selected items for next page
       sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
+
       window.location.href = "addresses.html";
     }
   });
+
 
   // ----------------------------
   // Init
