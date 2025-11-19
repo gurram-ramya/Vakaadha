@@ -416,7 +416,7 @@
 
       return `
         <div class="cart-item" data-id="${item.cart_item_id}">
-          <input type="checkbox" class="cart-select" checked />
+          <input type="checkbox" class="cart-select" />
           <div class="cart-item-left"><img src="${img}" alt="${name}" /></div>
           <div class="cart-item-right">
             <h3>${name}</h3>

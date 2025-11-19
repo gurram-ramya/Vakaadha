@@ -227,6 +227,12 @@
     }
   }
 
+  // ---------------- Popup Message ----------------
+  document.addEventListener("DOMContentLoaded", async () => {
+    const toast = document.getElementById("toast");
+  });
+
+
   // ---------------- Proceed to Payment ----------------
   proceedBtn.addEventListener("click", () => {
     if (!selectedAddressId)

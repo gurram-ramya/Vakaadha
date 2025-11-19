@@ -371,13 +371,21 @@
   }
 
   // ---------------- Cart Summary ----------------
+  // function getSelectedItemsFromStorage() {
+  //   try {
+  //     return JSON.parse(localStorage.getItem("checkout_items")) || null;
+  //   } catch {
+  //     return null;
+  //   }
+  // }
   function getSelectedItemsFromStorage() {
     try {
-      return JSON.parse(localStorage.getItem("checkout_items")) || null;
+      return JSON.parse(sessionStorage.getItem("checkout_items")) || null;
     } catch {
       return null;
     }
   }
+
 
 
   async function getCart() {
