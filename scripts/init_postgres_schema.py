@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#scripts/init_postgres_schema.py
 import psycopg2
 
 HOST = "localhost"
@@ -17,10 +17,19 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 CREATE TABLE users (
   user_id BIGSERIAL PRIMARY KEY,
+
   firebase_uid TEXT NOT NULL UNIQUE,
+
   email TEXT UNIQUE,
+  phone TEXT UNIQUE,
+
+  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
+
   name TEXT,
+
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_login TIMESTAMPTZ

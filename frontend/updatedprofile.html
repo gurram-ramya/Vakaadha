@@ -1,0 +1,88 @@
+<section id="auth-section">
+  <h2>Login / Sign Up</h2>
+
+  <!-- STEP 1: IDENTIFIER -->
+  <form id="identifier-form" class="card" autocomplete="off">
+    <h3>Enter mobile number or email</h3>
+
+    <label>
+      <input type="text"
+             id="identifier-input"
+             placeholder="Mobile number or email"
+             required />
+    </label>
+
+    <button type="button" id="identifier-continue">Continue</button>
+
+    <div id="identifier-error"
+         class="hidden"
+         style="color:#b00020;font-size:14px;margin-top:8px;"></div>
+  </form>
+
+  <div class="or" style="text-align:center;opacity:.7;margin:8px 0;">or</div>
+
+  <!-- GOOGLE -->
+  <button id="google-btn" class="btn-google" type="button">
+    <i class="fab fa-google"></i> Continue with Google
+  </button>
+
+  <!-- STEP 2: EMAIL PASSWORD -->
+  <form id="email-password-form" class="card hidden" autocomplete="on">
+    <h3>Email Login</h3>
+
+    <label>Email
+      <input type="email"
+             id="email-password-email"
+             readonly />
+    </label>
+
+    <label>Password
+      <input type="password"
+             id="email-password-password"
+             placeholder="Password"
+             required />
+    </label>
+
+    <button type="submit" id="email-password-submit">Login</button>
+
+    <button type="button"
+            id="email-password-back"
+            class="linkish"
+            style="margin-top:10px;">Back</button>
+
+    <div id="email-password-error"
+         class="hidden"
+         style="color:#b00020;font-size:14px;margin-top:8px;"></div>
+  </form>
+
+  <!-- STEP 3: PHONE OTP -->
+  <form id="phone-otp-form" class="card hidden" autocomplete="off">
+    <h3>Verify Mobile Number</h3>
+
+    <label>Phone Number
+      <input type="tel"
+             id="phone-otp-number"
+             readonly />
+    </label>
+
+    <button type="button" id="phone-otp-send">Send OTP</button>
+
+    <div id="phone-otp-block" class="hidden" style="margin-top:10px;">
+      <label>Enter OTP
+        <input type="text" id="phone-otp-input" placeholder="Enter OTP"/>
+      </label>
+      <button type="button" id="phone-otp-verify">Verify</button>
+    </div>
+
+    <div id="phone-otp-error"
+         class="hidden"
+         style="color:#b00020;font-size:14px;margin-top:8px;"></div>
+
+    <div id="phone-otp-recaptcha"></div>
+
+    <button type="button"
+            id="phone-otp-back"
+            class="linkish"
+            style="margin-top:10px;">Back</button>
+  </form>
+</section>
