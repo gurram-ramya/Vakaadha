@@ -66,8 +66,8 @@ body {
   font-size: 15px;
   font-weight: bold;
   position: absolute;
-  top: -2px;
-  right: 2px;
+  top: 20px;
+  right: auto;
 }
 
 /* PROFILE DROPDOWN */

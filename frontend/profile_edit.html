@@ -5,33 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Profile – Vakaadha</title>
     <link rel="stylesheet" href="profile_edit.css">
+    <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 </head>
 
 <body>
 
-    <!-- NAVBAR -->
-    <nav class="navbar">
-        <a href="/" class="logo">VAKAADHA</a>
-
-        <input type="checkbox" id="menu-toggle">
-        <label for="menu-toggle" class="menu-icon">&#9776;</label>
-
-        <div class="nav-links">
-            <a href="/products.html">Shop</a>
-            <a href="/wishlist.html">Wishlist</a>
-            <a href="/cart.html">Cart</a>
-
-            <div class="dropdown">
-                <a id="navProfileName">Account</a>
-                <div class="dropdown-content">
-                    <a href="/profile.html">Profile</a>
-                    <a href="/orders.html">Orders</a>
-                    <hr>
-                    <a id="logoutBtn">Logout</a>
-                </div>
-            </div>
+<!-- HEADER -->
+  <header class="navbar">
+    <a href="index.html" class="logo">VAKAADHA</a>
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
+    <nav class="nav-links">
+      <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
+      <a href="./wishlist.html" aria-label="Wishlist">
+        <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
+      </a>
+      <a href="./cart.html" aria-label="Cart">
+        <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
+      </a>
+      <div class="dropdown">
+        <a href="./profile.html" aria-label="Profile">
+          <i class="fas fa-user"></i> <span id="user-display"></span>
+        </a>
+        <div class="dropdown-content">
+          <a href="profile.html" id="loginLink">Login / Signup</a>
+          <a href="orders.html" id="ordersLink">My Orders</a>
+          <a href="wishlist.html">Wishlist</a>
+          <a href="addresses.html">Addresses</a>
+          <a href="#" id="navbar-logout">Logout</a>
         </div>
+      </div>
     </nav>
+  </header>
 
     <!-- PAGE WRAPPER -->
     <div class="profile-wrapper">
@@ -106,17 +112,139 @@
     </div>
 
 
-    <!-- FOOTER -->
-    <footer class="footer">
-        <div class="footer-inner">
-            <p>© Vakaadha</p>
-            <a href="/privacy.html">Privacy Policy</a>
-            <a href="/terms.html">Terms of Service</a>
-            <a href="/shipping.html">Shipping Policy</a>
+      <!-- Share Modal -->
+  <div id="shareModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <button class="close" onclick="closeModal('shareModal')">&times;</button>
+      <h2>Share this product</h2>
+      <div class="share-options">
+        <a id="share-whatsapp" target="_blank"><i class="fab fa-whatsapp"></i> WhatsApp</a>
+        <a id="share-facebook" target="_blank"><i class="fab fa-facebook"></i> Facebook</a>
+        <a id="share-twitter" target="_blank"><i class="fab fa-x-twitter"></i> Twitter/X</a>
+        <button id="copy-link"><i class="fas fa-link"></i> Copy Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" style="
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+    "></div>
+
+  <!-- ABOUT & POLICIES FOOTER -->
+  <div class="contact-policy">
+    <!-- INFO SECTION -->
+    <section class="info-section" data-aos="fade-up">
+      <div class="info-left">
+        <div class="about-buttons">
+          <button type="button" onclick="openModal('aboutModal')"><h2>About Us</h2></button>
         </div>
-    </footer>
+      </div>
+
+      <div class="info-right">
+        <h2>Follow Us On</h2>
+        <div class="social-icons">
+          <a href="https://x.com" target="_blank" rel="noopener"><i class="fa-brands fa-x-twitter"></i></a>
+          <a href="https://instagram.com" target="_blank" rel="noopener"><i class="fab fa-instagram"></i></a>
+          <a href="https://facebook.com" target="_blank" rel="noopener"><i class="fab fa-facebook"></i></a>
+          <a href="https://youtube.com" target="_blank" rel="noopener"><i class="fab fa-youtube"></i></a>
+          <a href="https://wa.me/7893153335" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i></a>
+          <a href="tel:+917893153335" target="_blank" rel="noopener" style="font-size: 1.5rem;"><i class="fa-solid fa-phone"></i></a>
+          <a href="mailto:contact.vakaadha@gmail.com"><i class="fa-solid fa-envelope"></i></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- POLICIES SECTION -->
+    <section class="policies-section" data-aos="fade-up">
+      <div class="policy-links">
+        <a href="#" onclick="loadPolicy('privacy-policy.html')">Privacy Policy</a>
+        <a href="#" onclick="loadPolicy('refund-policy.html')">Refund & Return Policy</a>
+        <a href="#" onclick="loadPolicy('terms-of-service.html')">Terms of Service</a>
+        <a href="#" onclick="loadPolicy('shipping-policy.html')">Shipping Policy</a>
+      </div>
+    </section>
+  </div>
+
+  <!-- About Modal -->
+  <div id="aboutModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('aboutModal')">&times;</span>
+      <h2>About Vakaadha</h2>
+      <p>
+        VAKAADHA is a homegrown brand dedicated to timeless craftsmanship, curated design, and mindful living.
+      </p>
+      <div class="about-highlights">
+        <div class="highlight-card">
+          <h3>Handcrafted Quality</h3>
+          <p>Each piece is made with care and attention to detail.</p>
+        </div>
+        <div class="highlight-card">
+          <h3>Ethical Production</h3>
+          <p>We value sustainability and fair working practices.</p>
+        </div>
+      </div>
+      <div class="contact-info">
+        <div class="info-item">
+          <i class="fa-solid fa-envelope"></i><a href="mailto:contact.vakaadha@gmail.com">contact.vakaadha@gmail.com</a>
+        </div>
+        <div class="info-item">
+          <i class="fa-solid fa-phone"></i><a href="tel:+917893153335">+91 78931 53335</a>
+        </div>
+      </div>
+    </div>
+  </div>
 
 
+  <!-- UNIVERSAL POLICY MODAL -->
+  <div id="policyModal" class="modal">
+    <div class="modal-content" id="policyContent">
+      <span class="close" onclick="closeModal('policyModal')">&times;</span>
+      <div id="policy-body">Loading...</div>
+    </div>
+  </div>
+
+
+  <!-- Simple modal helpers -->
+  <script>
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.style.display = "block";
+    }
+    function closeModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) modal.style.display = "none";
+    }
+    window.onclick = (event) => {
+      const modals = document.querySelectorAll(".modal");
+      modals.forEach((modal) => {
+        if (event.target === modal) modal.style.display = "none";
+      });
+    };
+    function loadPolicy(file) {
+      fetch(file)
+        .then(response => response.text())
+        .then(html => {
+          document.getElementById("policy-body").innerHTML = html;
+          openModal("policyModal");
+        })
+        .catch(err => {
+          document.getElementById("policy-body").innerHTML = "<p>Error loading page.</p>";
+          openModal("policyModal");
+        });
+    }
+
+  </script>
     <script src="profile_edit.js"></script>
 </body>
 </html>

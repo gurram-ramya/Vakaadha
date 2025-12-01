@@ -2,12 +2,487 @@
    Vakaadha Login (Zomato-style)
    ============================ */
 
+/* Base Styles */
 body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  /* background-color: #d6c0b3d1; */
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  color: black;
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  padding: 15px 30px;
+  border-bottom: 1px solid #222;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+/* Logo in the nav bar */
+.logo {
+  font-family: 'Megrim', cursive;
+  font-size: 1.5rem;   /* ⬅ same height as old 150px image */
+  color: #493628;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-decoration: none;
+}
+
+/* Nav Buttons*/
+.navbar .nav-links a{
+    color: #493628;
+}
+
+
+#menu-toggle {
+  display: none;
+}
+
+.menu-icon {
+  /* background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1); */
+  display: none;
+  font-size: 28px;
+  color: black;
+  cursor: pointer;
+}
+
+/* Desktop Nav Links */
+.nav-links {
+  /* background-color: #E4E0E1; */
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.nav-links a {
+  color: black;
+  width: 20px;
+  font-size: 1.2rem;
+  padding: 10px;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background-color 0.3s, color 0.3s;
+  position: relative;
+}
+
+.nav-links a:hover {
+  /* background-color: #E4E0E1; */
+  color: black;
+}
+
+.nav-links .wishlist-count,
+.nav-links #cartCount {
+  background-color: transparent;
+  color: black;
+  font-size: 15px;
+  padding: 2px 6px;
+  border-radius: 50%;
+  position: absolute;
+  top: -2px;
+  right: 2px;
+  font-weight: bold;
+}
+
+/* ==== RESPONSIVE NAVBAR ==== */
+@media (max-width: 768px) {
+  .menu-icon {
+    display: block;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 70px;
+    left: 0;
+    right: 0;
+    background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+    flex-direction: column;
+    gap: 15px;
+    padding: 20px 0;
+    border-top: 1px solid #222;
+  }
+
+  #menu-toggle:checked + .menu-icon + .nav-links {
+    display: flex;
+  }
+
+  .nav-links a {
+    /* width: 100%; */
+    text-align: center;
+    font-size: 1.1rem;
+    padding: 15px;
+    /* border-bottom: 1px solid #222; */
+  }
+
+  .nav-links .wishlist-count,
+  .nav-links #cartCount {
+    top: 5px;
+    right: 10px;
+  }
+}
+
+
+/* === PROFILE DROPDOWN MENU === */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  background-color: #D6C0B3;
+  min-width: 15vw;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  z-index: 1000;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.dropdown-content hr{
+  margin: auto;
+  width: 90%;
+  border-top: 1px solid #493628;
+}
+
+.dropdown-content a {
+  color: black;
+  /* padding: 10px 14px; */
+  text-decoration: none;
+  display: block;
+  /* border: solid 1px black; */
+  font-size: 14px;
+  width: 90%;
+}
+
+.dropdown-content a:hover {
+  background-color: #f1f1f1;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+.dropdown-divider {
+  border: none;
+  border-top: 1px solid #ccc;
+  margin: 6px 0;
+}
+.hidden {
+  display: none;
+}
+
+/* Info Section */
+/* About & Contact Button Section */
+/* Info Section */
+.info-section {
+  background-color: #493628;
+  padding: 0px 40px;
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  margin: 0 auto;
+  align-items: center;
+}
+
+/* .info-left,
+.info-right {
+  border: solid 1px black;
+} */
+
+.info-left h2,
+.info-right h2 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  color: #d6c0b3d1; /* brown shade */
+}
+
+.about-buttons {
+  display: flex;
+  gap: 15px;
+}
+
+.about-buttons button {
+  padding: 12px 24px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.3s;
+}
+.about-buttons button:hover {
+  background-color: #493628;
+}
+
+.social-icons {
+  display: flex;
+  gap: 20px;
+  font-size: 1.8rem;
+  margin-top: -20px;
+  /* border: solid 1px white; */
+}
+
+.social-icons a {
+  color: #3b2a1f;
+  transition: color 0.3s;
+}
+.social-icons a:hover {
+  color: #493628;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .info-section {
+    flex-direction: column;
+    text-align: center;
+  }
+  .about-buttons {
+    flex-direction: row;
+    justify-content: center;
+  }
+  .social-icons {
+    justify-content: center;
+  }
+}
+
+.social-icons {
+  display: flex;
+  gap: 15px;
+  font-size: 1.8rem;
+  margin-top: 20px;
+  /* justify-content: center; */
+}
+
+.social-icons a {
+  color: #d6c0b3d1;
+  transition: color 0.3s;
+}
+
+.social-icons a:hover {
+  color: #d6c0b3d1;
+}
+
+/* ================================
+   MODAL (About & Contact)
+   Brown Shade Palette
+================================ */
+
+/* Modal Overlay */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background-color: rgba(0, 0, 0, 0.75); /* dark overlay */
+}
+
+/* Modal Content */
+.modal-content {
+  background-color: #ffefe6d1;
+  margin: 5% auto;
+  padding: 25px 30px;
+  border-radius: 14px;
+  width: 90%;
+  max-width: 950px;
+  position: relative;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+  animation: modalFadeIn 0.4s ease;
+  border: 2px solid #5D4037;
+}
+
+/* Close Button */
+.modal-content .close {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  font-size: 28px;
+  font-weight: bold;
+  color: #493628; /* light brown/cream */
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.modal-content .close:hover {
+  color: #FFAB91; /* warm accent */
+}
+
+/* Modal Headings */
+.modal-content h2 {
+  font-size: 1.8rem;
+  margin-bottom: 15px;
+  text-align: center;
+  color: #493628; /* light cream */
+  border-bottom: 2px solid #8D6E63; /* soft brown underline */
+  padding-bottom: 8px;
+}
+
+/* Modal Paragraphs */
+.modal-content p {
+  font-size: 1rem;
+  color: #493628; /* lighter beige-brown for text */
+  line-height: 1.6;
+  margin-bottom: 15px;
+  text-align: justify;
+}
+
+/* About Highlights */
+.about-highlights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+.highlight-card {
+  background: #5D4037; /* medium brown */
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+  transition: transform 0.3s, box-shadow 0.3s;
+  border: 1px solid #8D6E63;
+}
+.highlight-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 8px;
+  color: #FFF3E0; /* cream */
+}
+.highlight-card p {
+  font-size: 0.9rem;
+  color: #E0C097; /* soft beige */
+}
+.highlight-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* Contact Info */
+.contact-info {
+  margin-top: 20px;
+  display: grid;
+  /* grid-template-columns: 1fr; */
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+.contact-info .info-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 1rem;
+  color: #FFF8E1; /* cream */
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: #6D4C41; /* lighter brown */
+  border: 1px solid #8D6E63;
+}
+
+.contact-info .info-item a{
+  color: white;
+  text-decoration: none;
+}
+
+.contact-info .info-item p{
+  color: white;
+  text-decoration: none;
+}
+
+.contact-info .info-item i {
+  font-size: 1.3rem;
+  color: #FFAB91; /* accent coral-brown */
+}
+
+/* ===== Policy Pages ===== */
+.policies-section {
+  /* border: solid 1px white; */
+  text-align: center;
+  background: #493628;
+  margin-top:-5px ;
+}
+
+.policies-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 25px;
+  color: #493628;
+}
+
+.policy-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.policy-links a {
+  padding: 12px 20px;
+  color: #D6C0B3;
+  text-decoration: none;
+  border-radius: 6px;
+  transition: background 0.3s, transform 0.2s;
+}
+
+.policy-links a:hover {
+  transform: scale(1.05);
+}
+
+/* Policy Page Content */
+.policy-page {
+  border: solid 1px #493628;
+  max-width: 900px;
+  margin: 60px auto;
+  padding: 20px;
+  /* background: #AB886D; */
+  color: #493628;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.policy-page h1 {
+  font-size: 2rem;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.policy-page h2 {
+  margin-top: 25px;
+  color: #3b2a1f;
+}
+
+.policy-page ul {
+  padding-left: 20px;
+}
+
+.policy-page p, .policy-page li {
+  line-height: 1.6;
+  font-size: 1rem;
+}
+
+
+.contact-policy{
+  border: solid 1px black;
+}
+
+.product-link{
+  text-decoration: none;
+}
+
+
+
+/* body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
   color: #493628;
-}
+} */
 
 /* Wrapper centers the login card */
 .login-wrapper {
