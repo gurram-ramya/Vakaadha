@@ -1,0 +1,374 @@
+/* ============================
+   Vakaadha Login (Zomato-style)
+   ============================ */
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  color: #493628;
+}
+
+/* Wrapper centers the login card */
+.login-wrapper {
+  min-height: calc(100vh - 180px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Card */
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: #D6C0B3;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  padding: 24px 24px 28px;
+}
+
+/* Header */
+.login-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.login-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: #493628;
+}
+
+.login-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #493628;
+}
+
+/* =======================
+   PANELS — universal padding FIX
+   ======================= */
+
+/* Universal spacing for all panels */
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  padding: 0;  /* Exact interior margins */
+  box-sizing: border-box;
+}
+
+.panel-inner {
+  width: 100%;
+  padding: 0 16px 4px;     
+  /* single source of left/right padding */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+
+
+
+.hidden {
+  display: none !important;
+}
+
+/* Inputs */
+.login-input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  border: none;
+  background: #886a54;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.login-input::placeholder {
+  color: #f3e8e0;
+}
+
+/* Phone row */
+.phone-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* Country dropdown (Zomato-style) */
+.cc-dropdown {
+  position: relative;
+  width: 130px;
+}
+
+.cc-selected {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  width: 100%;
+  border-radius: 6px;
+  border: none;
+  background: #886a54;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.cc-selected img {
+  width: 20px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.cc-arrow {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+/* Dropdown list */
+.cc-menu {
+  position: absolute;
+  top: 108%;
+  left: 0;
+  width: 260px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+  z-index: 2000;
+}
+
+/* flag | country | dial */
+.cc-item {
+  display: grid;
+  grid-template-columns: 28px 1fr 60px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #493628;
+}
+
+.cc-item img {
+  width: 22px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+.cc-item span:last-child {
+  text-align: right;
+}
+
+.cc-item:hover {
+  background: #f1e8e2;
+}
+
+/* Buttons */
+.primary-btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  border: none;
+  background: #493628;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s;
+}
+
+.primary-btn:hover {
+  background: #3b2a1f;
+}
+
+.secondary-btn {
+  width: 100%;
+  padding: 11px;
+  border-radius: 6px;
+  border: 1px solid #493628;
+  background: #fdf7f1;
+  color: #493628;
+  cursor: pointer;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+}
+
+.secondary-btn:hover {
+  background: #f0e0d4;
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Error message */
+.error-msg {
+  font-size: 0.85rem;
+  color: #b00020;
+}
+
+/* Divider */
+.divider-row {
+  display: flex;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: #c9a995;
+}
+
+.divider-text {
+  margin: 0 8px;
+  font-size: 0.9rem;
+  color: #493628;
+}
+
+/* Links */
+.linkish-inline {
+  background: none;
+  border: none;
+  color: #c23a3a;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+
+
+/* Bottom text */
+.bottom-text {
+  margin-top: 8px;
+  font-size: 0.9rem;
+}
+
+/* Email illustration */
+
+.email-illustration {
+  width: 80px;
+  height: 80px;
+  /* margin: 12px auto 16px; */
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  background: #f0e0d4;
+}
+
+
+/* Checkbox row */
+/* .checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.checkbox-row a {
+  color: #c23a3a;
+  text-decoration: underline;
+} */
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+
+  width: 100%;          /* forces alignment with inputs/buttons */
+  padding-left: 0;      /* removes the shifted indentation */
+  box-sizing: border-box;
+}
+
+.checkbox-row input {
+  margin-top: 2px;      /* optional: aligns checkbox vertically with text */
+}
+
+.checkbox-row a {
+  color: #c23a3a;
+  text-decoration: underline;
+}
+
+
+/* OTP panel */
+.otp-heading {
+  margin: 6px 0;
+  font-size: 1.25rem;
+}
+
+.otp-subtext {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.otp-box-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.otp-box {
+  width: 38px;
+  height: 44px;
+  text-align: center;
+  font-size: 1.2rem;
+  border-radius: 6px;
+  border: 1px solid #c9a995;
+  background: #fdf7f1;
+}
+
+.otp-timer-row {
+  text-align: center;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+/* Toast */
+#toast {
+  visibility: hidden;
+  min-width: 220px;
+  background-color: #333;
+  color: #fff;
+  text-align: center;
+  border-radius: 8px;
+  padding: 12px;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  font-size: 0.95rem;
+  opacity: 0;
+  transition: opacity 0.4s ease-in-out, visibility 0.4s;
+}
+
+#toast.show {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .login-card {
+    margin: 40px 12px;
+  }
+}

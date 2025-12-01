@@ -1,0 +1,314 @@
+/* ============================================
+   GLOBAL BASE
+============================================ */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  color: #493628;
+  min-height: 100vh;
+}
+
+/* ============================================
+   NAVBAR  (Vakaadha Standard)
+============================================ */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-image: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
+  padding: 15px 30px;
+  border-bottom: 1px solid #222;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.logo {
+  font-family: 'Megrim', cursive;
+  font-size: 1.5rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: #493628;
+  text-decoration: none;
+}
+
+#menu-toggle {
+  display: none;
+}
+
+.menu-icon {
+  display: none;
+  font-size: 28px;
+  color: #493628;
+  cursor: pointer;
+}
+
+.nav-links {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.nav-links a {
+  color: #493628;
+  font-size: 1.2rem;
+  padding: 10px;
+  text-decoration: none;
+  transition: 0.3s;
+  position: relative;
+}
+
+.nav-links a:hover {
+  opacity: 0.8;
+}
+
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  background-color: #D6C0B3;
+  min-width: 180px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+  border-radius: 6px;
+  z-index: 1000;
+}
+
+.dropdown-content a {
+  display: block;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #493628;
+  text-decoration: none;
+}
+
+.dropdown-content a:hover {
+  background: #f1e1d5;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+/* Mobile Navbar */
+@media (max-width: 768px) {
+  .menu-icon { display: block; }
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    left: 0; right: 0;
+    top: 70px;
+    background-image: inherit;
+    padding: 20px 0;
+    border-top: 1px solid #222;
+  }
+  #menu-toggle:checked + .menu-icon + .nav-links {
+    display: flex;
+  }
+}
+
+/* ============================================
+   PAGE LAYOUT
+============================================ */
+.profile-wrapper {
+  max-width: 1200px;
+  margin: 30px auto 60px;
+  padding: 0 20px;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 30px;
+}
+
+@media (max-width: 800px) {
+  .profile-wrapper {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================
+   SIDEBAR
+============================================ */
+.sidebar {
+  background: #D6C0B3;
+  border: 1px solid #493628;
+  padding: 20px;
+  border-radius: 10px;
+  height: fit-content;
+}
+
+.sidebar-title {
+  font-size: 1.3rem;
+  color: #493628;
+  margin-bottom: 15px;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 10px 0;
+  color: #493628;
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid #bfa393;
+  transition: 0.2s;
+}
+
+.sidebar-link:hover {
+  opacity: 0.7;
+}
+
+.sidebar-link:last-child {
+  border-bottom: none;
+}
+
+/* ============================================
+   MAIN EDIT CARD
+============================================ */
+.edit-card {
+  background: #D6C0B3;
+  border: 1px solid #493628;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+}
+
+.edit-card h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #493628;
+}
+
+/* ============================================
+   FORM FIELDS
+============================================ */
+.form-label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  margin-bottom: 15px;
+  font-size: 0.95rem;
+}
+
+.input {
+  margin-top: 6px;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  background: #886a54;
+  color: white;
+  font-size: 1rem;
+}
+
+.input::placeholder {
+  color: #f5e8df;
+}
+
+/* Row (mobile + change) */
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Gender buttons */
+.gender-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.gender-btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: 1px solid #493628;
+  background: #fdf7f1;
+  cursor: pointer;
+  color: #493628;
+  font-weight: 500;
+  transition: 0.25s;
+}
+
+.gender-btn:hover {
+  background: #ead9cf;
+}
+
+.gender-btn.active {
+  background: #493628;
+  color: white;
+}
+
+/* ============================================
+   BUTTONS (Vakaadha Style)
+============================================ */
+.save-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  background: #493628;
+  color: white;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 20px;
+  transition: 0.25s;
+}
+
+.save-btn:hover {
+  background: #36271c;
+}
+
+.btn-light {
+  padding: 10px 16px;
+  background: transparent;
+  border: 1px solid #493628;
+  color: #493628;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.btn-light:hover {
+  background: #493628;
+  color: white;
+}
+
+/* ============================================
+   FOOTER (Vakaadha Standard)
+============================================ */
+.footer {
+  background: #493628;
+  padding: 20px 0;
+  margin-top: 40px;
+}
+
+.footer-inner {
+  max-width: 1200px;
+  margin: auto;
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  font-size: 0.95rem;
+}
+
+.footer-inner a {
+  color: #d6c0b3;
+  text-decoration: none;
+}
+
+.footer-inner a:hover {
+  text-decoration: underline;
+}
+
+.footer-inner p {
+  color: #d6c0b3;
+}

@@ -1,116 +1,183 @@
-// navbar.js
+// ============================================================
+// navbar.js — Auth-first; unified token/guest logic (logout fixed)
+// ============================================================
+
 (function () {
-  const WISHLIST_KEY = "vakaadha_wishlist_v1";
-  const GUEST_KEY = "guest_id";
-  const API_BASE = "/api/cart";
+  if (window.__navbar_js_bound__) return;
+  window.__navbar_js_bound__ = true;
 
-  function getToken() {
-    return localStorage.getItem("auth_token") || null;
-  }
+  const CART_ENDPOINT = "/api/cart";
+  const WISHLIST_COUNT_ENDPOINT = "/api/wishlist/count";
 
-  function getGuestId() {
-    let gid = localStorage.getItem(GUEST_KEY);
-    if (!gid) {
-      gid = crypto.randomUUID();
-      localStorage.setItem(GUEST_KEY, gid);
-    }
-    return gid;
-  }
+  window.appState = window.appState || {
+    cartCount: 0,
+    wishlistCount: 0,
+    lastFetch: 0,
+  };
 
-  async function fetchCartCount() {
-    const token = getToken();
-    const guestId = getGuestId();
-    let url = API_BASE;
-    if (!token) {
-      url += `?guest_id=${guestId}`;
-    }
 
-    const headers = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+
+  // ------------------------------------------------------------
+  // Core request
+  // ------------------------------------------------------------
+  async function safeApiRequest(endpoint, options = {}) {
+    const token = localStorage.getItem("auth_token");
+    const guestId = !token ? localStorage.getItem("guest_id") : null;
+    const headers = options.headers || {};
+
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
 
     try {
-      const res = await fetch(url, { headers });
-      if (!res.ok) throw new Error("Cart fetch failed");
-      const data = await res.json();
-      if (!Array.isArray(data)) return 0;
-      return data.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+      return await window.apiRequest(url, { ...options, headers });
     } catch (err) {
-      console.warn("Cart count update failed:", err);
+      console.error("[navbar.js] API fail:", err);
+      if (err.status === 410) {
+        console.warn("[navbar.js] Guest session expired; resetting");
+        if (window.resetGuestId) window.resetGuestId();
+      }
+      throw err;
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Counts
+  // ------------------------------------------------------------
+  async function fetchCartCount(force = false) {
+    const now = Date.now();
+    if (!force && now - window.appState.lastFetch < 60000)
+      return window.appState.cartCount;
+
+    try {
+      const data = await safeApiRequest(CART_ENDPOINT, { method: "GET" });
+      const items = Array.isArray(data.items) ? data.items : [];
+      const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+      window.appState.cartCount = count;
+      window.appState.lastFetch = now;
+      return count;
+    } catch {
+      window.appState.cartCount = 0;
       return 0;
     }
   }
 
-  function readWishlist() {
+  async function fetchWishlistCount(force = false) {
+    const now = Date.now();
+    if (!force && now - window.appState.lastFetch < 60000)
+      return window.appState.wishlistCount;
+
     try {
-      return JSON.parse(localStorage.getItem(WISHLIST_KEY) || "[]");
+      const res = await safeApiRequest(WISHLIST_COUNT_ENDPOINT, { method: "GET" });
+      const count = typeof res.count === "number" ? res.count : 0;
+      window.appState.wishlistCount = count;
+      window.appState.lastFetch = now;
+      return count;
     } catch {
-      return [];
+      window.appState.wishlistCount = 0;
+      return 0;
     }
   }
 
-  async function updateNavbarCounts() {
-    // wishlist count from localStorage
-    const wishlist = readWishlist();
-    const wishlistCount = Array.isArray(wishlist) ? wishlist.length : 0;
-    const wishEl = document.getElementById("wishlistCount");
-    if (wishEl) wishEl.textContent = wishlistCount;
-
-    // cart count from API
-    const cartCount = await fetchCartCount();
+  async function updateNavbarCounts(force = false) {
     const cartEl = document.getElementById("cartCount");
-    if (cartEl) cartEl.textContent = cartCount;
+    const wishEl = document.getElementById("wishlistCount");
+    if (!cartEl && !wishEl) return;
+
+    try {
+      const [cartCount, wishlistCount] = await Promise.all([
+        fetchCartCount(force),
+        fetchWishlistCount(force),
+      ]);
+      if (cartEl) cartEl.textContent = cartCount || 0;
+      if (wishEl) wishEl.textContent = wishlistCount || 0;
+    } catch {
+      if (cartEl) cartEl.textContent = "0";
+      if (wishEl) wishEl.textContent = "0";
+    }
   }
 
-  function updateAuthUI() {
-    const auth = JSON.parse(localStorage.getItem("loggedInUser") || "null");
+  // ------------------------------------------------------------
+  // Global auth shim (updated logout)
+  // ------------------------------------------------------------
+  window.auth = {
+    async initSession() {
+      const auth = getAuth?.();
+      if (!auth) return null;
+      return auth;
+    },
+    async getCurrentUser() {
+      const auth = getAuth?.();
+      return auth ? { name: auth.name, email: auth.email } : null;
+    },
+    async getToken() {
+      const auth = getAuth?.();
+      return auth ? auth.idToken : null;
+    },
+    async logout() {
+      try {
+        const fbAuth = firebase.auth();
+        await fbAuth.signOut(); // ensures onAuthStateChanged(null)
+      } catch (e) {
+        console.warn("Firebase signOut error:", e);
+      }
+      clearAuth?.();
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("guest_id");
+    },
+  };
+
+  // ------------------------------------------------------------
+  // User Display
+  // ------------------------------------------------------------
+  function updateNavbarUser(user) {
     const loginLink = document.getElementById("loginLink");
     const profileLink = document.getElementById("profileLink");
     const logoutLink = document.getElementById("navbar-logout");
+    const userDisplay = document.getElementById("user-display");
+    const isAuth = !!(user && (user.name || user.email));
 
-    if (auth && auth.idToken) {
-      if (loginLink) loginLink.style.display = "none";
-      if (profileLink) profileLink.style.display = "inline-block";
-      if (logoutLink) logoutLink.style.display = "inline-block";
-    } else {
-      if (loginLink) loginLink.style.display = "inline-block";
-      if (profileLink) profileLink.style.display = "none";
-      if (logoutLink) logoutLink.style.display = "none";
-    }
+    if (userDisplay)
+      userDisplay.textContent = isAuth ? (user.name || user.email || "") : "";
+    if (loginLink) loginLink.style.display = isAuth ? "none" : "inline-block";
+    if (profileLink) profileLink.style.display = isAuth ? "inline-block" : "none";
+    if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
   }
 
+  // ------------------------------------------------------------
+  // Logout handler (with guard flag)
+  // ------------------------------------------------------------
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
-
     logoutLink.addEventListener("click", async (e) => {
       e.preventDefault();
+      window.__logout_in_progress__ = true;
       try {
-        if (window.firebase && firebase.auth) {
-          await firebase.auth().signOut();
-        }
-      } catch (err) {
-        console.warn("Firebase signOut failed:", err);
+        await window.auth.logout();
+        window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
+      } finally {
+        updateNavbarUser(null);
+        document.querySelector("#profile-form")?.reset();
+        document.getElementById("profileSection")?.classList.add("hidden");
+        document.getElementById("homeSection")?.classList.remove("hidden");
+        location.href = "/";
       }
-      localStorage.removeItem("loggedInUser");
-      window.location.href = "index.html";
     });
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    updateNavbarCounts();
-    updateAuthUI();
+  // ------------------------------------------------------------
+  // Initialization
+  // ------------------------------------------------------------
+  async function initializeNavbar() {
+    if (window.auth?.initSession) await window.auth.initSession();
+    const user = await (window.auth?.getCurrentUser?.() || null);
+    updateNavbarUser(user);
+    await updateNavbarCounts(true);
     wireLogout();
-  });
+    setInterval(() => updateNavbarCounts(false), 60000);
+    window.updateNavbarCounts = updateNavbarCounts;
+    window.updateNavbarUser = updateNavbarUser;
+  }
 
-  // expose globally
-  window.updateNavbarCounts = updateNavbarCounts;
-  window.__VAKAADHA_KEYS = { WISHLIST_KEY };
-
-  window.updateNavbarUser = function (user) {
-    const el = document.getElementById("user-display");
-    if (!el) return;
-    el.textContent = user?.name || user?.email || "";
-  };
+  document.addEventListener("DOMContentLoaded", initializeNavbar);
 })();

@@ -1,5 +1,6 @@
 // ============================================================
-// navbar.js — Auth-first; unified token/guest logic (logout fixed)
+// navbar.js — Auth-first; unified token/guest logic
+// Updated to support new login.html / profile.html routing
 // ============================================================
 
 (function () {
@@ -15,7 +16,13 @@
     lastFetch: 0,
   };
 
-
+  // ------------------------------------------------------------------
+  // ADDED: simple helper to check if user is authenticated
+  // ------------------------------------------------------------------
+  function isLoggedIn() {
+    const token = localStorage.getItem("auth_token");
+    return !!token;
+  }
 
   // ------------------------------------------------------------
   // Core request
@@ -97,7 +104,7 @@
   }
 
   // ------------------------------------------------------------
-  // Global auth shim (updated logout)
+  // Global auth shim
   // ------------------------------------------------------------
   window.auth = {
     async initSession() {
@@ -144,23 +151,47 @@
   }
 
   // ------------------------------------------------------------
-  // Logout handler (with guard flag)
+  // Logout handler
   // ------------------------------------------------------------
   function wireLogout() {
     const logoutLink = document.getElementById("navbar-logout");
     if (!logoutLink) return;
+
     logoutLink.addEventListener("click", async (e) => {
       e.preventDefault();
       window.__logout_in_progress__ = true;
+
       try {
         await window.auth.logout();
         window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
       } finally {
         updateNavbarUser(null);
-        document.querySelector("#profile-form")?.reset();
-        document.getElementById("profileSection")?.classList.add("hidden");
-        document.getElementById("homeSection")?.classList.remove("hidden");
+
+        // ------------------------------------------------------------------
+        // REMOVED: old profile DOM manipulation for profile.html inline login
+        // ADDED: universal redirect to homepage after logout
+        // ------------------------------------------------------------------
         location.href = "/";
+      }
+    });
+  }
+
+  // ------------------------------------------------------------
+  // ADDED: Handle profile icon click → login.html OR profile.html
+  // ------------------------------------------------------------
+  function wireProfileIconRouting() {
+    const profileAnchor = document.querySelector('a[href="./profile.html"]');
+    if (!profileAnchor) return;
+
+    profileAnchor.addEventListener("click", (e) => {
+      e.preventDefault();
+
+      if (isLoggedIn()) {
+        // user is authenticated → go to profile
+        window.location.href = "profile.html";
+      } else {
+        // user not authenticated → go to login
+        window.location.href = "login.html";
       }
     });
   }
@@ -171,10 +202,15 @@
   async function initializeNavbar() {
     if (window.auth?.initSession) await window.auth.initSession();
     const user = await (window.auth?.getCurrentUser?.() || null);
+
     updateNavbarUser(user);
     await updateNavbarCounts(true);
+
     wireLogout();
+    wireProfileIconRouting();   // <--- ADDED
+
     setInterval(() => updateNavbarCounts(false), 60000);
+
     window.updateNavbarCounts = updateNavbarCounts;
     window.updateNavbarUser = updateNavbarUser;
   }

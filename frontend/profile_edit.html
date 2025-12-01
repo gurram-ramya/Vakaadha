@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Profile – Vakaadha</title>
+    <link rel="stylesheet" href="profile_edit.css">
+</head>
+
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <a href="/" class="logo">VAKAADHA</a>
+
+        <input type="checkbox" id="menu-toggle">
+        <label for="menu-toggle" class="menu-icon">&#9776;</label>
+
+        <div class="nav-links">
+            <a href="/products.html">Shop</a>
+            <a href="/wishlist.html">Wishlist</a>
+            <a href="/cart.html">Cart</a>
+
+            <div class="dropdown">
+                <a id="navProfileName">Account</a>
+                <div class="dropdown-content">
+                    <a href="/profile.html">Profile</a>
+                    <a href="/orders.html">Orders</a>
+                    <hr>
+                    <a id="logoutBtn">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- PAGE WRAPPER -->
+    <div class="profile-wrapper">
+
+        <!-- LEFT SIDEBAR -->
+        <aside class="sidebar">
+            <h3 class="sidebar-title">Account</h3>
+
+            <a href="/profile.html" class="sidebar-link">Profile</a>
+            <a href="/orders.html" class="sidebar-link">Orders</a>
+            <a href="/addresses.html" class="sidebar-link">Addresses</a>
+        </aside>
+
+        <!-- MAIN CARD -->
+        <main class="edit-card">
+            <h2>Edit Details</h2>
+
+            <form id="editProfileForm">
+
+                <!-- MOBILE -->
+                <label class="form-label">
+                    Mobile Number
+                    <div class="row">
+                        <input type="text" id="mobile" class="input" readonly>
+                        <button type="button" id="changeMobileBtn" class="btn-light">CHANGE</button>
+                    </div>
+                </label>
+
+                <!-- FULL NAME -->
+                <label class="form-label">
+                    Full Name
+                    <input type="text" id="fullName" class="input">
+                </label>
+
+                <!-- EMAIL -->
+                <label class="form-label">
+                    Email
+                    <input type="email" id="email" class="input">
+                </label>
+
+                <!-- GENDER -->
+                <label class="form-label">
+                    Gender
+                    <div class="gender-row">
+                        <button type="button" class="gender-btn" data-value="Male">Male</button>
+                        <button type="button" class="gender-btn" data-value="Female">Female</button>
+                    </div>
+                </label>
+
+                <!-- DOB -->
+                <label class="form-label">
+                    Birthday (dd/mm/yyyy)
+                    <input type="text" id="dob" class="input">
+                </label>
+
+                <!-- ALT MOBILE -->
+                <label class="form-label">
+                    Alternate Mobile Number
+                    <input type="text" id="altMobile" class="input">
+                </label>
+
+                <!-- HINT NAME -->
+                <label class="form-label">
+                    Hint Name
+                    <input type="text" id="hintName" class="input">
+                </label>
+
+                <button type="submit" class="save-btn">SAVE DETAILS</button>
+            </form>
+
+        </main>
+    </div>
+
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <div class="footer-inner">
+            <p>© Vakaadha</p>
+            <a href="/privacy.html">Privacy Policy</a>
+            <a href="/terms.html">Terms of Service</a>
+            <a href="/shipping.html">Shipping Policy</a>
+        </div>
+    </footer>
+
+
+    <script src="profile_edit.js"></script>
+</body>
+</html>
