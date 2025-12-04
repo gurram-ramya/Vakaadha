@@ -334,7 +334,7 @@
     const res = await fetch(url, { ...options, headers, credentials: "include" });
     if (res.status === 401) {
       showToast("Please log in again", "error");
-      setTimeout(() => (window.location.href = "profile.html"), 1000);
+      setTimeout(() => (window.location.href = "payment.html"), 1000);
       throw new Error("Unauthorized");
     }
     if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
@@ -378,13 +378,7 @@
   //     return null;
   //   }
   // }
-  function getSelectedItemsFromStorage() {
-    try {
-      return JSON.parse(sessionStorage.getItem("checkout_items")) || null;
-    } catch {
-      return null;
-    }
-  }
+s
 
 
 
@@ -523,6 +517,54 @@
 
   // ---------------- Main Checkout Flow ----------------
   async function handlePlaceOrder() {
+
+    //Payment using cards
+    if (method === "Card" || method === "CARD" || method === "Card".toUpperCase()) {
+      try {
+        const cards = await getSavedCards();
+
+        // Show UI and let user pick/add card
+        await new Promise((resolve, reject) => {
+          showCardSelectionModal(cards, async (selectedCardId, newCardData) => {
+            try {
+              // selectedCardId => server card_id returned by /api/cards
+              // If newCardData provided, saveNewCardToServer already handled saving in our modal flow
+              const cardToCharge = selectedCardId;
+              if (!cardToCharge) {
+                showToast("No card selected", "error");
+                return reject(new Error("no card"));
+              }
+
+              // amount in paise
+              const amountPaise = Math.round(parseFloat(orderTotalEl.textContent) * 100);
+
+              const chargeResp = await chargeCardOnServer(cardToCharge, amountPaise);
+
+              if (chargeResp.status === "success") {
+                await authFetch("/api/cart/clear", { method: "DELETE" });
+                window.location.href = `order-success.html?orderId=${chargeResp.order_id}`;
+                resolve();
+              } else {
+                showToast("Card payment failed", "error");
+                reject(new Error("charge failed"));
+              }
+            } catch (err) {
+              reject(err);
+            }
+          });
+        });
+
+        return; // early return since card flow ended by redirect
+      } catch (err) {
+        console.error("Card flow failed", err);
+        showToast("Card payment failed", "error");
+        placeOrderBtn.disabled = false;
+        placeOrderBtn.textContent = "Place Order";
+        return;
+      }
+    }
+
+
     const addressId = deliveryAddressDiv.dataset.addressId || getQueryParam("addressId");
     if (!addressId) return showToast("Select a delivery address first", "error");
 
@@ -600,7 +642,7 @@
         }));
 
       if (!readyUser) {
-        window.location.href = "profile.html";
+        window.location.href = "payment.html";
         return;
       }
 
@@ -619,3 +661,109 @@
     }
   });
 })();
+
+
+// ---------- Saved Card helpers ----------
+async function getSavedCards() {
+  try {
+    return await authFetch("/api/cards");
+  } catch (err) {
+    console.warn("Could not fetch saved cards:", err);
+    return [];
+  }
+}
+
+async function saveNewCardToServer(cardData) {
+  // Expects { number, name, expiry, cvv }.
+  // In production you should call gateway client-side tokenization and send only token to server.
+  // Here we POST raw card data to /api/cards which will mock-tokenize for demo.
+  return authFetch("/api/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(cardData),
+  });
+}
+
+async function chargeCardOnServer(card_id, amount_paise) {
+  return authFetch("/api/payments/card-charge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ card_id, amount: amount_paise }),
+  });
+}
+
+// UI for card selection/adding
+function showCardSelectionModal(cards, callback) {
+  const modal = document.getElementById("cardPaymentModal");
+  const savedCardsDiv = document.getElementById("savedCardsDiv");
+  const newCardForm = document.getElementById("newCardForm");
+  modal.classList.add("active"); // show modal (your modal CSS uses .active)
+  savedCardsDiv.innerHTML = "";
+
+  if (!cards || cards.length === 0) {
+    savedCardsDiv.innerHTML = "<p>No saved cards found.</p>";
+  } else {
+    cards.forEach(c => {
+      const div = document.createElement("div");
+      div.className = "card-option";
+      div.innerHTML = `
+        <div>
+          <strong>${c.card_brand || "Card"}</strong> •••• ${c.card_last4}<br>
+          Exp: ${c.expiry_month || "--"}/${c.expiry_year ? String(c.expiry_year).slice(-2) : "--"}
+        </div>
+        <div>
+          <button class="small use-card-btn">Pay</button>
+        </div>
+      `;
+      div.querySelector(".use-card-btn").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        modal.classList.remove("active");
+        callback(c.card_id, null);
+      });
+      savedCardsDiv.appendChild(div);
+    });
+  }
+
+  document.getElementById("addCardBtn").onclick = () => {
+    newCardForm.style.display = "block";
+  };
+
+  document.getElementById("saveCardBtn").onclick = async () => {
+    const number = document.getElementById("cardNumber").value.trim();
+    const name = document.getElementById("cardName").value.trim();
+    const expiry = document.getElementById("cardExpiry").value.trim();
+    const cvv = document.getElementById("cardCvv").value.trim();
+
+    // lightweight validation
+    if (!/^\d{12,19}$/.test(number.replace(/\s+/g, ""))) {
+      showToast("Invalid card number", "error");
+      return;
+    }
+    if (!/^\d{2}\/\d{2,4}$/.test(expiry)) {
+      showToast("Invalid expiry", "error");
+      return;
+    }
+    if (!/^\d{3,4}$/.test(cvv)) {
+      showToast("Invalid CVV", "error");
+      return;
+    }
+
+    // disable button while saving
+    document.getElementById("saveCardBtn").disabled = true;
+    try {
+      const resp = await saveNewCardToServer({ number, name, expiry, cvv });
+      // resp should include card_id
+      modal.classList.remove("active");
+      callback(resp.card_id, null); // we pass card_id so caller charges the card
+    } catch (err) {
+      console.error("save card failed", err);
+      showToast("Failed to save card", "error");
+    } finally {
+      document.getElementById("saveCardBtn").disabled = false;
+    }
+  };
+
+  document.getElementById("closeCardModal").onclick = () => {
+    modal.classList.remove("active");
+  };
+}

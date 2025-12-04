@@ -318,3 +318,17 @@ main.payment-container {
   min-width: 60px;
   text-align: right;
 }
+
+
+/* card modal tweaks */
+#savedCardsDiv .card-option {
+  border: 1px solid #e5e5e5;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+#savedCardsDiv .card-option:hover { background:#f9f9f9; }

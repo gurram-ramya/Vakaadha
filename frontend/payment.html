@@ -134,6 +134,31 @@
     </div>
   </div>
 
+  <!-- Card Modal (paste into payment.html) -->
+  <div id="cardPaymentModal" class="modal">
+    <div class="modal-content">
+      <h3>Select or Add Card</h3>
+      <div id="savedCardsDiv">
+        <p>Loading cards…</p>
+      </div>
+
+      <button id="addCardBtn" class="small">+ Add New Card</button>
+
+      <div id="newCardForm" style="display:none; margin-top:10px;">
+        <h4>Add New Card</h4>
+        <input id="cardNumber" placeholder="Card Number (16 digits)" maxlength="19" />
+        <input id="cardName" placeholder="Name on Card" />
+        <input id="cardExpiry" placeholder="MM/YY" maxlength="5" />
+        <input id="cardCvv" placeholder="CVV" maxlength="4" />
+        <br/>
+        <button id="saveCardBtn" class="small">Save & Continue</button>
+      </div>
+
+      <button id="closeCardModal" class="small" style="margin-top:10px;">Cancel</button>
+    </div>
+  </div>
+
+
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.11/firebase-auth-compat.js"></script>
