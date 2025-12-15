@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Account</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+  <h1>Account</h1>
+
+  <p><b>Name:</b> <span id="n"></span></p>
+  <p><b>Email:</b> <span id="e"></span></p>
+  <p><b>Mobile:</b> <span id="m"></span></p>
+
+  <button onclick="googleLogin()">Connect Google</button>
+</div>
+
+<script>
+const u = JSON.parse(localStorage.getItem("user"));
+n.innerText = u?.name || "-";
+e.innerText = u?.email || "-";
+m.innerText = u?.mobile || "-";
+</script>
+
+</body>
+</html>
