@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
   <title>Sign In</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -10,13 +11,37 @@
   <h1>Sign in</h1>
   <p>Enter your mobile number or email to continue</p>
 
-  <input id="identifier" placeholder="Email or mobile number">
+  <div class="phone-wrapper" id="countryWrapper">
+    <!-- ✅ ONLY THIS PART WILL BE HIDDEN -->
+      <div class="country" id="countryUI" onclick="toggleCountryList()">
+        <span id="flag">🇮🇳</span>
+        <span id="code">+91</span>
+        <span class="arrow">▾</span>
+      </div>
+
+      <!-- ✅ INPUT MUST ALWAYS BE VISIBLE -->
+      <input
+        type="text"
+        id="identifier"
+        placeholder="Email or phone number"
+        oninput="detectCountry(this.value)"
+      />
+  </div>
+
+
+  <div class="country-list" id="countryList">
+    <input
+      class="search"
+      placeholder="Search country"
+      oninput="filterCountries(this.value)"
+    >
+    <div id="countries"></div>
+  </div>
 
   <button onclick="startAuth()">Continue</button>
-
   <button class="secondary" onclick="googleLogin()">Sign in with Google</button>
 </div>
 
-<script src="auth.js"></script>
+<script src="auth1.js"></script>
 </body>
 </html>

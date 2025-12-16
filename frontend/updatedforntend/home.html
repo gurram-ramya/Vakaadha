@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Home</title>
+  <title>Redirecting...</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -9,11 +9,26 @@
 <div class="card">
   <h1>Welcome</h1>
   <p>You are authenticated</p>
-
-  <button onclick="location.href='account.html'">
-    Account settings
-  </button>
+  <p>Redirecting to home...</p>
 </div>
+
+<script>
+  // 🔐 Safety check (optional but recommended)
+  const user =
+    localStorage.getItem("user") ||
+    localStorage.getItem("mobile") ||
+    localStorage.getItem("email");
+
+  if (!user) {
+    // If somehow opened directly
+    location.replace("login.html");
+  }
+
+  // ⏳ Redirect after 2 seconds
+  setTimeout(() => {
+    location.replace("../index.html");
+  }, 2000);
+</script>
 
 </body>
 </html>

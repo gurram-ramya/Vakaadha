@@ -315,3 +315,38 @@
   // Global access
   window.toast = toast;
 })();
+
+
+// ===========================================================
+//  NAVBAR.JS
+// ===========================================================
+document.addEventListener("DOMContentLoaded", () => {
+  const userDisplay = document.getElementById("user-display");
+  const loginLink = document.getElementById("loginLink");
+  const logoutBtn = document.getElementById("navbar-logout");
+
+  const user =
+    JSON.parse(localStorage.getItem("user")) ||
+    localStorage.getItem("mobile") ||
+    localStorage.getItem("email");
+
+  if (user) {
+    // Logged in
+    userDisplay.textContent =
+      user.name || user.email || user.replace(/(\+?\d{2})\d+/, "$1******");
+
+    loginLink.style.display = "none";
+    logoutBtn.style.display = "block";
+  } else {
+    // Not logged in
+    userDisplay.textContent = "";
+    loginLink.style.display = "block";
+    logoutBtn.style.display = "none";
+  }
+
+  logoutBtn?.addEventListener("click", () => {
+    localStorage.clear();
+    location.href = "./updatedforntend/login.html";
+  });
+});
+
