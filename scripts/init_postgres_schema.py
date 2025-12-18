@@ -20,54 +20,87 @@ CREATE TABLE users (
 
   firebase_uid TEXT NOT NULL UNIQUE,
 
-  email TEXT UNIQUE,
-  phone TEXT UNIQUE,
-
-  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
-
-  name TEXT,
-
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+
+  last_login TIMESTAMPTZ,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE user_auth_identities (
+  identity_id BIGSERIAL PRIMARY KEY,
+
+  user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+
+  provider TEXT NOT NULL, 
+  -- 'email', 'phone', 'google'
+
+  identifier TEXT NOT NULL,
+  -- email address, phone number, or google UID
+
+  is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_login TIMESTAMPTZ
+
+  UNIQUE (provider, identifier)
 );
 
 CREATE TABLE user_profiles (
   profile_id BIGSERIAL PRIMARY KEY,
+
   user_id BIGINT NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
-  dob TEXT,
+
+  full_name TEXT,
+  dob DATE,
   gender TEXT,
   avatar_url TEXT,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE user_preferences (
   preference_id BIGSERIAL PRIMARY KEY,
+
   user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+
   key TEXT NOT NULL,
   value TEXT,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
   UNIQUE (user_id, key)
 );
+
 CREATE INDEX idx_preferences_user ON user_preferences(user_id);
 
 CREATE TABLE user_payment_methods (
   payment_id BIGSERIAL PRIMARY KEY,
+
   user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+
   provider TEXT NOT NULL,
   token TEXT NOT NULL,
   last4 TEXT,
   expiry TEXT,
+
   is_default BOOLEAN NOT NULL DEFAULT FALSE,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
 CREATE INDEX idx_payments_user ON user_payment_methods(user_id);
+
+CREATE INDEX idx_auth_user ON user_auth_identities(user_id);
+CREATE INDEX idx_auth_identifier_trgm 
+  ON user_auth_identities USING gin (identifier gin_trgm_ops);
+
+-- end of the users tables creation
 
 CREATE TABLE payments (
   payment_txn_id BIGSERIAL PRIMARY KEY,
