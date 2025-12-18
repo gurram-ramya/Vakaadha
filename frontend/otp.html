@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Verify Mobile</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="card">
+  <h1>Verify mobile number</h1>
+  <p id="otpText"></p>
+
+  <input id="otp" placeholder="Enter OTP" maxlength="6">
+
+  <button onclick="verifyOtp()">Verify</button>
+
+  <button class="secondary" id="resendBtn" onclick="resendOtp()" disabled>
+    Resend OTP (<span id="timer">60</span>)
+  </button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="auth_core.js"></script>
+<script src="login.js"></script>
+
+</body>
+</html>
