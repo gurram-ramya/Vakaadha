@@ -1,303 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Login • VAKAADHA</title>
-
-  <!-- Login-specific styles -->
-  <link rel="stylesheet" href="./login.css"/>
-
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
-
-  <!-- Firebase (for Google sign-in later; OTP is backend-driven) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <meta charset="UTF-8">
+  <title>Sign In</title>
+  <link rel="stylesheet" href="style_1.css">
 </head>
-
 <body>
 
-<!-- ========================================================= -->
-<!-- NAVBAR (same as Vakaadha template)                        -->
-<!-- ========================================================= -->
-<header class="navbar">
-  <a href="index.html" class="logo">VAKAADHA</a>
+<div class="card">
+  <h1>Sign in</h1>
+  <p>Enter your mobile number or email to continue</p>
 
-  <input type="checkbox" id="menu-toggle"/>
-  <label for="menu-toggle" class="menu-icon">&#9776;</label>
-
-  <nav class="nav-links">
-    <a href="./index.html"><i class="fas fa-house"></i></a>
-    <a href="./wishlist.html">
-      <i class="fas fa-heart"></i><span class="wishlist-count" id="wishlistCount">0</span>
-    </a>
-    <a href="./cart.html">
-      <i class="fas fa-shopping-cart"></i><span id="cartCount">0</span>
-    </a>
-
-    <div class="dropdown">
-      <a href="./login.html"><i class="fas fa-user"></i> <span id="user-display"></span></a>
-      <div class="dropdown-content">
-        <a href="login.html" id="auth-link" style="font-weight:bold;">Login / Signup</a>
-        <hr class="dropdown-divider"/>
-        <a href="orders.html">Orders</a>
-        <a href="wishlist.html">Wishlist</a>
-        <a href="#">Gift Cards</a>
-        <a href="contact.html">Contact Us</a>
-        <a href="#">Saved Cards</a>
-        <a href="#">Saved VPA</a>
-        <a href="addresses.html">Saved Addresses</a>
-        <div id="logged-in-links" class="hidden">
-          <hr class="dropdown-divider"/>
-          <a href="profile.html">Settings</a>
-          <a href="orders.html">My Orders</a>
-          <a href="wishlist.html">Wishlist</a>
-          <a href="addresses.html">Addresses</a>
-          <a href="#" id="navbar-logout">Logout</a>
-        </div>
+  <div class="phone-wrapper" id="countryWrapper">
+    <!-- ✅ ONLY THIS PART WILL BE HIDDEN -->
+      <div class="country" id="countryUI" onclick="toggleCountryList()">
+        <span id="flag">🇮🇳</span>
+        <span id="code">+91</span>
+        <span class="arrow">▾</span>
       </div>
-    </div>
-  </nav>
-</header>
 
-<!-- ========================================================= -->
-<!-- LOGIN MODAL (Zomato-style, full-page)                     -->
-<!-- ========================================================= -->
-<main class="login-wrapper">
-  <div class="login-card">
-
-    <!-- Top bar -->
-    <div class="login-header">
-      <h2 id="login-heading">Login</h2>
-      <button type="button" class="login-close" onclick="window.location.href='index.html'">&times;</button>
-    </div>
-
-    <!-- ===================== -->
-    <!-- PANEL 1: PHONE LOGIN  -->
-    <!-- ===================== -->
-    <section id="panel-phone" class="login-panel">
-      <div class="panel-inner">
-
-        <div class="phone-row">
-          <!-- Country code dropdown with flag -->
-          <div class="cc-dropdown" id="cc-dropdown">
-            <button type="button" class="cc-selected" id="cc-selected">
-              <img id="cc-flag" alt="IN"/>
-              <span id="cc-dial">+91</span>
-              <i class="fa-solid fa-chevron-down cc-arrow"></i>
-            </button>
-            <div class="cc-menu hidden" id="cc-menu"></div>
-          </div>
-
-          <input
-            type="tel"
-            id="phone-input"
-            class="login-input"
-            placeholder="Phone"
-            autocomplete="tel"
-          />
-        </div>
-
-        <div id="phone-error" class="error-msg hidden"></div>
-
-        <button id="phone-send-otp" class="primary-btn">
-          Send One Time Password
-        </button>
-
-        <div class="divider-row">
-          <span class="divider-line"></span>
-          <span class="divider-text">or</span>
-          <span class="divider-line"></span>
-        </div>
-
-        <button id="goto-email-login" class="secondary-btn">
-          <i class="fa-solid fa-envelope"></i>
-          <span>Continue with Email</span>
-        </button>
-
-        <button id="google-login" class="secondary-btn">
-          <i class="fab fa-google"></i>
-          <span>Sign in with Google</span>
-        </button>
-
-        <p class="bottom-text">
-          New to Vakaadha?
-          <button type="button" id="goto-signup" class="linkish-inline">Create account</button>
-        </p>
-
-      </div>
-    </section>
-
-    <!-- ===================== -->
-    <!-- PANEL 2: EMAIL LOGIN  -->
-    <!-- ===================== -->
-    <section id="panel-email-login" class="login-panel hidden">
-      <div class="panel-inner">
-
-        <div class="email-illustration"></div>
-
-        <input
-          type="email"
-          id="email-login-input"
-          class="login-input"
-          placeholder="Email"
-          autocomplete="email"
-        />
-
-        <div id="email-login-error" class="error-msg hidden"></div>
-
-        <button id="email-login-send-otp" class="primary-btn">
-          Send One Time Password
-        </button>
-
-        <p class="bottom-text">
-          Already have an account?
-          <button type="button" id="back-to-phone-from-email" class="linkish-inline">Login</button>
-        </p>
-
-      </div>
-    </section>
-
-    <!-- ===================== -->
-    <!-- PANEL 3: SIGNUP       -->
-    <!-- ===================== -->
-    <section id="panel-signup" class="login-panel hidden">
-      <div class="panel-inner">
-
-        <input
-          type="text"
-          id="signup-name"
-          class="login-input"
-          placeholder="Full Name"
-          autocomplete="name"
-        />
-
-        <input
-          type="email"
-          id="signup-email"
-          class="login-input"
-          placeholder="Email"
-          autocomplete="email"
-        />
-
-        <label class="checkbox-row">
-          <input type="checkbox" id="signup-tos"/>
-          <span>
-            I agree to Vakaadha's
-            <a href="terms-of-service.html" target="_blank" rel="noopener">Terms of Service</a>
-            and
-            <a href="privacy-policy.html" target="_blank" rel="noopener">Privacy Policy</a>
-          </span>
-        </label>
-
-        <button id="signup-create" class="primary-btn disabled" disabled>
-          Create account
-        </button>
-
-        <div class="divider-row">
-          <span class="divider-line"></span>
-          <span class="divider-text">or</span>
-          <span class="divider-line"></span>
-        </div>
-
-        <button id="signup-google" class="secondary-btn">
-          <i class="fab fa-google"></i>
-          <span>Sign in with Google</span>
-        </button>
-
-        <p class="bottom-text">
-          Already have an account?
-          <button type="button" id="back-to-phone-from-signup" class="linkish-inline">Login</button>
-        </p>
-
-      </div>
-    </section>
-
-
-    <!-- ===================== -->
-    <!-- PANEL 4: OTP VERIFY   -->
-    <!-- ===================== -->
-    <section id="panel-otp" class="login-panel hidden">
-      <div class="panel-inner">
-
-        <h3 class="otp-heading">OTP Verification</h3>
-        <p class="otp-subtext" id="otp-subtext">
-          Verification code has been sent. Enter it below to continue.
-        </p>
-
-        <div class="otp-box-row" id="otp-box-row">
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-          <input maxlength="1" class="otp-box" type="text" inputmode="numeric"/>
-        </div>
-
-        <div id="otp-error" class="error-msg hidden"></div>
-
-        <div class="otp-timer-row">
-          <span id="otp-timer">00:30</span>
-        </div>
-
-        <p class="bottom-text">
-          Not received OTP?
-          <button type="button" id="otp-resend" class="linkish-inline" disabled>Resend Now</button>
-        </p>
-
-        <button id="otp-verify-btn" class="primary-btn">
-          Verify and Continue
-        </button>
-
-      </div>
-    </section>
-
+      <!-- ✅ INPUT MUST ALWAYS BE VISIBLE -->
+      <input
+        type="text"
+        id="identifier"
+        placeholder="Email or phone number"
+        oninput="detectCountry(this.value)"
+      />
   </div>
-</main>
 
-<!-- Toast -->
-<div id="toast">OK</div>
 
-<!-- ========================================================= -->
-<!-- FOOTER (Vakaadha)                                         -->
-<!-- ========================================================= -->
-<div class="contact-policy">
-  <section class="info-section">
-    <div class="info-left">
-      <div class="about-buttons">
-        <button type="button" onclick="openModal('aboutModal')"><h2>About Us</h2></button>
-      </div>
-    </div>
+  <div class="country-list" id="countryList">
+    <input
+      class="search"
+      placeholder="Search country"
+      oninput="filterCountries(this.value)"
+    >
+    <div id="countries"></div>
+  </div>
 
-    <div class="info-right">
-      <h2>Follow Us On</h2>
-      <div class="social-icons">
-        <a href="https://x.com" target="_blank"><i class="fa-brands fa-x-twitter"></i></a>
-        <a href="https://instagram.com" target="_blank"><i class="fab fa-instagram"></i></a>
-        <a href="https://facebook.com" target="_blank"><i class="fab fa-facebook"></i></a>
-        <a href="https://youtube.com" target="_blank"><i class="fab fa-youtube"></i></a>
-        <a href="https://wa.me/7893153335" target="_blank"><i class="fab fa-whatsapp"></i></a>
-        <a href="tel:+917893153335" target="_blank" style="font-size:1.5rem;"><i class="fa-solid fa-phone"></i></a>
-        <a href="mailto:contact.vakaadha@gmail.com"><i class="fa-solid fa-envelope"></i></a>
-      </div>
-    </div>
-  </section>
-
-  <section class="policies-section">
-    <div class="policy-links">
-      <a href="privacy-policy.html">Privacy Policy</a>
-      <a href="refund-policy.html">Refund & Return Policy</a>
-      <a href="terms-of-service.html">Terms of Service</a>
-      <a href="shipping-policy.html">Shipping Policy</a>
-    </div>
-  </section>
+  <button onclick="startAuth()">Continue</button>
+  <button class="secondary" onclick="googleLogin()">Sign in with Google</button>
 </div>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
-<!-- Scripts -->
-<script src="./api/client.js"></script>
-<script src="./navbar.js"></script>
-<script src="./login.js"></script>
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="auth_core.js"></script>
+<script src="login.js"></script>
 
 </body>
 </html>

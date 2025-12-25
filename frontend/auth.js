@@ -238,15 +238,18 @@
    * ----------------------------------------------------- */
   if (!window.firebase?.apps?.length) {
     const firebaseConfig = {
-      apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
-      authDomain: "vakaadha.firebaseapp.com",
-      projectId: "vakaadha",
-      storageBucket: "vakaadha.appspot.com",
-      messagingSenderId: "395786980107",
-      appId: "1:395786980107:web:6678e452707296df56b00e",
+      apiKey: "AIzaSyCT9uxZZQehx7zChiUDRX3_KugzoMCks8U",
+      authDomain: "vakaadha-c412d.firebaseapp.com",
+      projectId: "vakaadha-c412d",
+      storageBucket: "vakaadha-c412d.firebasestorage.app",
+      messagingSenderId: "457234189424",
+      appId: "1:457234189424:web:8f699d1b82fae8c699b8b5",
+      measurementId: "G-61TWVP3GDZ"
     };
     firebase.initializeApp(firebaseConfig);
   }
+  
+
 
   try {
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);

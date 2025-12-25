@@ -667,32 +667,11 @@
     const verifier = new firebase.auth.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
     window.__vakaadha_recaptcha_verifier__ = verifier;
 
-    // try { await verifier.render(); } catch {}
+    try { await verifier.render(); } catch {}
 
-    // let out;
-    // if (mode === MODE.LINK) out = await sendOtpLinkMode(phoneE164, verifier);
-    // else out = await sendOtpLoginMode(phoneE164, verifier);
-
-    // setFlow({
-    //   type: TYPE.PHONE,
-    //   phoneE164,
-    //   createdAt: flow.createdAt || nowMs(),
-    //   phone: {
-    //     otpSentAt: nowMs(),
-    //     verificationId: out.verificationId,
-    //     method: out.method,
-    //   },
-    // });
     let out;
-    try {
-      if (mode === MODE.LINK) {
-        out = await sendOtpLinkMode(phoneE164, verifier);
-      } else {
-        out = await sendOtpLoginMode(phoneE164, verifier);
-      }
-    } finally {
-      clearRecaptchaVerifier(); // ← MUST be here
-    }
+    if (mode === MODE.LINK) out = await sendOtpLinkMode(phoneE164, verifier);
+    else out = await sendOtpLoginMode(phoneE164, verifier);
 
     setFlow({
       type: TYPE.PHONE,
@@ -704,7 +683,6 @@
         method: out.method,
       },
     });
-
 
     setResendEnabled(false);
   }
@@ -772,11 +750,9 @@
 
       hardFail("OTP verification failed", e);
       return;
-    } 
-    
-    // finally {
-    //   clearRecaptchaVerifier();
-    // }
+    } finally {
+      clearRecaptchaVerifier();
+    }
 
     try {
       await reconcileAndRedirect(true);
