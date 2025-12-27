@@ -1,97 +1,3 @@
-// // =============================================================
-// // VAKAADHA • PROFILE PAGE JS
-// // Fetches user details, fills profile fields,
-// // handles auth state + navbar, redirects when needed.
-// // =============================================================
-
-// // 1. Redirect to login if no token exists.
-// const token = localStorage.getItem("token");
-// if (!token) {
-//     window.location.href = "login.html";
-// }
-
-// // 2. DOM references (matches profile.html EXACTLY)
-// const fullNameEl = document.getElementById("profile-fullname");
-// const mobileEl   = document.getElementById("profile-mobile");
-// const emailEl    = document.getElementById("profile-email");
-// const genderEl   = document.getElementById("profile-gender");
-// const dobEl      = document.getElementById("profile-dob");
-// const locationEl = document.getElementById("profile-location");
-// const altMobileEl = document.getElementById("profile-altmobile");
-// const hintNameEl = document.getElementById("profile-hintname");
-
-// // Navbar elements
-// const userDisplay = document.getElementById("user-display");
-// const loggedInLinks = document.getElementById("logged-in-links");
-// const authLink = document.getElementById("auth-link");
-// const navbarLogout = document.getElementById("navbar-logout");
-
-
-// // =============================================================
-// //  Function: Fill the profile card
-// // =============================================================
-// function fillProfile(data) {
-
-//     fullNameEl.textContent    = data.fullName ?? "- not added -";
-//     mobileEl.textContent      = data.mobile ?? "- not added -";
-//     emailEl.textContent       = data.email ?? "- not added -";
-//     genderEl.textContent      = data.gender ?? "- not added -";
-//     dobEl.textContent         = data.dob ?? "- not added -";
-//     locationEl.textContent    = data.location ?? "- not added -";
-//     altMobileEl.textContent   = data.altMobile ?? "- not added -";
-//     hintNameEl.textContent    = data.hintName ?? "- not added -";
-
-//     // Navbar "Hi, Name"
-//     if (data.fullName) {
-//         userDisplay.textContent = data.fullName.split(" ")[0];
-//     }
-// }
-
-
-// // =============================================================
-// //  Function: Fetch user data from backend
-// // =============================================================
-// async function loadUser() {
-//     try {
-//         const res = await fetch("/api/users/me", {
-//             headers: {
-//                 "Authorization": `Bearer ${token}`
-//             }
-//         });
-
-//         if (!res.ok) {
-//             // Token invalid → logout and send user to login
-//             localStorage.removeItem("token");
-//             window.location.href = "login.html";
-//             return;
-//         }
-
-//         const data = await res.json();
-//         fillProfile(data);
-
-//         // Navbar state
-//         loggedInLinks.classList.remove("hidden");
-//         authLink.style.display = "none";
-
-//     } catch (err) {
-//         console.error("Profile fetch failed:", err);
-//         localStorage.removeItem("token");
-//         window.location.href = "login.html";
-//     }
-// }
-
-// loadUser();
-
-
-// // =============================================================
-// // Logout button
-// // =============================================================
-// if (navbarLogout) {
-//     navbarLogout.addEventListener("click", () => {
-//         localStorage.removeItem("token");
-//         window.location.href = "index.html";
-//     });
-// }
 // =============================================================
 // profile.js — VAKAADHA USER PROFILE (READ-ONLY VIEW)
 // -------------------------------------------------------------
@@ -99,11 +5,11 @@
 // • Ensure user is authenticated (via auth.js)
 // • Fetch user profile from backend (via client.js)
 // • Render profile fields into profile.html DOM
-// • Delegate navbar & logout to navbar.js
 //
 // Non-Responsibilities (intentional):
 // • No Firebase calls
-// • No token handling
+// • No token handling beyond auth.getToken()
+// • No registration / reconciliation
 // • No navbar manipulation
 // • No logout logic
 // • No credential linking
@@ -112,6 +18,8 @@
 (function () {
   if (window.__profile_js_bound__) return;
   window.__profile_js_bound__ = true;
+
+  const LOGIN_URL = "login.html";
 
   // ------------------------------------------------------------
   // DOM references — MUST match profile.html exactly
@@ -130,6 +38,16 @@
   // ------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------
+  function redirectToLogin() {
+    try {
+      if (!/login\.html$/i.test(String(window.location.pathname || ""))) {
+        window.location.href = LOGIN_URL;
+      }
+    } catch {
+      window.location.href = LOGIN_URL;
+    }
+  }
+
   function safeText(el, value) {
     if (!el) return;
     el.textContent =
@@ -139,16 +57,18 @@
   }
 
   function normalizeProfilePayload(me) {
-    // Backend may evolve; tolerate missing fields
+    // Backend may evolve; tolerate missing fields and shape changes
+    const profile = me?.profile && typeof me.profile === "object" ? me.profile : null;
+
     return {
-      name: me?.name || null,
-      phone: me?.phone || null,
-      email: me?.email || null,
-      gender: me?.profile?.gender || null,
-      dob: me?.profile?.dob || null,
-      location: me?.profile?.location || null,
-      altMobile: me?.profile?.alt_mobile || null,
-      hint: me?.profile?.hint_name || null,
+      name: me?.name ?? null,
+      phone: me?.phone ?? null,
+      email: me?.email ?? null,
+      gender: profile?.gender ?? null,
+      dob: profile?.dob ?? null,
+      location: profile?.location ?? null,
+      altMobile: profile?.alt_mobile ?? null,
+      hint: profile?.hint_name ?? null,
     };
   }
 
@@ -166,19 +86,25 @@
   }
 
   // ------------------------------------------------------------
-  // Auth guard — Firebase-backed, backend-verified
+  // Preconditions
   // ------------------------------------------------------------
   async function ensureAuthenticated() {
-    // auth.js owns session truth
-    if (!window.auth || !window.auth.getToken) {
-      // catastrophic mis-load; fail closed
-      window.location.href = "login.html";
+    // auth.js must be loaded and authoritative
+    if (!window.auth || typeof window.auth.getToken !== "function") {
+      redirectToLogin();
       return false;
     }
 
     const token = await window.auth.getToken();
     if (!token) {
-      window.location.href = "login.html";
+      redirectToLogin();
+      return false;
+    }
+
+    // client.js must expose apiRequest
+    if (typeof window.apiRequest !== "function") {
+      // catastrophic mis-load; fail closed
+      redirectToLogin();
       return false;
     }
 
@@ -186,26 +112,27 @@
   }
 
   // ------------------------------------------------------------
-  // Load profile from backend
+  // Load profile from backend (single source of truth)
   // ------------------------------------------------------------
   async function loadProfile() {
     try {
       const me = await window.apiRequest("/api/users/me");
       renderProfile(me);
     } catch (err) {
-      // Auth expired or backend rejected → full re-auth
-      console.error("[profile.js] Failed to load profile:", err);
-      window.location.href = "login.html";
+      // Fail closed on any backend auth/shape issues
+      try {
+        console.error("[profile.js] Failed to load profile:", err);
+      } catch {}
+      redirectToLogin();
     }
   }
 
   // ------------------------------------------------------------
-  // Initialization
+  // Init
   // ------------------------------------------------------------
   async function initProfile() {
     const ok = await ensureAuthenticated();
     if (!ok) return;
-
     await loadProfile();
   }
 

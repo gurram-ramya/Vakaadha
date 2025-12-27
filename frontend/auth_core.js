@@ -114,14 +114,18 @@
 
 // frontend/auth_core.js
 // Firebase → backend reconciliation (single-purpose, deterministic, production-safe)
-
+//
+// Contract:
+// - window.AuthCore.afterFirebaseAuth(firebaseUser, opts)
+// - Uses Firebase ID token (from window.auth) for backend auth
+// - Writes localStorage.user_info on success
+// - Clears localStorage.guest_id only after backend success
 (function () {
   if (window.__auth_core_bound__) return;
   window.__auth_core_bound__ = true;
 
   const GUEST_KEY = "guest_id";
-  const USER_KEY  = "user_info";
-  const TOKEN_KEY = "auth_token";
+  const USER_KEY = "user_info";
 
   let lastSyncedUid = null;
   let syncInProgress = false;
@@ -143,11 +147,15 @@
     } catch {}
   }
 
-  function cacheToken(token) {
+  function readCachedBackendUser() {
     try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
-    } catch {}
+      const raw = localStorage.getItem(USER_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === "object" ? obj : null;
+    } catch {
+      return null;
+    }
   }
 
   function getGuestId() {
@@ -167,8 +175,41 @@
   function extractProviders(firebaseUser) {
     if (!firebaseUser?.providerData) return [];
     return firebaseUser.providerData
-      .map(p => p?.providerId)
+      .map((p) => p?.providerId)
       .filter(Boolean);
+  }
+
+  async function getFreshBearerToken(firebaseUser) {
+    // Single authority: auth.js
+    try {
+      if (window.auth?.getToken) {
+        const t = await window.auth.getToken({ forceRefresh: true });
+        if (typeof t === "string" && t.trim()) return t.trim();
+      }
+    } catch {}
+
+    // Failsafe only (should not be the primary path)
+    try {
+      const t2 = await firebaseUser.getIdToken(true);
+      if (typeof t2 === "string" && t2.trim()) return t2.trim();
+    } catch {}
+
+    throw new Error("[AuthCore] Unable to acquire Firebase ID token");
+  }
+
+  async function apiRequestWithToken(endpoint, opts, token, guestId) {
+    if (!window.apiRequest) {
+      throw new Error("[AuthCore] window.apiRequest not available (client.js not loaded)");
+    }
+
+    const headers = {
+      ...(guestId ? { "X-Guest-Id": guestId } : {}),
+      ...(opts?.headers || {}),
+      // Must override any stale header inside apiRequest
+      Authorization: `Bearer ${token}`,
+    };
+
+    return window.apiRequest(endpoint, { ...(opts || {}), headers });
   }
 
   /* -------------------------------------------------------
@@ -178,21 +219,26 @@
     const {
       providedName = null,
       force = false,
-      reason = "login" // login | link | profile_complete
+      reason = "login", // login | link | profile_complete
     } = opts;
 
     assertFirebaseUser(firebaseUser);
 
-    // Prevent parallel reconciliation
+    // Prevent parallel reconciliation (fail closed; caller can retry)
     if (syncInProgress) {
       throw new Error("[AuthCore] Sync already in progress");
     }
 
-    // Guard: same UID, already synced
+    // Guard: same UID already synced (serve cached result)
     if (!force && lastSyncedUid === firebaseUser.uid) {
+      const cached = readCachedBackendUser();
       return {
         skipped: true,
         firebase_uid: firebaseUser.uid,
+        user_id: cached?.user_id ?? cached?.id ?? null,
+        providers: extractProviders(firebaseUser),
+        backend_user: cached || null,
+        profile_complete: !!cached?.profile_complete,
         reason,
       };
     }
@@ -201,73 +247,62 @@
     lastSyncedUid = firebaseUser.uid;
 
     try {
-      /* ---------------------------------------------------
-       * Refresh Firebase state
-       * ------------------------------------------------- */
-      await firebaseUser.reload();
-
-      let idToken;
+      // Refresh Firebase user state (providers, claims)
       try {
-        idToken = await firebaseUser.getIdToken(true);
-      } catch (err) {
-        throw new Error("[AuthCore] Unable to refresh Firebase ID token");
-      }
+        await firebaseUser.reload();
+      } catch {}
 
-      cacheToken(idToken);
-
+      const token = await getFreshBearerToken(firebaseUser);
       const guestId = getGuestId();
 
-      /* ---------------------------------------------------
-       * Backend reconciliation (idempotent)
-       * ------------------------------------------------- */
-      let registerPayload = {};
+      // Backend reconciliation (idempotent endpoint expected)
+      const registerPayload = {};
       if (providedName) registerPayload.name = providedName;
 
-      let registerResponse;
       try {
-        registerResponse = await window.apiRequest(
+        await apiRequestWithToken(
           "/api/auth/register",
           {
             method: "POST",
             body: registerPayload,
-            headers: guestId ? { "X-Guest-Id": guestId } : {},
-          }
+          },
+          token,
+          guestId
         );
       } catch (err) {
-        // Firebase is source of truth.
-        // Backend failure must surface explicitly.
-        throw new Error("[AuthCore] /api/auth/register failed");
+        const e = new Error("[AuthCore] /api/auth/register failed");
+        e.cause = err;
+        throw e;
       }
 
-      /* ---------------------------------------------------
-       * Fetch canonical backend user
-       * ------------------------------------------------- */
+      // Fetch canonical backend user (must be authorized by Firebase ID token)
       let me;
       try {
-        me = await window.apiRequest("/api/users/me");
+        me = await apiRequestWithToken(
+          "/api/users/me",
+          { method: "GET" },
+          token,
+          guestId
+        );
       } catch (err) {
-        throw new Error("[AuthCore] /api/users/me failed");
+        const e = new Error("[AuthCore] /api/users/me failed");
+        e.cause = err;
+        throw e;
       }
 
       cacheBackendUser(me);
 
-      /* ---------------------------------------------------
-       * Clear guest state ONLY after backend success
-       * ------------------------------------------------- */
+      // Clear guest state only after backend success
       if (guestId) clearGuestId();
 
-      /* ---------------------------------------------------
-       * Return structured result (caller decides next step)
-       * ------------------------------------------------- */
       return {
         firebase_uid: firebaseUser.uid,
-        user_id: me?.user_id ?? null,
+        user_id: me?.user_id ?? me?.id ?? null,
         providers: extractProviders(firebaseUser),
         backend_user: me,
         profile_complete: !!me?.profile_complete,
         reason,
       };
-
     } finally {
       syncInProgress = false;
     }

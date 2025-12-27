@@ -1,5 +1,5 @@
 // // ============================================================
-// // cart.js — Auth-first; waits for initSession before API usage
+// // cart.js — With Item Selection + Selected Checkout
 // // ============================================================
 
 // (function () {
@@ -58,6 +58,26 @@
 //   };
 
 //   // ----------------------------
+//   // Recalculate totals only for selected items
+//   // ----------------------------
+//   function recalcSelectedTotals() {
+//     const items = document.querySelectorAll(".cart-item");
+//     let subtotal = 0;
+
+//     items.forEach((item) => {
+//       const checkbox = item.querySelector(".cart-select");
+//       if (checkbox && checkbox.checked) {
+//         const price = Number(item.querySelector(".price").textContent.replace("₹", ""));
+//         const qty = Number(item.querySelector("input[type='number']").value);
+//         subtotal += price * qty;
+//       }
+//     });
+
+//     subtotalEl.textContent = `₹${subtotal.toFixed(2)}`;
+//     totalEl.textContent = `₹${subtotal.toFixed(2)}`;
+//   }
+
+//   // ----------------------------
 //   // Render cart
 //   // ----------------------------
 //   function renderCart(cart) {
@@ -76,25 +96,21 @@
 //       const price = (item.price_cents / 100).toFixed(2);
 //       const subtotal = ((item.price_cents * item.quantity) / 100).toFixed(2);
 
-//       let lockBadge = "";
-//       if (item.locked_price_until && new Date(item.locked_price_until) > new Date()) {
-//         const until = new Date(item.locked_price_until).toLocaleDateString();
-//         lockBadge = `<div class="lock-badge">Locked until ${until}</div>`;
-//       }
-
 //       return `
 //         <div class="cart-item" data-id="${item.cart_item_id}">
+//           <input type="checkbox" class="cart-select" />
 //           <div class="cart-item-left"><img src="${img}" alt="${name}" /></div>
 //           <div class="cart-item-right">
 //             <h3>${name}</h3>
 //             <p class="variant">${item.size || ""} ${item.color || ""}</p>
 //             <p class="price">₹${price}</p>
-//             ${lockBadge}
+
 //             <div class="quantity-control">
 //               <button class="qty-btn minus">−</button>
 //               <input type="number" min="1" value="${item.quantity}" />
 //               <button class="qty-btn plus">+</button>
 //             </div>
+
 //             <div class="item-actions">
 //               <span class="item-subtotal">₹${subtotal}</span>
 //               <button class="remove-btn"><i class="fas fa-trash"></i></button>
@@ -105,15 +121,12 @@
 
 //     itemsContainer.innerHTML = html;
 
-//     const subtotal = cart.totals?.subtotal_cents ??
-//       cart.items.reduce((s, i) => s + i.price_cents * i.quantity, 0);
-//     const total = cart.totals?.total_cents ??
-//       cart.items.reduce((s, i) => s + i.price_cents * i.quantity, 0);
-
-//     subtotalEl.textContent = `₹${(subtotal / 100).toFixed(2)}`;
-//     totalEl.textContent = `₹${(total / 100).toFixed(2)}`;
+//     recalcSelectedTotals();
 //   }
 
+//   // ----------------------------
+//   // Show empty cart
+//   // ----------------------------
 //   function showEmpty() {
 //     itemsContainer.innerHTML = "";
 //     emptyEl.classList.remove("hidden");
@@ -138,12 +151,8 @@
 //       renderCart(cart);
 //     } catch (err) {
 //       console.error("[cart.js] loadCart failed:", err);
-//       if (err.status === 410) {
-//         toast("Cart expired", true);
-//         showEmpty();
-//       } else {
-//         toast("Error loading cart", true);
-//       }
+//       toast("Error loading cart", true);
+//       showEmpty();
 //     }
 //   }
 
@@ -155,23 +164,37 @@
 //   // ----------------------------
 //   // Item operations
 //   // ----------------------------
-//   async function updateQuantity(id, quantity) {
-//     try {
-//       if (quantity <= 0) return removeItem(id);
-//       await CartAPI.patch({ cart_item_id: id, quantity });
-//       await refresh();
-//     } catch (err) {
-//       handleError(err, "Failed to update quantity");
+// async function updateQuantity(id, quantity) {
+//   try {
+//     if (quantity <= 0) return removeItem(id);
+
+//     // Update backend only (no page refresh)
+//     await CartAPI.patch({ cart_item_id: id, quantity });
+
+//     // Update subtotal for this item only
+//     const itemEl = document.querySelector(`.cart-item[data-id='${id}']`);
+//     if (itemEl) {
+//       const price = Number(itemEl.querySelector(".price").textContent.replace("₹", ""));
+//       const subtotal = price * quantity;
+//       itemEl.querySelector(".item-subtotal").textContent = `₹${subtotal.toFixed(2)}`;
 //     }
+
+//     // Recalculate totals for selected items
+//     recalcSelectedTotals();
+
+//   } catch {
+//     toast("Failed to update quantity", true);
 //   }
+// }
+
 
 //   async function removeItem(id) {
 //     try {
 //       await CartAPI.remove(id);
 //       toast("Item removed");
 //       await refresh();
-//     } catch (err) {
-//       handleError(err, "Failed to remove item");
+//     } catch {
+//       toast("Failed to remove item", true);
 //     }
 //   }
 
@@ -180,90 +203,11 @@
 //       await CartAPI.clear();
 //       toast("Cart cleared");
 //       await refresh();
-//     } catch (err) {
-//       handleError(err, "Failed to clear cart");
+//     } catch {
+//       toast("Failed to clear cart", true);
 //     }
 //   }
 
-//   function handleError(err, fallback) {
-//     if (!err) return toast(fallback, true);
-//     switch (err.status) {
-//       case 400: toast("Bad request", true); break;
-//       case 409: toast("Out of stock", true); break;
-//       case 410: toast("Cart expired", true); showEmpty(); break;
-//       default: toast(fallback, true);
-//     }
-//   }
-//   // ----------------------------
-//   // Login-required popup
-//   // ----------------------------
-//   function showLoginPopup() {
-//     const overlay = document.createElement("div");
-//     overlay.id = "login-overlay";
-//     Object.assign(overlay.style, {
-//       position: "fixed",
-//       top: 0,
-//       left: 0,
-//       width: "100%",
-//       height: "100%",
-//       background: "rgba(0,0,0,0.55)",
-//       display: "flex",
-//       justifyContent: "center",
-//       alignItems: "center",
-//       zIndex: "9999",
-//       animation: "fadeIn 0.3s ease"
-//     });
-
-//     const box = document.createElement("div");
-//     Object.assign(box.style, {
-//       background: "#fff",
-//       padding: "2rem 2.5rem",
-//       borderRadius: "12px",
-//       width: "90%",
-//       maxWidth: "380px",
-//       boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-//       textAlign: "center",
-//       fontFamily: "system-ui, sans-serif",
-//       position: "relative"
-//     });
-
-//     box.innerHTML = `
-//       <h2 style="margin-bottom: 0.8rem; font-size: 1.4rem;">Sign in Required</h2>
-//       <p style="color:#555; font-size:0.95rem; margin-bottom:1.6rem;">
-//         You need to log in or create an account to proceed with checkout.
-//       </p>
-//       <div style="display:flex; gap:0.8rem; justify-content:center;">
-//         <button id="go-login" style="
-//           background:#111;
-//           color:#fff;
-//           border:none;
-//           border-radius:6px;
-//           padding:0.6rem 1.2rem;
-//           font-weight:600;
-//           cursor:pointer;
-//           transition:background 0.2s;
-//         ">Login / Sign Up</button>
-//         <button id="cancel-login" style="
-//           background:#e4e4e4;
-//           color:#333;
-//           border:none;
-//           border-radius:6px;
-//           padding:0.6rem 1.2rem;
-//           cursor:pointer;
-//           font-weight:500;
-//         ">Cancel</button>
-//       </div>
-//     `;
-
-//     overlay.appendChild(box);
-//     document.body.appendChild(overlay);
-
-//     document.getElementById("go-login").onclick = () => {
-//       overlay.remove();
-//       window.location.href = "profile.html";
-//     };
-//     document.getElementById("cancel-login").onclick = () => overlay.remove();
-//   }
 //   // ----------------------------
 //   // Event wiring
 //   // ----------------------------
@@ -273,30 +217,89 @@
 //     const remove = e.target.closest(".remove-btn");
 //     const clear = e.target.closest("#clear-cart-btn");
 //     const checkout = e.target.closest("#checkout-btn");
+//     const checkbox = e.target.closest(".cart-select");
 
+//     // Quantity +/-
 //     if (minus || plus) {
 //       const item = e.target.closest(".cart-item");
-//       const input = item.querySelector("input");
+//       const input = item.querySelector("input[type='number']");
 //       let qty = Number(input.value);
 //       qty += plus ? 1 : -1;
 //       if (qty < 1) qty = 1;
 //       input.value = qty;
-//       updateQuantity(Number(item.dataset.id), qty);
+
+//       await updateQuantity(Number(item.dataset.id), qty);
+//       recalcSelectedTotals();
 //     }
 
+//     // Remove item
 //     if (remove) removeItem(Number(e.target.closest(".cart-item").dataset.id));
+
+//     // Clear cart
 //     if (clear) clearCart();
 
+//     // Checkbox selection
+//     if (checkbox) recalcSelectedTotals();
+
+//   //   // Checkout — ONLY SELECTED PRODUCTS
+//   //   if (checkout) {
+//   //     const items = document.querySelectorAll(".cart-item");
+//   //     const selected = [];
+
+//   //     items.forEach((item) => {
+//   //       const check = item.querySelector(".cart-select");
+//   //       if (check && check.checked) {
+//   //         const id = Number(item.dataset.id);
+//   //         selected.push(id);
+//   //       }
+//   //     });
+
+//   //     if (selected.length === 0) {
+//   //       toast("Select at least one product", true);
+//   //       return;
+//   //     }
+
+//   //     const cart = await CartAPI.get();
+//   //     const finalItems = cart.items.filter((i) => selected.includes(i.cart_item_id));
+
+//   //     sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
+//   //     window.location.href = "addresses.html";
+//   //   }
+//   // });
+
+//   //  -----------------------------
+//   // Checkout — ONLY SELECTED PRODUCTS
+//   // ----------------------------
+//   // Checkout — ONLY SELECTED PRODUCTS
 //     if (checkout) {
-//       const cart = await CartAPI.get();
-//       if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) {
-//         toast("Your cart is empty", true);
+//       const items = document.querySelectorAll(".cart-item");
+//       const selectedIds = [];
+
+//       items.forEach((item) => {
+//         const check = item.querySelector(".cart-select");
+//         if (check && check.checked) {
+//           selectedIds.push(Number(item.dataset.id));
+//         }
+//       });
+
+//       if (selectedIds.length === 0) {
+//         toast("Select at least one product", true);
 //         return;
 //       }
-//       sessionStorage.setItem("checkout_items", JSON.stringify(cart.items));
+
+//       // Fetch fresh cart for accurate quantities
+//       const cart = await CartAPI.get();
+
+//       // Filter only selected products
+//       const finalItems = cart.items.filter(i => selectedIds.includes(i.cart_item_id));
+
+//       // Save selected items for next page
+//       sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
+
 //       window.location.href = "addresses.html";
 //     }
 //   });
+
 
 //   // ----------------------------
 //   // Init
@@ -315,9 +318,18 @@
 
 
 
+// -------------------------------------------
 
 // ============================================================
-// cart.js — With Item Selection + Selected Checkout
+// cart.js
+// Cart UI controller
+//
+// New auth design alignment:
+// - Cart remains guest-owned until /api/auth/register is called elsewhere.
+// - This file must NOT attempt registration or user reconciliation.
+// - Requests must carry guest identity even if a Firebase token exists.
+// - Use api/client.js as the transport (window.apiRequest / window.CartAPI).
+// - Do not read auth_token directly; use window.auth.getToken via api/client.js.
 // ============================================================
 
 (function () {
@@ -343,9 +355,20 @@
   }
 
   // ----------------------------
-  // Helpers
+  // Guest identity helpers
+  // Keep guest_id attached even if token exists (until backend register clears it).
   // ----------------------------
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+    return m ? decodeURIComponent(m[2]) : null;
+  }
+
   function getGuestId() {
+    const ck = getCookie("guest_id");
+    if (ck) {
+      try { localStorage.setItem("guest_id", ck); } catch {}
+      return ck;
+    }
     try {
       return localStorage.getItem("guest_id") || null;
     } catch {
@@ -353,27 +376,43 @@
     }
   }
 
-  async function safeApi(endpoint, options = {}) {
+  function withGuestQuery(endpoint) {
     const guestId = getGuestId();
-    const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
-    const token = localStorage.getItem("auth_token");
-    const headers = options.headers || {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    return await window.apiRequest(url, { ...options, headers });
+    if (!guestId) return endpoint;
+
+    // Do not double-append
+    if (/([?&])guest_id=/.test(endpoint)) return endpoint;
+
+    return endpoint + (endpoint.includes("?") ? "&" : "?") + "guest_id=" + encodeURIComponent(guestId);
   }
 
-  const CartAPI = {
-    async get() { return safeApi("/api/cart", { method: "GET" }); },
-    async patch(b) {
-      return safeApi("/api/cart", {
-        method: "PATCH",
-        body: JSON.stringify(b),
-        headers: { "Content-Type": "application/json" },
-      });
-    },
-    async remove(id) { return safeApi(`/api/cart/${id}`, { method: "DELETE" }); },
-    async clear() { return safeApi("/api/cart/clear", { method: "DELETE" }); },
-  };
+  // ----------------------------
+  // Transport (prefer client.js contracts)
+  // ----------------------------
+  function assertTransport() {
+    if (typeof window.apiRequest !== "function") {
+      throw new Error("apiRequest not available (api/client.js not loaded)");
+    }
+  }
+
+  const CartAPI = (function () {
+    // Prefer the global CartAPI facade if client.js already created it
+    if (window.CartAPI && typeof window.CartAPI.get === "function") {
+      return {
+        get: async () => window.apiRequest(withGuestQuery("/api/cart")),
+        patch: async (body) => window.apiRequest(withGuestQuery("/api/cart"), { method: "PATCH", body }),
+        remove: async (id) => window.apiRequest(withGuestQuery(`/api/cart/${id}`), { method: "DELETE" }),
+        clear: async () => window.apiRequest(withGuestQuery("/api/cart/clear"), { method: "DELETE" }),
+      };
+    }
+
+    return {
+      get: async () => window.apiRequest(withGuestQuery("/api/cart")),
+      patch: async (body) => window.apiRequest(withGuestQuery("/api/cart"), { method: "PATCH", body }),
+      remove: async (id) => window.apiRequest(withGuestQuery(`/api/cart/${id}`), { method: "DELETE" }),
+      clear: async () => window.apiRequest(withGuestQuery("/api/cart/clear"), { method: "DELETE" }),
+    };
+  })();
 
   // ----------------------------
   // Recalculate totals only for selected items
@@ -385,8 +424,8 @@
     items.forEach((item) => {
       const checkbox = item.querySelector(".cart-select");
       if (checkbox && checkbox.checked) {
-        const price = Number(item.querySelector(".price").textContent.replace("₹", ""));
-        const qty = Number(item.querySelector("input[type='number']").value);
+        const price = Number(String(item.querySelector(".price")?.textContent || "₹0").replace("₹", ""));
+        const qty = Number(item.querySelector("input[type='number']")?.value || 0);
         subtotal += price * qty;
       }
     });
@@ -408,13 +447,14 @@
     summaryEl.classList.remove("hidden");
     checkoutBtn.disabled = false;
 
-    const html = cart.items.map((item) => {
-      const img = item.image_url || "Images/default.jpg";
-      const name = item.product_name || item.name || "Product";
-      const price = (item.price_cents / 100).toFixed(2);
-      const subtotal = ((item.price_cents * item.quantity) / 100).toFixed(2);
+    const html = cart.items
+      .map((item) => {
+        const img = item.image_url || "Images/default.jpg";
+        const name = item.product_name || item.name || "Product";
+        const price = (Number(item.price_cents || 0) / 100).toFixed(2);
+        const subtotal = ((Number(item.price_cents || 0) * Number(item.quantity || 0)) / 100).toFixed(2);
 
-      return `
+        return `
         <div class="cart-item" data-id="${item.cart_item_id}">
           <input type="checkbox" class="cart-select" />
           <div class="cart-item-left"><img src="${img}" alt="${name}" /></div>
@@ -435,11 +475,13 @@
             </div>
           </div>
         </div>`;
-    }).join("");
+      })
+      .join("");
 
     itemsContainer.innerHTML = html;
 
     recalcSelectedTotals();
+    updateNavbarCounts?.(true);
   }
 
   // ----------------------------
@@ -459,6 +501,8 @@
   // Load
   // ----------------------------
   async function loadCart() {
+    assertTransport();
+
     try {
       const cart = await CartAPI.get();
       if (!cart || cart.error || cart.expired) {
@@ -482,29 +526,26 @@
   // ----------------------------
   // Item operations
   // ----------------------------
-async function updateQuantity(id, quantity) {
-  try {
-    if (quantity <= 0) return removeItem(id);
+  async function updateQuantity(id, quantity) {
+    try {
+      if (quantity <= 0) return removeItem(id);
 
-    // Update backend only (no page refresh)
-    await CartAPI.patch({ cart_item_id: id, quantity });
+      await CartAPI.patch({ cart_item_id: id, quantity });
 
-    // Update subtotal for this item only
-    const itemEl = document.querySelector(`.cart-item[data-id='${id}']`);
-    if (itemEl) {
-      const price = Number(itemEl.querySelector(".price").textContent.replace("₹", ""));
-      const subtotal = price * quantity;
-      itemEl.querySelector(".item-subtotal").textContent = `₹${subtotal.toFixed(2)}`;
+      const itemEl = document.querySelector(`.cart-item[data-id='${id}']`);
+      if (itemEl) {
+        const price = Number(String(itemEl.querySelector(".price")?.textContent || "₹0").replace("₹", ""));
+        const subtotal = price * quantity;
+        const subEl = itemEl.querySelector(".item-subtotal");
+        if (subEl) subEl.textContent = `₹${subtotal.toFixed(2)}`;
+      }
+
+      recalcSelectedTotals();
+      updateNavbarCounts?.(true);
+    } catch {
+      toast("Failed to update quantity", true);
     }
-
-    // Recalculate totals for selected items
-    recalcSelectedTotals();
-
-  } catch {
-    toast("Failed to update quantity", true);
   }
-}
-
 
   async function removeItem(id) {
     try {
@@ -527,6 +568,40 @@ async function updateQuantity(id, quantity) {
   }
 
   // ----------------------------
+  // Checkout (selected items only)
+  // ----------------------------
+  async function checkoutSelected() {
+    const items = document.querySelectorAll(".cart-item");
+    const selectedIds = [];
+
+    items.forEach((item) => {
+      const check = item.querySelector(".cart-select");
+      if (check && check.checked) selectedIds.push(Number(item.dataset.id));
+    });
+
+    if (selectedIds.length === 0) {
+      toast("Select at least one product", true);
+      return;
+    }
+
+    try {
+      const cart = await CartAPI.get();
+      const finalItems = (cart?.items || []).filter((i) => selectedIds.includes(Number(i.cart_item_id)));
+
+      if (!finalItems.length) {
+        toast("Selected items not available", true);
+        return;
+      }
+
+      sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
+      window.location.href = "addresses.html";
+    } catch (err) {
+      console.error("[cart.js] checkoutSelected failed:", err);
+      toast("Checkout failed", true);
+    }
+  }
+
+  // ----------------------------
   // Event wiring
   // ----------------------------
   document.addEventListener("click", async (e) => {
@@ -537,99 +612,66 @@ async function updateQuantity(id, quantity) {
     const checkout = e.target.closest("#checkout-btn");
     const checkbox = e.target.closest(".cart-select");
 
-    // Quantity +/-
     if (minus || plus) {
       const item = e.target.closest(".cart-item");
+      if (!item) return;
+
       const input = item.querySelector("input[type='number']");
+      if (!input) return;
+
       let qty = Number(input.value);
       qty += plus ? 1 : -1;
       if (qty < 1) qty = 1;
       input.value = qty;
 
       await updateQuantity(Number(item.dataset.id), qty);
-      recalcSelectedTotals();
+      return;
     }
 
-    // Remove item
-    if (remove) removeItem(Number(e.target.closest(".cart-item").dataset.id));
+    if (remove) {
+      const item = e.target.closest(".cart-item");
+      if (!item) return;
+      removeItem(Number(item.dataset.id));
+      return;
+    }
 
-    // Clear cart
-    if (clear) clearCart();
+    if (clear) {
+      clearCart();
+      return;
+    }
 
-    // Checkbox selection
-    if (checkbox) recalcSelectedTotals();
+    if (checkbox) {
+      recalcSelectedTotals();
+      return;
+    }
 
-  //   // Checkout — ONLY SELECTED PRODUCTS
-  //   if (checkout) {
-  //     const items = document.querySelectorAll(".cart-item");
-  //     const selected = [];
-
-  //     items.forEach((item) => {
-  //       const check = item.querySelector(".cart-select");
-  //       if (check && check.checked) {
-  //         const id = Number(item.dataset.id);
-  //         selected.push(id);
-  //       }
-  //     });
-
-  //     if (selected.length === 0) {
-  //       toast("Select at least one product", true);
-  //       return;
-  //     }
-
-  //     const cart = await CartAPI.get();
-  //     const finalItems = cart.items.filter((i) => selected.includes(i.cart_item_id));
-
-  //     sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
-  //     window.location.href = "addresses.html";
-  //   }
-  // });
-
-  //  -----------------------------
-  // Checkout — ONLY SELECTED PRODUCTS
-  // ----------------------------
-  // Checkout — ONLY SELECTED PRODUCTS
     if (checkout) {
-      const items = document.querySelectorAll(".cart-item");
-      const selectedIds = [];
-
-      items.forEach((item) => {
-        const check = item.querySelector(".cart-select");
-        if (check && check.checked) {
-          selectedIds.push(Number(item.dataset.id));
-        }
-      });
-
-      if (selectedIds.length === 0) {
-        toast("Select at least one product", true);
-        return;
-      }
-
-      // Fetch fresh cart for accurate quantities
-      const cart = await CartAPI.get();
-
-      // Filter only selected products
-      const finalItems = cart.items.filter(i => selectedIds.includes(i.cart_item_id));
-
-      // Save selected items for next page
-      sessionStorage.setItem("checkout_items", JSON.stringify(finalItems));
-
-      window.location.href = "addresses.html";
+      checkoutSelected();
+      return;
     }
   });
 
+  document.addEventListener("change", (e) => {
+    const input = e.target;
+    if (!input) return;
+
+    const qtyInput = input.closest(".cart-item")?.querySelector("input[type='number']");
+    if (!qtyInput || input !== qtyInput) return;
+
+    const item = input.closest(".cart-item");
+    if (!item) return;
+
+    let qty = Number(qtyInput.value);
+    if (!Number.isFinite(qty) || qty < 1) qty = 1;
+    qtyInput.value = qty;
+
+    updateQuantity(Number(item.dataset.id), qty);
+  });
 
   // ----------------------------
   // Init
   // ----------------------------
-  document.addEventListener("DOMContentLoaded", async () => {
-    try {
-      if (window.auth?.initSession) await window.auth.initSession();
-      await new Promise(r => setTimeout(r, 120));
-      await loadCart();
-    } catch (err) {
-      console.error("[cart.js] init failed:", err);
-      showEmpty();
-    }
+  document.addEventListener("DOMContentLoaded", () => {
+    loadCart();
   });
 })();
