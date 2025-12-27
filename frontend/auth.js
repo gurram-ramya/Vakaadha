@@ -212,12 +212,18 @@
 
 // frontend/auth.js
 // Session & lifecycle manager (Firebase-first, backend-agnostic)
+//
 // Contract preserved:
 // - window.auth.initSession()
 // - window.auth.getToken()
 // - window.auth.logout()
 // - Global Firebase initialization
 // - Writes localStorage.auth_token
+//
+// Additions (non-breaking):
+// - window.auth.setToken(token)  // explicit bridge for login.js -> auth.js -> client.js
+// - window.auth.getFirebaseUser()
+// - window.auth.onSessionStateChange(handler)
 (function () {
   const TOKEN_KEY = "auth_token";
   const GUEST_KEY = "guest_id";
@@ -235,6 +241,9 @@
 
   let _lastUid = null;
   let _bootstrapStartedAt = 0;
+
+  // Cached token bridge (critical): client.js trusts window.auth.getToken()
+  let _cachedToken = null;
 
   // Session state machine (emitted)
   // SIGNED_OUT | FIREBASE_SIGNED_IN | TOKEN_READY | ERROR
@@ -279,17 +288,31 @@
     return m ? decodeURIComponent(m[2]) : null;
   }
 
-  function setToken(token) {
+  function _writeTokenToStorage(token) {
     try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
+      if (token && String(token).trim()) localStorage.setItem(TOKEN_KEY, String(token).trim());
       else localStorage.removeItem(TOKEN_KEY);
     } catch {}
   }
 
-  function clearLocalSession() {
+  function _readTokenFromStorage() {
     try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch {}
+      const t = localStorage.getItem(TOKEN_KEY);
+      return t && String(t).trim() ? String(t).trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setToken(token) {
+    // Internal setter: updates both cache and storage
+    const t = token && String(token).trim() ? String(token).trim() : null;
+    _cachedToken = t;
+    _writeTokenToStorage(t);
+  }
+
+  function clearLocalSession() {
+    setToken(null);
   }
 
   function stopRefreshScheduler() {
@@ -366,7 +389,7 @@
     try {
       const token = await user.getIdToken(!!force);
       if (token && String(token).trim()) setToken(token);
-      return token || null;
+      return token && String(token).trim() ? String(token).trim() : null;
     } catch (err) {
       clearLocalSession();
 
@@ -464,6 +487,12 @@
     _initStarted = true;
     _bootstrapStartedAt = nowMs();
 
+    // Seed cache from storage immediately (critical for login.js -> client.js bridge)
+    try {
+      const seeded = _readTokenFromStorage();
+      if (seeded) _cachedToken = seeded;
+    } catch {}
+
     // Preserve guest continuity (auth.js does not use guest beyond persistence)
     try {
       const ck = getCookie(GUEST_KEY);
@@ -485,11 +514,9 @@
 
     const auth = firebase.auth();
 
-    // Transitional state
     emitSessionState({ state: "SIGNED_OUT", uid: null, tokenReady: false, error: null });
 
     _unsubIdToken = auth.onIdTokenChanged(async (user) => {
-      // Signed out
       if (!user) {
         _lastUid = null;
         stopRefreshScheduler();
@@ -498,12 +525,10 @@
         return;
       }
 
-      // Signed in at Firebase
       if (_lastUid !== user.uid) _lastUid = user.uid;
 
       emitSessionState({ state: "FIREBASE_SIGNED_IN", uid: user.uid, tokenReady: false, error: null });
 
-      // Ensure token is present and fresh enough for backend verification
       const token = await getFreshToken({ force: true });
       if (!token) return;
 
@@ -516,10 +541,15 @@
   // Public API (contract preserved + safe additions)
   // -------------------------------------------------------
   async function getToken(opts = {}) {
-    // Preserve backward compatibility: getToken() works without args.
     // opts: { forceRefresh?: boolean }
     const forceRefresh = !!opts.forceRefresh;
 
+    // 1) Fast path: explicit bridge token (login.js injects this)
+    if (!forceRefresh && _cachedToken && String(_cachedToken).trim()) {
+      return String(_cachedToken).trim();
+    }
+
+    // 2) If Firebase user exists, mint/refresh token from Firebase
     try {
       const user = firebase.auth().currentUser;
       if (user) {
@@ -528,13 +558,18 @@
       }
     } catch {}
 
-    // Bootstrap fallback only: allow previously cached token briefly during startup.
-    // Prevents early unauthenticated requests from oscillating.
+    // 3) Storage fallback (works even if auth.js listener not ready yet)
+    const stored = _readTokenFromStorage();
+    if (stored) {
+      _cachedToken = stored;
+      return stored;
+    }
+
+    // 4) Short bootstrap grace (kept for backward compatibility)
     try {
       const age = nowMs() - _bootstrapStartedAt;
       if (_initStarted && age >= 0 && age <= 10000) {
-        const t = localStorage.getItem(TOKEN_KEY);
-        return t && String(t).trim() ? t : null;
+        return _cachedToken || stored || null;
       }
     } catch {}
 
@@ -542,7 +577,6 @@
   }
 
   async function getCurrentUser() {
-    // Backend-agnostic by design.
     return null;
   }
 
@@ -568,10 +602,14 @@
   }
 
   async function logout() {
-    // User-initiated logout only. No backend reconciliation is done here.
     const token = await getToken({ forceRefresh: false });
     await backendLogout(token);
     await hardLogout({ reason: "user_initiated" });
+  }
+
+  // Explicit bridge setter: login.js calls this immediately after Firebase auth
+  function publicSetToken(token) {
+    setToken(token);
   }
 
   window.auth = {
@@ -581,6 +619,7 @@
     logout,
 
     // Additions (non-breaking)
+    setToken: publicSetToken,
     getFirebaseUser,
     onSessionStateChange,
   };

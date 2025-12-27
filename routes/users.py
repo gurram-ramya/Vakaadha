@@ -233,6 +233,9 @@ from domain.users import preferences_service, payments_service
 
 users_bp = Blueprint("users", __name__)
 
+# ============================================================
+# Helpers
+# ============================================================
 
 def error_response(code, error, message=None):
     payload = {"error": error}
@@ -248,45 +251,42 @@ def error_response(code, error, message=None):
 @users_bp.route("/api/auth/register", methods=["POST"], endpoint="register_user")
 @require_auth()
 def register_user():
-    """
-    Firebase → backend reconciliation endpoint.
-    Must be:
-    - idempotent
-    - retry-safe
-    - the ONLY place where users are created and guest data is merged
-    """
+    logging.warning("=== /api/auth/register HIT ===")
+    logging.warning("g.user at entry: %s", getattr(g, "user", None))
+    logging.warning("g.actor at entry: %s", getattr(g, "actor", None))
+
     try:
         if not getattr(g, "user", None) or not g.user.get("firebase_uid"):
+            logging.warning("register_user: missing firebase_uid in g.user")
             return error_response(400, "missing_firebase_uid")
 
         firebase_uid = g.user["firebase_uid"]
 
-        # Deterministic guest resolution: header > cookie > actor
         guest_id = (
             request.headers.get("X-Guest-Id")
             or request.cookies.get("guest_id")
             or getattr(g, "actor", {}).get("guest_id")
         )
 
-        # Optional name (frontend may pass when available; backend may ignore if not needed)
+        logging.warning("Resolved guest_id: %s", guest_id)
+
         provided_name = None
         if request.is_json:
             body = request.get_json(silent=True) or {}
             provided_name = body.get("name") or body.get("providedName")
 
-        # Verified identity hints from Firebase token (do not assume presence)
         email = g.user.get("email")
         email_verified = bool(g.user.get("email_verified", False))
+        phone_number = g.user.get("phone_number") or g.user.get("phone")
 
-        # phone number may exist in Firebase decoded token (depends on provider)
-        phone_number = None
-        try:
-            phone_number = g.user.get("phone_number") or g.user.get("phone")  # if your require_auth adds it later
-        except Exception:
-            phone_number = None
+        logging.warning(
+            "Firebase identity: uid=%s email=%s verified=%s phone=%s",
+            firebase_uid,
+            email,
+            email_verified,
+            phone_number,
+        )
 
-        # Call service exactly once. Do NOT merge cart/wishlist here.
-        # Backward-compat: support both old and new service signatures safely.
         try:
             user, merge_result = user_service.ensure_user_with_merge(
                 conn=None,
@@ -296,7 +296,6 @@ def register_user():
                 avatar_url=None,
                 guest_id=guest_id,
                 update_last_login=True,
-                # new-style optional args (ignored by old signature via TypeError fallback)
                 email_verified=email_verified,
                 phone=phone_number,
             )
@@ -312,9 +311,11 @@ def register_user():
             )
 
         if not user:
+            logging.error("ensure_user_with_merge returned no user")
             return error_response(500, "registration_failed")
 
-        # Frontend does not depend on deep response; keep minimal and stable.
+        logging.warning("User ensured successfully: user_id=%s", user.get("user_id"))
+
         return jsonify({
             "status": "ok",
             "user": {
@@ -330,12 +331,16 @@ def register_user():
 
 
 # ============================================================
-# SESSION INTROSPECTION (OPTIONAL)
+# SESSION INTROSPECTION
 # ============================================================
 
 @users_bp.route("/api/auth/session", methods=["GET"], endpoint="session_info")
 @require_auth(optional=True)
 def session_info():
+    logging.warning("=== /api/auth/session HIT ===")
+    logging.warning("g.user: %s", getattr(g, "user", None))
+    logging.warning("g.actor: %s", getattr(g, "actor", None))
+
     actor = getattr(g, "actor", {}) or {}
     user = getattr(g, "user", {}) or {}
 
@@ -362,21 +367,29 @@ def session_info():
 @users_bp.route("/api/users/me", methods=["GET"], endpoint="get_user_profile")
 @require_auth(optional=True)
 def get_user_profile():
-    """
-    Returns backend view of the current user.
-    Must tolerate Firebase-authenticated but backend-unregistered users.
-    """
+    logging.warning("=== /api/users/me HIT ===")
+    logging.warning("g.user at entry: %s", getattr(g, "user", None))
+    logging.warning("g.actor at entry: %s", getattr(g, "actor", None))
+
     try:
         user = getattr(g, "user", None)
         if not user or not user.get("firebase_uid"):
+            logging.warning("/api/users/me unauthorized: missing g.user or firebase_uid")
             return error_response(401, "unauthorized", "Login required")
 
-        profile = user_service.get_user_with_profile(None, user["firebase_uid"])
+        firebase_uid = user["firebase_uid"]
+        logging.warning("Fetching profile for firebase_uid=%s", firebase_uid)
+
+        profile = user_service.get_user_with_profile(None, firebase_uid)
 
         if not profile:
-            # Firebase-authenticated but backend not registered yet
+            logging.warning(
+                "No backend profile found for firebase_uid=%s (expected for first-time users)",
+                firebase_uid,
+            )
             return error_response(404, "user_not_registered")
 
+        logging.warning("Profile loaded successfully for firebase_uid=%s", firebase_uid)
         return jsonify(profile), 200
 
     except Exception as e:
@@ -385,12 +398,15 @@ def get_user_profile():
 
 
 # ============================================================
-# PROFILE UPDATE (BUSINESS DATA ONLY)
+# PROFILE UPDATE
 # ============================================================
 
 @users_bp.route("/api/users/me/profile", methods=["PUT"], endpoint="update_user_profile")
 @require_auth()
 def update_user_profile():
+    logging.warning("=== /api/users/me/profile PUT HIT ===")
+    logging.warning("g.user: %s", getattr(g, "user", None))
+
     try:
         data = request.get_json(silent=True) or {}
         firebase_uid = g.user["firebase_uid"]
@@ -398,6 +414,7 @@ def update_user_profile():
         allowed_fields = {"name", "dob", "gender", "avatar_url"}
         for field in data:
             if field not in allowed_fields:
+                logging.warning("Invalid profile field: %s", field)
                 return error_response(400, "invalid_payload", f"Unexpected field: {field}")
 
         if "gender" in data and data["gender"] not in ["male", "female", "other", None, ""]:
@@ -406,6 +423,8 @@ def update_user_profile():
         updated = user_service.update_profile(None, firebase_uid, data)
         if not updated:
             return error_response(404, "user_not_found")
+
+        logging.warning("Profile updated for firebase_uid=%s", firebase_uid)
         return jsonify(updated), 200
 
     except Exception as e:
@@ -420,6 +439,9 @@ def update_user_profile():
 @users_bp.route("/api/auth/logout", methods=["POST"], endpoint="logout_user")
 @require_auth(optional=True)
 def logout_user():
+    logging.warning("=== /api/auth/logout HIT ===")
+    logging.warning("g.user: %s", getattr(g, "user", None))
+    logging.warning("g.actor: %s", getattr(g, "actor", None))
     return perform_logout_response()
 
 
@@ -430,6 +452,7 @@ def logout_user():
 @users_bp.route("/api/users/me/preferences", methods=["GET"])
 @require_auth()
 def get_user_preferences():
+    logging.warning("=== /api/users/me/preferences GET HIT ===")
     prefs = preferences_service.list_preferences(g.user["user_id"])
     return jsonify({"preferences": prefs}), 200
 
@@ -437,6 +460,7 @@ def get_user_preferences():
 @users_bp.route("/api/users/me/preferences", methods=["PUT"])
 @require_auth()
 def update_user_preferences():
+    logging.warning("=== /api/users/me/preferences PUT HIT ===")
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return error_response(400, "invalid_payload")
@@ -454,6 +478,7 @@ def update_user_preferences():
 @users_bp.route("/api/users/me/payments", methods=["GET"])
 @require_auth()
 def list_user_payments():
+    logging.warning("=== /api/users/me/payments GET HIT ===")
     payments = payments_service.list_payment_methods(g.user["user_id"])
     return jsonify({"payment_methods": payments}), 200
 
@@ -461,6 +486,7 @@ def list_user_payments():
 @users_bp.route("/api/users/me/payments", methods=["POST"])
 @require_auth()
 def add_user_payment():
+    logging.warning("=== /api/users/me/payments POST HIT ===")
     data = request.get_json(silent=True) or {}
 
     for f in ("provider", "token"):
@@ -482,5 +508,6 @@ def add_user_payment():
 @users_bp.route("/api/users/me/payments/<int:payment_id>", methods=["DELETE"])
 @require_auth()
 def delete_user_payment(payment_id):
+    logging.warning("=== /api/users/me/payments DELETE HIT === payment_id=%s", payment_id)
     payments_service.delete_payment_method(g.user["user_id"], payment_id)
     return jsonify({"status": "deleted"}), 200

@@ -206,13 +206,43 @@
   }
 
   async function ensureFreshIdToken(user) {
-    // Force-mint token AND write it immediately for api/client.js to use.
-    try {
-      if (!user || !user.getIdToken) return;
-      const t = await user.getIdToken(true);
-      cacheTokenForApiClient(t);
-    } catch {}
+    if (!user || !user.getIdToken) {
+      throw new Error("Firebase user missing after auth");
+    }
+
+    // Force mint
+    const token = await user.getIdToken(true);
+    if (!token) {
+      throw new Error("Failed to mint Firebase ID token");
+    }
+
+    // Make it visible immediately
+    localStorage.setItem("auth_token", token);
+
+    // HARD BARRIER: wait until auth.js can read it
+    let attempts = 0;
+    while (attempts < 15) {
+      const t = await window.auth?.getToken?.();
+      if (t) return;
+      await new Promise(r => setTimeout(r, 100));
+      attempts++;
+    }
+
+    throw new Error("Auth token not visible to auth.js");
   }
+
+  async function waitUntilAuthTokenAvailable(timeoutMs = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const t = await window.auth?.getToken?.();
+        if (typeof t === "string" && t.trim()) return t;
+      } catch {}
+      await new Promise(r => setTimeout(r, 100));
+    }
+    throw new Error("Auth token not available for API client");
+  }
+
 
   async function backendUserExistsOrThrow() {
     assertApiClientAvailable();
@@ -241,25 +271,8 @@
   async function routeAfterFirebaseAuth() {
     const user = await waitForFirebaseUser(WAIT_FOR_USER_TIMEOUT_MS);
 
-    // Always mint token
-    await ensureFreshIdToken(user);
-    await ensureAuthSessionPrimed();
+    await syncTokenIntoAuthJs(user);
 
-    const flow = getFlow();
-
-    // ============================
-    // FIX: HANDLE LINK MODE FIRST
-    // ============================
-    if (flow?.mode === MODE.LINK) {
-      const returnTo = flow.returnTo || "profile.html";
-      clearFlow();
-      window.location.href = returnTo;
-      return;
-    }
-
-    // ============================
-    // LOGIN MODE (unchanged)
-    // ============================
     let exists;
     try {
       exists = await backendUserExistsOrThrow();
@@ -267,13 +280,34 @@
       clearFlow();
     }
 
-    if (exists) {
-      window.location.href = "index.html";
-      return;
+    window.location.href = exists ? "index.html" : "complete_profile.html";
+  }
+
+
+  async function syncTokenIntoAuthJs(user) {
+    const token = await user.getIdToken(true);
+    if (!token) throw new Error("Failed to mint Firebase token");
+
+    // 1. Make token visible immediately
+    localStorage.setItem("auth_token", token);
+
+    // 2. FORCE auth.js to ingest it
+    if (window.auth?.setToken) {
+      window.auth.setToken(token);
     }
 
-    window.location.href = "complete_profile.html";
+    // 3. HARD WAIT until auth.js confirms
+    let tries = 0;
+    while (tries < 20) {
+      const t = await window.auth?.getToken?.();
+      if (t) return;
+      await new Promise(r => setTimeout(r, 100));
+      tries++;
+    }
+
+    throw new Error("auth.js did not ingest token");
   }
+
 
 
   // -----------------------------
