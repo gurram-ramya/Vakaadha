@@ -175,10 +175,26 @@
 //-------------------------------------------------------------------------------------------------------------
 
 // frontend/api/client.js
-
-// frontend/api/client.js — transport layer (auth.js–aligned, Firebase-agnostic)
+// transport layer (auth.js–aligned, Firebase-agnostic)
+//
+// Contract:
+// - window.apiRequest(endpoint, opts)
+// - window.apiClient.{get,post,put,delete}
+// - window.CartAPI facade (unchanged)
+//
+// Rules:
+// - Token source is window.auth.getToken() (auth.js is authority)
+// - If caller passes headers.Authorization, it MUST win (AuthCore relies on this)
+// - Single retry on 401: force-refresh token once, then retry
 (function () {
-  const API_BASE = "";
+  if (window.__api_client_bound__) return;
+  window.__api_client_bound__ = true;
+
+  const API_BASE =
+    (typeof window.API_BASE === "string" ? window.API_BASE : "") ||
+    (typeof window.__API_BASE__ === "string" ? window.__API_BASE__ : "") ||
+    "";
+
   const TOKEN_KEY = "auth_token";
   const GUEST_KEY = "guest_id";
 
@@ -188,21 +204,6 @@
   function getCookie(name) {
     const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
     return m ? decodeURIComponent(m[2]) : null;
-  }
-
-  /* -------------------------------------------------------
-   * Unified token source (auth.js is authority)
-   * ----------------------------------------------------- */
-  async function getToken() {
-    try {
-      if (window.auth?.getToken) {
-        const t = await window.auth.getToken();
-        if (typeof t === "string" && t.trim()) return t;
-      }
-      return localStorage.getItem(TOKEN_KEY) || null;
-    } catch {
-      return null;
-    }
   }
 
   /* -------------------------------------------------------
@@ -222,6 +223,45 @@
   }
 
   /* -------------------------------------------------------
+   * Body helpers
+   * ----------------------------------------------------- */
+  function isPlainObject(x) {
+    return (
+      x &&
+      typeof x === "object" &&
+      !Array.isArray(x) &&
+      !(x instanceof FormData) &&
+      !(x instanceof Blob) &&
+      !(x instanceof ArrayBuffer) &&
+      !(x instanceof URLSearchParams)
+    );
+  }
+
+  function shouldJsonEncode(body) {
+    return isPlainObject(body);
+  }
+
+  /* -------------------------------------------------------
+   * Token acquisition (auth.js is authority)
+   * ----------------------------------------------------- */
+  async function getToken(forceRefresh) {
+    try {
+      if (window.auth?.getToken) {
+        const t = await window.auth.getToken({ forceRefresh: !!forceRefresh });
+        if (typeof t === "string" && t.trim()) return t.trim();
+      }
+    } catch {}
+
+    // Transitional fallback only
+    try {
+      const t2 = localStorage.getItem(TOKEN_KEY);
+      return t2 && String(t2).trim() ? String(t2).trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /* -------------------------------------------------------
    * Core request wrapper
    * ----------------------------------------------------- */
   async function apiRequest(endpoint, opts = {}) {
@@ -232,20 +272,23 @@
       _retried = false,
     } = opts;
 
-    const token = await getToken();
     const guestId = getGuestId();
 
+    // Token is optional; if caller provides Authorization, it wins.
+    const token = await getToken(false);
+
     const reqHeaders = {
-      ...(body && typeof body === "object" ? { "Content-Type": "application/json" } : {}),
+      ...(shouldJsonEncode(body) ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(guestId ? { "X-Guest-Id": guestId } : {}),
-      ...headers,
+      ...headers, // must be last: caller overrides Authorization (AuthCore needs this)
     };
 
     let url = API_BASE + endpoint;
 
-    // Guest fallback for unauthenticated requests
-    if (!token && guestId && !/([?&])guest_id=/.test(url)) {
+    // Guest fallback for unauthenticated requests (no Authorization header)
+    const hasAuthHeader = !!reqHeaders.Authorization;
+    if (!hasAuthHeader && guestId && !/([?&])guest_id=/.test(url)) {
       url += (url.includes("?") ? "&" : "?") + "guest_id=" + encodeURIComponent(guestId);
     }
 
@@ -254,7 +297,7 @@
       res = await fetch(url, {
         method,
         headers: reqHeaders,
-        body: body && typeof body === "object" ? JSON.stringify(body) : body,
+        body: shouldJsonEncode(body) ? JSON.stringify(body) : body,
         credentials: "include",
       });
     } catch (err) {
@@ -266,13 +309,34 @@
       return { expired: true, status: 410 };
     }
 
-    // Single retry on auth failure
+    // Single retry on auth failure:
+    // - force-refresh token once
+    // - retry with refreshed Authorization header (unless caller pinned Authorization)
     if (res.status === 401 && !_retried) {
       try {
         if (window.auth?.initSession) {
           await window.auth.initSession();
         }
       } catch {}
+
+      const callerPinnedAuth = Object.prototype.hasOwnProperty.call(headers || {}, "Authorization");
+
+      if (!callerPinnedAuth) {
+        const fresh = await getToken(true);
+        if (fresh) {
+          const retryHeaders = {
+            ...reqHeaders,
+            Authorization: `Bearer ${fresh}`,
+          };
+          return apiRequest(endpoint, {
+            method,
+            headers: retryHeaders,
+            body,
+            _retried: true,
+          });
+        }
+      }
+
       return apiRequest(endpoint, { method, headers, body, _retried: true });
     }
 
@@ -282,7 +346,7 @@
     } catch {}
 
     if (!res.ok) {
-      const err = new Error(data?.error || `API ${res.status}`);
+      const err = new Error(data?.error || data?.message || `API ${res.status}`);
       err.status = res.status;
       err.payload = data;
       throw err;
@@ -326,9 +390,7 @@
       async initSession() {},
       async getCurrentUser() { return null; },
       async getToken() { return null; },
-      async logout() {
-        localStorage.clear();
-      },
+      async logout() { try { localStorage.clear(); } catch {} },
     };
   }
 })();

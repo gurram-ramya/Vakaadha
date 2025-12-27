@@ -210,77 +210,109 @@
 
 // ---------------------------------------------------------------------------------
 
-// frontend\auth.js
-
-// frontend/auth.js — session & lifecycle manager (Firebase-first, backend-agnostic)
+// frontend/auth.js
+// Session & lifecycle manager (Firebase-first, backend-agnostic)
+//
+// Contract preserved:
+// - window.auth.initSession()
+// - window.auth.getToken()
+// - window.auth.logout()
+// - Global Firebase initialization
+// - Writes localStorage.auth_token
+//
+// Additions (non-breaking):
+// - window.auth.setToken(token)  // explicit bridge for login.js -> auth.js -> client.js
+// - window.auth.getFirebaseUser()
+// - window.auth.onSessionStateChange(handler)
 (function () {
   const TOKEN_KEY = "auth_token";
   const GUEST_KEY = "guest_id";
 
-  // Public API contract that must remain stable
-  // • window.auth.initSession()
-  // • window.auth.getToken()
-  // • window.auth.logout()
-  // • Global Firebase initialization
-  // • Writing localStorage.auth_token
-
   if (window.__auth_js_bound__) return;
   window.__auth_js_bound__ = true;
 
+  // -------------------------------------------------------
+  // Internal state
+  // -------------------------------------------------------
   let _initStarted = false;
-  let _unsub = null;
+  let _unsubIdToken = null;
   let _refreshTimer = null;
   let _logoutInProgress = false;
-  let _lastNotifiedUid = null;
 
-  /* -------------------------------------------------------
-   * Firebase initialization (contract preserved)
-   * ----------------------------------------------------- */
-  if (!window.firebase?.apps?.length) {
-    const firebaseConfig = {
-      apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
-      authDomain: "vakaadha.firebaseapp.com",
-      projectId: "vakaadha",
-      storageBucket: "vakaadha.appspot.com",
-      messagingSenderId: "395786980107",
-      appId: "1:395786980107:web:6678e452707296df56b00e",
-    };
-    firebase.initializeApp(firebaseConfig);
+  let _lastUid = null;
+  let _bootstrapStartedAt = 0;
+
+  // Cached token bridge (critical): client.js trusts window.auth.getToken()
+  let _cachedToken = null;
+
+  // Session state machine (emitted)
+  // SIGNED_OUT | FIREBASE_SIGNED_IN | TOKEN_READY | ERROR
+  let _sessionState = { state: "SIGNED_OUT", uid: null, tokenReady: false, error: null };
+  const _listeners = new Set();
+
+  // -------------------------------------------------------
+  // Firebase initialization (contract preserved)
+  // -------------------------------------------------------
+  function ensureFirebaseInitialized() {
+    if (!window.firebase || !firebase.initializeApp || !firebase.auth) {
+      throw new Error("Firebase Auth not available (firebase/auth not loaded)");
+    }
+
+    if (!window.firebase.apps || !window.firebase.apps.length) {
+      const firebaseConfig = {
+        apiKey: "AIzaSyCT9uxZZQehx7zChiUDRX3_KugzoMCks8U",
+        authDomain: "vakaadha-c412d.firebaseapp.com",
+        projectId: "vakaadha-c412d",
+        storageBucket: "vakaadha-c412d.firebasestorage.app",
+        messagingSenderId: "457234189424",
+        appId: "1:457234189424:web:8f699d1b82fae8c699b8b5",
+        measurementId: "G-61TWVP3GDZ",
+      };
+      firebase.initializeApp(firebaseConfig);
+    }
+
+    try {
+      firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    } catch {}
   }
 
-  try {
-    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-  } catch {}
+  // -------------------------------------------------------
+  // Utilities
+  // -------------------------------------------------------
+  function nowMs() {
+    return Date.now();
+  }
 
-  /* -------------------------------------------------------
-   * Utilities
-   * ----------------------------------------------------- */
   function getCookie(name) {
     const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
     return m ? decodeURIComponent(m[2]) : null;
   }
 
-  function setToken(token) {
+  function _writeTokenToStorage(token) {
     try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
+      if (token && String(token).trim()) localStorage.setItem(TOKEN_KEY, String(token).trim());
       else localStorage.removeItem(TOKEN_KEY);
     } catch {}
   }
 
-  function clearLocalSession() {
+  function _readTokenFromStorage() {
     try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch {}
+      const t = localStorage.getItem(TOKEN_KEY);
+      return t && String(t).trim() ? String(t).trim() : null;
+    } catch {
+      return null;
+    }
   }
 
-  function applyNavbarState(state) {
-    // navbar.js should treat:
-    // null => logged out
-    // { state:"firebase_only" } => logged in at Firebase, backend unresolved
-    // { state:"loading" } => transitional
-    // { state:"ready", user:<backend_user> } => optional (if some other file sets it)
-    if (window.updateNavbarUser) window.updateNavbarUser(state);
-    if (window.updateNavbarCounts) window.updateNavbarCounts(true);
+  function setToken(token) {
+    // Internal setter: updates both cache and storage
+    const t = token && String(token).trim() ? String(token).trim() : null;
+    _cachedToken = t;
+    _writeTokenToStorage(t);
+  }
+
+  function clearLocalSession() {
+    setToken(null);
   }
 
   function stopRefreshScheduler() {
@@ -290,53 +322,41 @@
     _refreshTimer = null;
   }
 
-  function scheduleProactiveRefresh(firebaseUser) {
-    stopRefreshScheduler();
-    if (!firebaseUser) return;
+  function applyNavbarState(state) {
+    // navbar.js should treat:
+    // null => logged out
+    // { state:"firebase_only" } => logged in at Firebase, backend unresolved
+    // { state:"loading" } => transitional
+    // { state:"ready", user:<backend_user> } => optional (if some other file sets it)
+    try {
+      if (window.updateNavbarUser) window.updateNavbarUser(state);
+      if (window.updateNavbarCounts) window.updateNavbarCounts(true);
+    } catch {}
+  }
 
-    // We never trust token presence in localStorage for expiry.
-    // We refresh based on Firebase-stated token expiry.
-    firebaseUser
-      .getIdTokenResult()
-      .then((res) => {
-        const expMs = new Date(res.expirationTime).getTime();
-        const now = Date.now();
+  function emitSessionState(next) {
+    _sessionState = next;
 
-        // Refresh 2 minutes before expiry, with sane bounds.
-        let delay = expMs - now - 2 * 60 * 1000;
-        if (!Number.isFinite(delay)) delay = 5 * 60 * 1000;
-        if (delay < 30 * 1000) delay = 30 * 1000;
-        if (delay > 55 * 60 * 1000) delay = 55 * 60 * 1000;
+    // Navbar mapping (kept compatible with existing navbar.js expectations)
+    if (next.state === "SIGNED_OUT") applyNavbarState(null);
+    else if (next.state === "FIREBASE_SIGNED_IN" || next.state === "TOKEN_READY") {
+      applyNavbarState({ state: "firebase_only" });
+    } else if (next.state === "ERROR") {
+      applyNavbarState(null);
+    }
 
-        _refreshTimer = setTimeout(async () => {
-          try {
-            await getFreshToken({ force: true });
-            // reschedule again for the same user
-            const u = firebase.auth().currentUser;
-            if (u && u.uid === firebaseUser.uid) scheduleProactiveRefresh(u);
-          } catch {
-            // getFreshToken handles hard logout on fatal errors
-          }
-        }, delay);
-      })
-      .catch(() => {
-        // If we can't read token result, fallback to periodic refresh
-        _refreshTimer = setTimeout(async () => {
-          try {
-            await getFreshToken({ force: true });
-            const u = firebase.auth().currentUser;
-            if (u && u.uid === firebaseUser.uid) scheduleProactiveRefresh(u);
-          } catch {}
-        }, 5 * 60 * 1000);
+    try {
+      _listeners.forEach((fn) => {
+        try {
+          fn({ ..._sessionState });
+        } catch {}
       });
+    } catch {}
   }
 
   function isRevocationLikeError(err) {
     const code = err?.code || "";
     const msg = String(err?.message || "").toLowerCase();
-
-    // Firebase JS SDK can surface different errors depending on environment.
-    // We treat these as hard failures (require full logout).
     return (
       code === "auth/id-token-revoked" ||
       code === "auth/user-token-expired" ||
@@ -350,37 +370,76 @@
     );
   }
 
-  /* -------------------------------------------------------
-   * Token acquisition
-   * ----------------------------------------------------- */
+  // -------------------------------------------------------
+  // Token acquisition (single authority)
+  // -------------------------------------------------------
   async function getFreshToken(opts = {}) {
-    const { force = true } = opts;
-    const user = firebase.auth().currentUser;
+    const { force = false } = opts;
+
+    let auth;
+    try {
+      auth = firebase.auth();
+    } catch {
+      return null;
+    }
+
+    const user = auth.currentUser;
     if (!user) return null;
 
     try {
       const token = await user.getIdToken(!!force);
-      setToken(token);
-      return token;
+      if (token && String(token).trim()) setToken(token);
+      return token && String(token).trim() ? String(token).trim() : null;
     } catch (err) {
       clearLocalSession();
 
-      // Never swallow revocation or invalid state errors.
-      // Hard logout is the only safe outcome.
       if (isRevocationLikeError(err)) {
         await hardLogout({ reason: "revoked_or_invalid_token" });
         return null;
       }
 
-      // Unknown token error: still fail closed (production-safe default).
       await hardLogout({ reason: "token_refresh_failed" });
       return null;
     }
   }
 
-  /* -------------------------------------------------------
-   * Backend logout call (kept)
-   * ----------------------------------------------------- */
+  function scheduleProactiveRefresh(firebaseUser) {
+    stopRefreshScheduler();
+    if (!firebaseUser) return;
+
+    firebaseUser
+      .getIdTokenResult()
+      .then((res) => {
+        const expMs = new Date(res.expirationTime).getTime();
+        const now = nowMs();
+
+        let delay = expMs - now - 2 * 60 * 1000;
+        if (!Number.isFinite(delay)) delay = 5 * 60 * 1000;
+        if (delay < 30 * 1000) delay = 30 * 1000;
+        if (delay > 55 * 60 * 1000) delay = 55 * 60 * 1000;
+
+        _refreshTimer = setTimeout(async () => {
+          try {
+            await getFreshToken({ force: true });
+            const u = firebase.auth().currentUser;
+            if (u && u.uid === firebaseUser.uid) scheduleProactiveRefresh(u);
+          } catch {}
+        }, delay);
+      })
+      .catch(() => {
+        _refreshTimer = setTimeout(async () => {
+          try {
+            await getFreshToken({ force: true });
+            const u = firebase.auth().currentUser;
+            if (u && u.uid === firebaseUser.uid) scheduleProactiveRefresh(u);
+          } catch {}
+        }, 5 * 60 * 1000);
+      });
+  }
+
+  // -------------------------------------------------------
+  // Backend logout call (kept for user-initiated logout only)
+  // -------------------------------------------------------
   async function backendLogout(token) {
     try {
       await fetch("/api/auth/logout", {
@@ -391,9 +450,9 @@
     } catch {}
   }
 
-  /* -------------------------------------------------------
-   * Hard logout (single gate)
-   * ----------------------------------------------------- */
+  // -------------------------------------------------------
+  // Hard logout (single gate)
+  // -------------------------------------------------------
   async function hardLogout(meta = {}) {
     if (_logoutInProgress) return;
     _logoutInProgress = true;
@@ -407,9 +466,9 @@
         if (u) await firebase.auth().signOut();
       } catch {}
 
-      applyNavbarState(null);
+      _lastUid = null;
+      emitSessionState({ state: "SIGNED_OUT", uid: null, tokenReady: false, error: null });
 
-      // Avoid redirect loops if already on index
       const path = String(window.location.pathname || "");
       if (!/index\.html$/i.test(path)) {
         window.location.href = "index.html";
@@ -419,107 +478,150 @@
     }
   }
 
-  /* -------------------------------------------------------
-   * Session lifecycle
-   * ----------------------------------------------------- */
+  // -------------------------------------------------------
+  // Session lifecycle (single listener)
+  // Uses onIdTokenChanged to keep localStorage.auth_token current
+  // -------------------------------------------------------
   async function initSession() {
     if (_initStarted) return;
     _initStarted = true;
+    _bootstrapStartedAt = nowMs();
 
-    // Preserve guest continuity
+    // Seed cache from storage immediately (critical for login.js -> client.js bridge)
+    try {
+      const seeded = _readTokenFromStorage();
+      if (seeded) _cachedToken = seeded;
+    } catch {}
+
+    // Preserve guest continuity (auth.js does not use guest beyond persistence)
     try {
       const ck = getCookie(GUEST_KEY);
       if (ck) localStorage.setItem(GUEST_KEY, ck);
     } catch {}
 
-    if (!(window.firebase && firebase.auth)) {
-      applyNavbarState(null);
+    try {
+      ensureFirebaseInitialized();
+    } catch (e) {
+      clearLocalSession();
+      emitSessionState({ state: "ERROR", uid: null, tokenReady: false, error: e });
       return;
     }
 
-    // Ensure we only bind one listener
     try {
-      if (_unsub) _unsub();
+      if (_unsubIdToken) _unsubIdToken();
     } catch {}
-    _unsub = null;
+    _unsubIdToken = null;
 
-    _unsub = firebase.auth().onAuthStateChanged(async (user) => {
-      // Logout event
+    const auth = firebase.auth();
+
+    emitSessionState({ state: "SIGNED_OUT", uid: null, tokenReady: false, error: null });
+
+    _unsubIdToken = auth.onIdTokenChanged(async (user) => {
       if (!user) {
-        _lastNotifiedUid = null;
+        _lastUid = null;
         stopRefreshScheduler();
         clearLocalSession();
-        applyNavbarState(null);
+        emitSessionState({ state: "SIGNED_OUT", uid: null, tokenReady: false, error: null });
         return;
       }
 
-      // Login event
-      // Notify navbar: Firebase-authenticated but backend unresolved.
-      // Never claim "no user" here.
-      if (_lastNotifiedUid !== user.uid) {
-        _lastNotifiedUid = user.uid;
-        applyNavbarState({ state: "firebase_only" });
-      } else {
-        // Still keep a consistent state if the page reloads
-        applyNavbarState({ state: "firebase_only" });
-      }
+      if (_lastUid !== user.uid) _lastUid = user.uid;
+
+      emitSessionState({ state: "FIREBASE_SIGNED_IN", uid: user.uid, tokenReady: false, error: null });
 
       const token = await getFreshToken({ force: true });
       if (!token) return;
 
-      // Schedule proactive refresh
       scheduleProactiveRefresh(user);
-
-      // IMPORTANT:
-      // Backend sync is not performed here.
-      // login.js / auth_core.js must explicitly reconcile backend.
-      // This file only guarantees Firebase session and token lifecycle.
+      emitSessionState({ state: "TOKEN_READY", uid: user.uid, tokenReady: true, error: null });
     });
   }
 
-  /* -------------------------------------------------------
-   * Public API (contract preserved)
-   * ----------------------------------------------------- */
-  async function getToken() {
-    // Prefer Firebase currentUser token, fallback to localStorage only
-    // for transitional states (page load before auth state resolves).
+  // -------------------------------------------------------
+  // Public API (contract preserved + safe additions)
+  // -------------------------------------------------------
+  async function getToken(opts = {}) {
+    // opts: { forceRefresh?: boolean }
+    const forceRefresh = !!opts.forceRefresh;
+
+    // 1) Fast path: explicit bridge token (login.js injects this)
+    if (!forceRefresh && _cachedToken && String(_cachedToken).trim()) {
+      return String(_cachedToken).trim();
+    }
+
+    // 2) If Firebase user exists, mint/refresh token from Firebase
     try {
       const user = firebase.auth().currentUser;
       if (user) {
-        const token = await getFreshToken({ force: false });
+        const token = await getFreshToken({ force: forceRefresh });
         if (token) return token;
       }
     } catch {}
 
+    // 3) Storage fallback (works even if auth.js listener not ready yet)
+    const stored = _readTokenFromStorage();
+    if (stored) {
+      _cachedToken = stored;
+      return stored;
+    }
+
+    // 4) Short bootstrap grace (kept for backward compatibility)
     try {
-      const t = localStorage.getItem(TOKEN_KEY);
-      return t && String(t).trim() ? t : null;
+      const age = nowMs() - _bootstrapStartedAt;
+      if (_initStarted && age >= 0 && age <= 10000) {
+        return _cachedToken || stored || null;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  async function getCurrentUser() {
+    return null;
+  }
+
+  function getFirebaseUser() {
+    try {
+      return firebase.auth().currentUser || null;
     } catch {
       return null;
     }
   }
 
-  async function getCurrentUser() {
-    // Backend-agnostic by design.
-    // If some other module stores backend user info, it should expose its own accessor.
-    return null;
+  function onSessionStateChange(handler) {
+    if (typeof handler !== "function") return function () {};
+    _listeners.add(handler);
+    try {
+      handler({ ..._sessionState });
+    } catch {}
+    return function unsubscribe() {
+      try {
+        _listeners.delete(handler);
+      } catch {}
+    };
   }
 
   async function logout() {
-    // Full logout = backend logout + firebase signOut + local cleanup
-    const token = await getToken();
+    const token = await getToken({ forceRefresh: false });
     await backendLogout(token);
     await hardLogout({ reason: "user_initiated" });
   }
 
-  /* -------------------------------------------------------
-   * Expose API
-   * ----------------------------------------------------- */
+  // Explicit bridge setter: login.js calls this immediately after Firebase auth
+  function publicSetToken(token) {
+    setToken(token);
+  }
+
   window.auth = {
     initSession,
     getToken,
     getCurrentUser,
     logout,
+
+    // Additions (non-breaking)
+    setToken: publicSetToken,
+    getFirebaseUser,
+    onSessionStateChange,
   };
 
   document.addEventListener("DOMContentLoaded", initSession);

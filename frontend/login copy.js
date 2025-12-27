@@ -1,18 +1,15 @@
 // ============================================================
 // login.js — Vakaadha Auth Flow Controller (Firebase-first)
 // Supports pages: login.html, otp.html, email.html
+// Replaces auth1.js completely
 //
-// Updated execution model:
-// - OTP / Google / Email-link success => Firebase-only authenticated state
-// - Then route decision is based on backend user existence ONLY (no register call here)
-//   • if backend user exists => index.html (skip complete_profile even if profile incomplete)
-//   • if backend user does NOT exist => complete_profile.html (first-time prompt)
-// - Pure registration + guest cart/wishlist merge must happen ONLY when user clicks
-//   "Create account" on complete_profile.html (handled elsewhere)
-//
-// Storage rules kept:
+// Production rules enforced:
 // - sessionStorage is primary flow state (tab scoped)
-// - localStorage allowed only for non-auth identifiers (email/phone) + token/cache managed by auth.js
+// - localStorage is allowed only for NON-auth identifiers (email/phone) to survive email-app/new-tab
+// - Firebase performs verification + identity linking
+// - Backend reconciliation only via AuthCore.afterFirebaseAuth()
+// - No profile mutation in Firebase Auth
+// - Exposes globals required by HTML onclick hooks
 // ============================================================
 
 (function () {
@@ -168,150 +165,8 @@
     });
   }
 
-  /* ===========================================================
-   * POST-FIREBASE ROUTING (NO REGISTRATION HERE)
-   * ===========================================================
-   * - login.js must NOT call /api/auth/register anywhere.
-   * - It only checks whether a backend user already exists.
-   * - Existing backend user => index.html
-   * - No backend user => complete_profile.html
-   */
-
-  function assertApiClientAvailable() {
-    if (typeof window.apiRequest !== "function") {
-      throw new Error("apiRequest not available (client.js not loaded)");
-    }
-  }
-
-  // NEW: ensure token is immediately available for api/client.js
-  function cacheTokenForApiClient(idToken) {
-    try {
-      if (idToken && String(idToken).trim()) {
-        localStorage.setItem("auth_token", String(idToken));
-      }
-    } catch {}
-  }
-
-  async function ensureAuthSessionPrimed() {
-    // Ensure auth.js listener is bound, then force a token read once.
-    try {
-      if (window.auth?.initSession) await window.auth.initSession();
-    } catch {}
-
-    try {
-      // Works with both old and new auth.js signatures.
-      const t = window.auth?.getToken ? await window.auth.getToken({ forceRefresh: true }) : null;
-      if (t) cacheTokenForApiClient(t);
-    } catch {}
-  }
-
-  async function ensureFreshIdToken(user) {
-    if (!user || !user.getIdToken) {
-      throw new Error("Firebase user missing after auth");
-    }
-
-    // Force mint
-    const token = await user.getIdToken(true);
-    if (!token) {
-      throw new Error("Failed to mint Firebase ID token");
-    }
-
-    // Make it visible immediately
-    localStorage.setItem("auth_token", token);
-
-    // HARD BARRIER: wait until auth.js can read it
-    let attempts = 0;
-    while (attempts < 15) {
-      const t = await window.auth?.getToken?.();
-      if (t) return;
-      await new Promise(r => setTimeout(r, 100));
-      attempts++;
-    }
-
-    throw new Error("Auth token not visible to auth.js");
-  }
-
-  async function waitUntilAuthTokenAvailable(timeoutMs = 5000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      try {
-        const t = await window.auth?.getToken?.();
-        if (typeof t === "string" && t.trim()) return t;
-      } catch {}
-      await new Promise(r => setTimeout(r, 100));
-    }
-    throw new Error("Auth token not available for API client");
-  }
-
-
-  async function backendUserExistsOrThrow() {
-    assertApiClientAvailable();
-
-    // If /api/users/me returns 200 => exists
-    // If it returns 404 => does not exist (first-time prompt)
-    // If it returns 401 after apiRequest retry => auth/token mismatch (fatal, not "new user")
-    try {
-      await window.apiRequest("/api/users/me");
-      return true;
-    } catch (err) {
-      const st = Number(err?.status || 0);
-
-      if (st === 404) return false;
-
-      if (st === 401) {
-        const e = new Error("Backend rejected Firebase token (401). Check token wiring / backend verifier config.");
-        e.cause = err;
-        throw e;
-      }
-
-      throw err;
-    }
-  }
-
-  async function routeAfterFirebaseAuth() {
-    const user = await waitForFirebaseUser(WAIT_FOR_USER_TIMEOUT_MS);
-
-    await syncTokenIntoAuthJs(user);
-
-    let exists;
-    try {
-      exists = await backendUserExistsOrThrow();
-    } finally {
-      clearFlow();
-    }
-
-    window.location.href = exists ? "index.html" : "complete_profile.html";
-  }
-
-
-  async function syncTokenIntoAuthJs(user) {
-    const token = await user.getIdToken(true);
-    if (!token) throw new Error("Failed to mint Firebase token");
-
-    // 1. Make token visible immediately
-    localStorage.setItem("auth_token", token);
-
-    // 2. FORCE auth.js to ingest it
-    if (window.auth?.setToken) {
-      window.auth.setToken(token);
-    }
-
-    // 3. HARD WAIT until auth.js confirms
-    let tries = 0;
-    while (tries < 20) {
-      const t = await window.auth?.getToken?.();
-      if (t) return;
-      await new Promise(r => setTimeout(r, 100));
-      tries++;
-    }
-
-    throw new Error("auth.js did not ingest token");
-  }
-
-
-
   // -----------------------------
-  // Legacy backend-driven redirect (kept for safety, not used)
+  // Backend-driven redirect
   // -----------------------------
   async function reconcileAndRedirect(force) {
     if (!window.AuthCore || !window.AuthCore.afterFirebaseAuth) {
@@ -674,9 +529,9 @@
     }
 
     try {
-      await routeAfterFirebaseAuth();
+      await reconcileAndRedirect(true);
     } catch (e) {
-      hardFail("Login succeeded but post-auth routing failed", e);
+      hardFail("Login succeeded but backend sync failed", e);
     }
   };
 
@@ -812,16 +667,11 @@
     const verifier = new firebase.auth.RecaptchaVerifier("recaptcha-container", { size: "invisible" });
     window.__vakaadha_recaptcha_verifier__ = verifier;
 
+    try { await verifier.render(); } catch {}
+
     let out;
-    try {
-      if (mode === MODE.LINK) {
-        out = await sendOtpLinkMode(phoneE164, verifier);
-      } else {
-        out = await sendOtpLoginMode(phoneE164, verifier);
-      }
-    } finally {
-      clearRecaptchaVerifier(); // MUST be here
-    }
+    if (mode === MODE.LINK) out = await sendOtpLinkMode(phoneE164, verifier);
+    else out = await sendOtpLoginMode(phoneE164, verifier);
 
     setFlow({
       type: TYPE.PHONE,
@@ -900,12 +750,14 @@
 
       hardFail("OTP verification failed", e);
       return;
+    } finally {
+      clearRecaptchaVerifier();
     }
 
     try {
-      await routeAfterFirebaseAuth();
+      await reconcileAndRedirect(true);
     } catch (e) {
-      hardFail("Login succeeded but post-auth routing failed", e);
+      hardFail("Login succeeded but backend sync failed", e);
     }
   };
 
@@ -1079,9 +931,9 @@
     }
 
     try {
-      await routeAfterFirebaseAuth();
+      await reconcileAndRedirect(true);
     } catch (e) {
-      hardFail("Login succeeded but post-auth routing failed", e);
+      hardFail("Login succeeded but backend sync failed", e);
     }
   }
 

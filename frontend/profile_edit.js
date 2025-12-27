@@ -1,181 +1,19 @@
-// // ======================================================
-// //  Load Logged-In User + Prefill Fields
-// // ======================================================
-// document.addEventListener("DOMContentLoaded", async () => {
-//     fetchUser();
-//     setupGenderButtons();
-//     setupMobileChange();
-//     setupFormSubmit();
-// });
-
-// let CURRENT_USER = null;
-
-// // ------------------------------------------------------
-// // Fetch user data
-// // ------------------------------------------------------
-// async function fetchUser() {
-//     try {
-//         const res = await fetch("/api/users/me", {
-//             method: "GET",
-//             credentials: "include"
-//         });
-
-//         if (!res.ok) {
-//             window.location.href = "/login.html";
-//             return;
-//         }
-
-//         CURRENT_USER = await res.json();
-//         fillForm(CURRENT_USER);
-
-//     } catch (err) {
-//         console.error("Profile load failed:", err);
-//         window.location.href = "/login.html";
-//     }
-// }
-
-// // ------------------------------------------------------
-// // Prefill inputs
-// // ------------------------------------------------------
-// function fillForm(u) {
-//     document.getElementById("navProfileName").textContent = u.fullName || "Account";
-
-//     document.getElementById("mobile").value = u.mobile || "";
-//     document.getElementById("fullName").value = u.fullName || "";
-//     document.getElementById("email").value = u.email || "";
-//     document.getElementById("dob").value = u.dob || "";
-//     document.getElementById("altMobile").value = u.altMobile || "";
-//     document.getElementById("hintName").value = u.hintName || "";
-
-//     // Gender button activation
-//     if (u.gender) {
-//         const btn = document.querySelector(`.gender-btn[data-value="${u.gender}"]`);
-//         if (btn) btn.classList.add("active");
-//     }
-// }
-
-// // ======================================================
-// //  Gender Selection
-// // ======================================================
-// function setupGenderButtons() {
-//     const buttons = document.querySelectorAll(".gender-btn");
-
-//     buttons.forEach(btn => {
-//         btn.addEventListener("click", () => {
-//             buttons.forEach(b => b.classList.remove("active"));
-//             btn.classList.add("active");
-//         });
-//     });
-// }
-
-// // ======================================================
-// //  MOBILE CHANGE WORKFLOW (Frontend Only)
-// // ======================================================
-// function setupMobileChange() {
-//     const changeBtn = document.getElementById("changeMobileBtn");
-//     const mobileInput = document.getElementById("mobile");
-
-//     changeBtn.addEventListener("click", () => {
-//         const newMobile = prompt("Enter new mobile number:");
-
-//         if (!newMobile) return;
-
-//         if (!/^\d{6,15}$/.test(newMobile)) {
-//             alert("Enter a valid mobile number.");
-//             return;
-//         }
-
-//         // Future: trigger OTP here
-//         alert("Mobile change requires OTP verification (backend needed).");
-
-//         // For now just update the UI (not saved yet)
-//         mobileInput.value = newMobile;
-//     });
-// }
-
-// // ======================================================
-// //  SAVE DETAILS
-// // ======================================================
-// function setupFormSubmit() {
-//     const form = document.getElementById("editProfileForm");
-
-//     form.addEventListener("submit", async (e) => {
-//         e.preventDefault();
-
-//         const updated = collectUpdatedFields();
-
-//         if (Object.keys(updated).length === 0) {
-//             alert("No changes to save.");
-//             return;
-//         }
-
-//         try {
-//             const res = await fetch("/api/users/update", {
-//                 method: "PUT",
-//                 headers: {
-//                     "Content-Type": "application/json"
-//                 },
-//                 credentials: "include",
-//                 body: JSON.stringify(updated)
-//             });
-
-//             if (!res.ok) {
-//                 alert("Failed to update profile.");
-//                 return;
-//             }
-
-//             alert("Profile updated successfully.");
-//             window.location.href = "/profile.html";
-
-//         } catch (err) {
-//             alert("Error saving profile.");
-//         }
-//     });
-// }
-
-// // ------------------------------------------------------
-// // Only send changed fields
-// // ------------------------------------------------------
-// function collectUpdatedFields() {
-//     const u = CURRENT_USER;
-//     const out = {};
-
-//     const fullName = document.getElementById("fullName").value.trim();
-//     const email = document.getElementById("email").value.trim();
-//     const dob = document.getElementById("dob").value.trim();
-//     const altMobile = document.getElementById("altMobile").value.trim();
-//     const hintName = document.getElementById("hintName").value.trim();
-//     const mobile = document.getElementById("mobile").value.trim();
-
-//     const genderBtn = document.querySelector(".gender-btn.active");
-//     const gender = genderBtn ? genderBtn.getAttribute("data-value") : null;
-
-//     if (fullName !== (u.fullName || "")) out.fullName = fullName;
-//     if (email !== (u.email || "")) out.email = email;
-//     if (dob !== (u.dob || "")) out.dob = dob;
-//     if (altMobile !== (u.altMobile || "")) out.altMobile = altMobile;
-//     if (hintName !== (u.hintName || "")) out.hintName = hintName;
-//     if (mobile !== (u.mobile || "")) out.mobile = mobile;
-//     if (gender && gender !== u.gender) out.gender = gender;
-
-//     return out;
-// }
-
 // =============================================================
-// profile_edit.js — VAKAADHA PROFILE EDIT & IDENTITY DISPATCH
+// profile_edit.js — VAKAADHA PROFILE EDIT & IDENTITY INTENT
 // -------------------------------------------------------------
 // Responsibilities:
-// • Load editable profile data
-// • Submit non-identity profile updates to backend
+// • Load editable user profile from backend
+// • Persist non-identity profile fields
 // • Detect email / phone changes
-// • Trigger Firebase verification via login.js (LINK mode)
+// • Express LINK intent (EMAIL / PHONE) via sessionStorage
+// • Redirect to login.js for Firebase execution
 // • Restore state after credential linking
 //
-// Non-responsibilities:
-// • No Firebase calls
-// • No token handling
-// • No navbar logic
-// • No auth state guessing
+// Explicit Non-Responsibilities:
+// • No Firebase SDK calls
+// • No token management
+// • No auth/session guessing
+// • No backend registration logic
 // =============================================================
 
 (function () {
@@ -185,7 +23,7 @@
   const FLOW_KEY = "__vakaadha_auth_flow__";
 
   // ------------------------------------------------------------
-  // DOM references (must match profile_edit.html)
+  // DOM references (must match profile_edit.html exactly)
   // ------------------------------------------------------------
   const els = {
     form: document.getElementById("profile-edit-form"),
@@ -206,16 +44,22 @@
   };
 
   // ------------------------------------------------------------
-  // Internal state
+  // Internal identity baseline
   // ------------------------------------------------------------
-  let original = {
+  let originalIdentity = {
     email: null,
     phone: null,
   };
 
   // ------------------------------------------------------------
-  // Helpers
+  // Utilities
   // ------------------------------------------------------------
+  function normalize(val) {
+    return val === undefined || val === null || String(val).trim() === ""
+      ? null
+      : String(val).trim();
+  }
+
   function showError(msg) {
     if (!els.errorBox) return;
     els.errorBox.textContent = msg;
@@ -228,13 +72,7 @@
     els.errorBox.style.display = "none";
   }
 
-  function normalize(val) {
-    return val === undefined || val === null || val === ""
-      ? null
-      : String(val).trim();
-  }
-
-  function getFlowState() {
+  function readFlow() {
     try {
       return JSON.parse(sessionStorage.getItem(FLOW_KEY) || "null");
     } catch {
@@ -242,40 +80,41 @@
     }
   }
 
-  function clearFlowState() {
-    sessionStorage.removeItem(FLOW_KEY);
+  function clearFlow() {
+    try {
+      sessionStorage.removeItem(FLOW_KEY);
+    } catch {}
   }
 
   // ------------------------------------------------------------
-  // Load editable profile
+  // Load editable profile from backend
   // ------------------------------------------------------------
   async function loadProfile() {
+    let me;
     try {
-      const me = await window.apiRequest("/api/users/me");
-
-      // core identities
-      original.email = normalize(me.email);
-      original.phone = normalize(me.phone);
-
-      // populate form
-      els.name.value = me.name || "";
-      els.email.value = me.email || "";
-      els.phone.value = me.phone || "";
-
-      els.gender.value = me.profile?.gender || "";
-      els.dob.value = me.profile?.dob || "";
-      els.location.value = me.profile?.location || "";
-      els.altMobile.value = me.profile?.alt_mobile || "";
-      els.hint.value = me.profile?.hint_name || "";
-
+      me = await window.apiRequest("/api/users/me");
     } catch (err) {
       console.error("[profile_edit.js] Failed to load profile:", err);
       window.location.href = "login.html";
+      return;
     }
+
+    originalIdentity.email = normalize(me.email);
+    originalIdentity.phone = normalize(me.phone);
+
+    els.name.value = me.name || "";
+    els.email.value = me.email || "";
+    els.phone.value = me.phone || "";
+
+    els.gender.value = me.profile?.gender || "";
+    els.dob.value = me.profile?.dob || "";
+    els.location.value = me.profile?.location || "";
+    els.altMobile.value = me.profile?.alt_mobile || "";
+    els.hint.value = me.profile?.hint_name || "";
   }
 
   // ------------------------------------------------------------
-  // Submit non-identity profile changes
+  // Persist non-identity profile fields
   // ------------------------------------------------------------
   async function saveProfileFields(payload) {
     await window.apiRequest("/api/users/profile", {
@@ -285,18 +124,21 @@
   }
 
   // ------------------------------------------------------------
-  // Trigger credential linking via login.js
+  // Express identity-link intent and delegate execution
   // ------------------------------------------------------------
-  function triggerLinking(type, value) {
+  function triggerIdentityLink(type, value) {
     const flow = {
       mode: "LINK",
-      type,            // "EMAIL" or "PHONE"
+      type,                  // "EMAIL" | "PHONE"
       value,
       returnTo: "profile_edit.html",
       initiatedAt: Date.now(),
     };
 
-    sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+    try {
+      sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+    } catch {}
+
     window.location.href = "login.html";
   }
 
@@ -307,7 +149,7 @@
     e.preventDefault();
     clearError();
 
-    const updated = {
+    const updatedProfile = {
       name: normalize(els.name.value),
       gender: normalize(els.gender.value),
       dob: normalize(els.dob.value),
@@ -319,25 +161,25 @@
     const newEmail = normalize(els.email.value);
     const newPhone = normalize(els.phone.value);
 
-    const emailChanged = newEmail !== original.email;
-    const phoneChanged = newPhone !== original.phone;
+    const emailChanged = newEmail !== originalIdentity.email;
+    const phoneChanged = newPhone !== originalIdentity.phone;
 
     try {
-      // Always save non-identity fields first
-      await saveProfileFields(updated);
+      // Always persist non-identity fields first
+      await saveProfileFields(updatedProfile);
 
-      // Identity change requires verification
+      // Identity changes require verification via login.js
       if (emailChanged && newEmail) {
-        triggerLinking("EMAIL", newEmail);
+        triggerIdentityLink("EMAIL", newEmail);
         return;
       }
 
       if (phoneChanged && newPhone) {
-        triggerLinking("PHONE", newPhone);
+        triggerIdentityLink("PHONE", newPhone);
         return;
       }
 
-      // No identity change → done
+      // No identity changes
       window.location.href = "profile.html";
 
     } catch (err) {
@@ -347,13 +189,13 @@
   }
 
   // ------------------------------------------------------------
-  // Return-from-link handling
+  // Handle return from login.js after LINK completion
   // ------------------------------------------------------------
   async function handleReturnFromLink() {
-    const flow = getFlowState();
+    const flow = readFlow();
     if (!flow || flow.returnTo !== "profile_edit.html") return;
 
-    clearFlowState();
+    clearFlow();
     await loadProfile();
   }
 
@@ -361,7 +203,9 @@
   // Init
   // ------------------------------------------------------------
   function bindEvents() {
-    if (els.form) els.form.addEventListener("submit", handleSave);
+    if (els.form) {
+      els.form.addEventListener("submit", handleSave);
+    }
 
     if (els.cancelBtn) {
       els.cancelBtn.addEventListener("click", (e) => {
