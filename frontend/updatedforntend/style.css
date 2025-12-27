@@ -6,19 +6,19 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a, #020617);
+  background: linear-gradient(to bottom right, #e4e0e1, #d6c0b3d1);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: #493628;
 }
 
 .card {
   width: 360px;
-  background: #020617;
+  background: #D6C0B3;
   border-radius: 14px;
   padding: 32px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  box-shadow: 0 1px 1px rgba(0,0,0,0.6);
 }
 
 h1 {
@@ -28,7 +28,7 @@ h1 {
 
 p {
   font-size: 14px;
-  color: #94a3b8;
+  color: #493628;
   margin-bottom: 20px;
 }
 
@@ -36,15 +36,15 @@ input {
   width: 100%;
   padding: 14px;
   border-radius: 10px;
-  border: 1px solid #1e293b;
-  background: #020617;
-  color: #fff;
+  border: 1px solid #493628;
+  background: transparent;
+  color: #493628;
   font-size: 15px;
 }
 
 input:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: #493628;
 }
 
 button {
@@ -53,7 +53,7 @@ button {
   margin-top: 16px;
   border: none;
   border-radius: 10px;
-  background: #6366f1;
+  background: #493628;
   color: #fff;
   font-size: 15px;
   cursor: pointer;
@@ -61,7 +61,8 @@ button {
 
 button.secondary {
   background: transparent;
-  border: 1px solid #1e293b;
+  border: 1px solid #493628;
+  color: #493628;
 }
 
 button:disabled {
@@ -90,7 +91,7 @@ button:disabled {
   border: none;
   flex: 1;
   background: transparent;
-  color: #fff;
+  color: #493628;
 }
 
 .phone-wrapper input:focus {
@@ -115,21 +116,31 @@ button:disabled {
   position: absolute;
   width: 360px;
   max-height: 260px;
-  background: #020617;
-  border: 1px solid #1e293b;
+  background: #D6C0B3;
+  border: 1px solid #493628;
   border-radius: 10px;
   margin-top: 6px;
-  overflow: hidden;
+  overflow: auto;
   z-index: 10;
 }
+
+.country-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.country-list::-webkit-scrollbar-thumb {
+  background: #493628;
+  border-radius: 4px;
+}
+
 
 .country-list .search {
   width: 100%;
   padding: 10px;
   border: none;
-  border-bottom: 1px solid #1e293b;
-  background: #020617;
-  color: #fff;
+  border-bottom: 1px solid #493628;
+  background: #D6C0B3;
+  color: #493628;
 }
 
 .country-item {
@@ -140,6 +151,5 @@ button:disabled {
 }
 
 .country-item:hover {
-  background: #1e293b;
+  background: #49362891;
 }
-

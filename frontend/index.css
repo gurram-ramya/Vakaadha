@@ -221,12 +221,12 @@ body {
 }
 
 .product-card h3 {
-  font-size: 1.1rem;
+  font-size: 0.8rem;
   margin-bottom: 0.5rem;
   color: #333;
 }
 .product-card .price {
-  font-size: 1rem;
+  font-size: 0.9rem;
   margin-bottom: 1rem;
   font-weight: bold;
   color: #493628;
@@ -244,16 +244,17 @@ body {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.3rem;
   margin-bottom: 1rem;
 }
 .size-btn {
-  padding: 0.4rem 0.8rem;
+  padding: 0.2rem 0.4rem;
   border: 1px solid #333;
   background: white;
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.3s;
+  font-size: 10px;
 }
 .size-btn:hover,
 .size-btn.active {
@@ -263,7 +264,7 @@ body {
 
 
 .btn {
-  padding: 0.6rem 1.2rem;
+  padding: 0.2rem 0.8rem;
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -278,10 +279,6 @@ body {
 @media (max-width: 992px) {
   .product-row { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 576px) {
-  .product-row { grid-template-columns: 1fr; }
-}
-
 
 /* Info Section */
 /* About & Contact Button Section */
@@ -929,7 +926,7 @@ body {
   }
   .product-card {
     flex: 1 1 auto;
-    width: 90%;
+    width: 85%;
     max-width: 320px;
   }
 
@@ -982,7 +979,6 @@ body {
 
   /* Products */
   .product-card {
-    width: 95%;
     max-width: 260px;
     padding: 12px;
   }
@@ -1173,7 +1169,7 @@ body {
 /* Adjust height for smaller screens */
 @media (max-width: 768px) {
   .product-card img {
-    height: 250px;
+    height: 200px;
   }
 }
 
