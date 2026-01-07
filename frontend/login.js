@@ -14,6 +14,8 @@
 // - sessionStorage is primary flow state (tab scoped)
 // - localStorage allowed only for non-auth identifiers (email/phone) + token/cache managed by auth.js
 // ============================================================
+let __otp_inflight = false;
+let __otp_success = false;
 
 (function () {
   if (window.__login_js_bound__) return;
@@ -837,6 +839,8 @@
     setResendEnabled(false);
   }
 
+  
+
   window.verifyOtp = async function verifyOtp() {
     try {
       assertFirebaseAvailable();
@@ -844,8 +848,12 @@
       hardFail("Auth system not ready", e);
       return;
     }
-
-    markFlowTouched();
+    // debounce + UI disable
+    const btn = document.getElementById("verifyBtn");
+    if (__otp_inflight) return;
+    __otp_inflight = true;
+    if (btn) btn.disabled = true;
+      markFlowTouched();
 
     const flow = getFlow();
     if (!flow || flow.type !== TYPE.PHONE || !flow.phoneE164) {
@@ -906,6 +914,16 @@
       await routeAfterFirebaseAuth();
     } catch (e) {
       hardFail("Login succeeded but post-auth routing failed", e);
+    } finally {
+      __otp_inflight = false;
+      __otp_success = false;
+      if (btn) btn.disabled = false;
+    }
+
+    function unlock() {
+      __otp_inflight = false;
+      __otp_success = false;
+      if (btn) btn.disabled = false;
     }
   };
 

@@ -345,10 +345,24 @@ _GUEST_ID_RE = re.compile(r"^[a-fA-F0-9-]{20,64}$")
 # ===========================================================
 # FIREBASE INITIALIZATION
 # ===========================================================
+# utils/auth.py - REPLACE the entire initialize_firebase() function
 def initialize_firebase():
     if firebase_admin._apps:
         return
 
+    # NEW: Use Application Default Credentials (your Owner account)
+    try:
+        import google.auth
+        credentials, project_id = google.auth.default()
+        firebase_admin.initialize_app(credentials, {
+            'projectId': 'vakaadha-c412d'
+        })
+        logging.info("✅ Firebase initialized with Application Default Credentials")
+        return
+    except ImportError:
+        logging.warning("google-auth not installed, falling back to service account")
+    
+    # FALLBACK: Original service account code
     path = os.getenv("FIREBASE_CREDENTIALS")
     if not path:
         from pathlib import Path
@@ -359,6 +373,7 @@ def initialize_firebase():
 
     cred = credentials.Certificate(str(path))
     firebase_admin.initialize_app(cred)
+
 
 
 # ===========================================================
@@ -540,7 +555,23 @@ def require_auth(optional=False):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # === CRITICAL DEBUG LOGS ===
+            auth_header = request.headers.get("Authorization")
+            logging.warning("🔍 AUTH DEBUG: Raw Authorization = %r", auth_header)
+            
             token = _extract_bearer_token()
+            logging.warning("🔍 AUTH DEBUG: Extracted token = %s (len=%s)", 
+                            "PRESENT" if token else "ABSENT", len(token) if token else 0)
+            
+            if token:
+                try:
+                    decoded = verify_firebase_token(token)
+                    logging.warning("✅ AUTH DEBUG: Firebase verify SUCCESS uid=%s", decoded.get("uid"))
+                except Exception as e:
+                    logging.warning("❌ AUTH DEBUG: Firebase verify FAILED: %s", str(e))
+                    logging.warning("🔍 AUTH DEBUG: Firebase apps loaded? %s", bool(firebase_admin._apps))
+            # === END DEBUG ===            
+            # token = _extract_bearer_token()
 
             g.user = None
             g.actor = {

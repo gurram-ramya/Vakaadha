@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Complete Profile</title>
+  <link rel="stylesheet" href="style_1.css">
+</head>
+<body>
+
+<div class="card">
+  <h1>Complete your profile</h1>
+
+  <input id="name" placeholder="Full name *">
+
+  <input id="email" placeholder="Email (optional)">
+  <input id="mobile" placeholder="Mobile number (optional)">
+
+  <button onclick="saveProfile()">Continue</button>
+  <div class="link" onclick="skipProfile()">Skip for now</div>
+</div>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="auth_core.js"></script>
+<script src="api/client.js"></script>
+<script src="profile_state.js"></script>
+<script src="complete_profile.js"></script>
+
+</body>
+</html>
