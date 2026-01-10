@@ -245,11 +245,19 @@
     }
 
   </script>
-    <!-- <script src="profile_edit.js"></script> -->
-  <script src="config.js"></script>
-  <script src="auth.js"></script>
-  <script src="api/client.js"></script>
-  <script src="profile_state.js"></script>
+
+  <!-- Firebase (compat) – must come before auth.js -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+
+  <!-- Auth & transport (order matters) -->
+  <script src="./auth.js"></script>
+  <script src="./api/client.js"></script>
+  <script src="./navbar.js"></script>
+
+  <!-- Page guard + page logic -->
+  <script src="./profile_state.js"></script>
   <script src="profile_edit.js"></script>
 
 </body>
