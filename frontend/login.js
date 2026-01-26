@@ -761,12 +761,24 @@ let __otp_success = false;
 
     // If flow says LINK but actual session is not present, downgrade to LOGIN
     const actualMode = resolveMode();
-    if (flow.mode === MODE.LINK && actualMode !== MODE.LINK) {
+    // if (flow.mode === MODE.LINK && actualMode !== MODE.LINK) {
+    //   setFlow({ mode: MODE.LOGIN });
+    // }
+    const isUpdatePhone = (flow.origin === "profile_edit" && flow.intent === "update_phone");
+    if (flow.mode === MODE.LINK && actualMode !== MODE.LINK && !isUpdatePhone) {
       setFlow({ mode: MODE.LOGIN });
     }
 
+
+    // const otpText = document.getElementById("otpText");
+    // if (otpText) otpText.innerText = "We’ve sent a one-time password to " + flow.phoneE164;
     const otpText = document.getElementById("otpText");
-    if (otpText) otpText.innerText = "We’ve sent a one-time password to " + flow.phoneE164;
+    if (otpText) {
+      const updateMode = (flow.origin === "profile_edit" && flow.intent === "update_phone");
+      otpText.innerText = updateMode
+        ? "We’ve sent an OTP to " + flow.phoneE164 + " to update your mobile number."
+        : "We’ve sent a one-time password to " + flow.phoneE164;
+    }
 
     // Send OTP on page entry if verificationId missing
     if (!flow.phone || !flow.phone.verificationId) {
@@ -842,6 +854,13 @@ let __otp_success = false;
   
 
   window.verifyOtp = async function verifyOtp() {
+    // Defensive guard: if this is a profile-edit phone update flow,
+    // let otp.html's override handle it (do nothing here).
+    const __f = getFlow();
+    if (__f && __f.origin === "profile_edit" && __f.intent === "update_phone") {
+      return; // otp.html has its own verifyOtp that updates same UID + mirrors to backend
+    }
+
     try {
       assertFirebaseAvailable();
     } catch (e) {

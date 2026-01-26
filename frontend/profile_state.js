@@ -14,9 +14,20 @@
   const ME_ENDPOINT = "/api/users/me";
   const REGISTER_ENDPOINT = "/api/auth/register";
 
-  // A profile is considered complete if it has a name and any verified identity
+  // // A profile is considered complete if it has a name and any verified identity
+  // function isProfileComplete(me) {
+  //   if (!me || typeof me !== "object") return false;
+  //   const hasName = typeof me.full_name === "string" && me.full_name.trim().length > 0;
+  //   const identities = Array.isArray(me.auth_identities) ? me.auth_identities : [];
+  //   const hasVerified = identities.some(i => i && i.is_verified === true);
+  //   return hasName && hasVerified;
+  // }
+  // Prefer backend source of truth; fallback to legacy heuristic only if field absent
   function isProfileComplete(me) {
     if (!me || typeof me !== "object") return false;
+    if (typeof me.profile_complete === "boolean") return me.profile_complete === true;
+
+    // Fallback (legacy heuristic)
     const hasName = typeof me.full_name === "string" && me.full_name.trim().length > 0;
     const identities = Array.isArray(me.auth_identities) ? me.auth_identities : [];
     const hasVerified = identities.some(i => i && i.is_verified === true);

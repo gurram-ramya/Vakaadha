@@ -483,6 +483,53 @@ def _has_primary_for_provider(user_id: int, provider: str, cur) -> bool:
     return bool(_fetchone_dict(cur))
 
 
+# def _upsert_identity(
+#     user_id: int,
+#     provider: str,
+#     identifier: str,
+#     is_verified: bool,
+#     make_primary_if_none: bool,
+#     cur,
+# ) -> Dict[str, Any]:
+#     if not identifier:
+#         raise ValueError("identifier required for identity upsert")
+
+#     conflict = _identity_exists_elsewhere(provider, identifier, user_id, cur)
+#     if conflict:
+#         raise IdentityConflictError(
+#             f"Identity already linked to another user (provider={provider}, identifier={identifier})"
+#         )
+
+#     is_primary = False
+#     if make_primary_if_none and not _has_primary_for_provider(user_id, provider, cur):
+#         is_primary = True
+
+#     # Never downgrade is_verified; once true it stays true.
+#     cur.execute(
+#         """
+#         INSERT INTO user_auth_identities
+#           (user_id, provider, identifier, is_verified, is_primary, created_at, updated_at)
+#         VALUES
+#           (%s, %s, %s, %s, %s, NOW(), NOW())
+#         ON CONFLICT (provider, identifier)
+#         DO UPDATE SET
+#           user_id = EXCLUDED.user_id,
+#           is_verified = (user_auth_identities.is_verified OR EXCLUDED.is_verified),
+#           is_primary = CASE
+#             WHEN user_auth_identities.user_id = EXCLUDED.user_id
+#               THEN (user_auth_identities.is_primary OR EXCLUDED.is_primary)
+#             ELSE user_auth_identities.is_primary
+#           END,
+#           updated_at = NOW()
+#         RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at;
+#         """,
+#         (user_id, provider, identifier, bool(is_verified), bool(is_primary)),
+#     )
+#     row = _fetchone_dict(cur)
+#     if not row:
+#         raise RuntimeError("Failed to upsert identity")
+#     return row
+
 def _upsert_identity(
     user_id: int,
     provider: str,
@@ -490,44 +537,129 @@ def _upsert_identity(
     is_verified: bool,
     make_primary_if_none: bool,
     cur,
+    *,
+    force_make_primary: bool = False,   # <— new optional arg
 ) -> Dict[str, Any]:
+    """
+    Update-first logic:
+    - If this user already has an identity row for this provider, UPDATE that row's identifier.
+    - Else INSERT a new row.
+    - Guard that (provider, identifier) isn't owned by another user.
+    - Optionally mark the updated/inserted row as primary and demote others for this provider.
+    """
     if not identifier:
         raise ValueError("identifier required for identity upsert")
 
-    conflict = _identity_exists_elsewhere(provider, identifier, user_id, cur)
-    if conflict:
+    # Block if another user already owns this identifier for this provider
+    cur.execute(
+        """
+        SELECT identity_id, user_id
+        FROM user_auth_identities
+        WHERE provider = %s AND identifier = %s
+        """,
+        (provider, identifier),
+    )
+    conflict = _fetchone_dict(cur)
+    if conflict and int(conflict["user_id"]) != int(user_id):
         raise IdentityConflictError(
             f"Identity already linked to another user (provider={provider}, identifier={identifier})"
         )
 
-    is_primary = False
-    if make_primary_if_none and not _has_primary_for_provider(user_id, provider, cur):
-        is_primary = True
+    # Look for any existing row for this user+provider
+    cur.execute(
+        """
+        SELECT identity_id, is_primary
+        FROM user_auth_identities
+        WHERE user_id = %s AND provider = %s
+        ORDER BY is_primary DESC, updated_at DESC, identity_id DESC
+        LIMIT 1
+        """,
+        (user_id, provider),
+    )
+    existing = _fetchone_dict(cur)
 
-    # Never downgrade is_verified; once true it stays true.
+    # Decide if we should make this one primary
+    should_make_primary = bool(force_make_primary)
+    if not should_make_primary and make_primary_if_none:
+        # Only if the user has no primary for this provider yet
+        cur.execute(
+            """
+            SELECT 1
+            FROM user_auth_identities
+            WHERE user_id = %s AND provider = %s AND is_primary = TRUE
+            LIMIT 1
+            """,
+            (user_id, provider),
+        )
+        should_make_primary = not bool(_fetchone_dict(cur))
+
+    if existing:
+        # UPDATE path — change identifier, keep/downgrade nothing, only OR the verified bit
+        cur.execute(
+            """
+            UPDATE user_auth_identities
+            SET identifier = %s,
+                is_verified = (is_verified OR %s),
+                updated_at = NOW()
+            WHERE identity_id = %s
+            RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at
+            """,
+            (identifier, bool(is_verified), existing["identity_id"]),
+        )
+        row = _fetchone_dict(cur)
+        if not row:
+            raise RuntimeError("Failed to update identity")
+
+        if should_make_primary:
+            # Promote this row, demote others
+            cur.execute(
+                """
+                UPDATE user_auth_identities
+                SET is_primary = TRUE, updated_at = NOW()
+                WHERE user_id = %s AND provider = %s AND identity_id = %s
+                """,
+                (user_id, provider, row["identity_id"]),
+            )
+            cur.execute(
+                """
+                UPDATE user_auth_identities
+                SET is_primary = FALSE, updated_at = NOW()
+                WHERE user_id = %s AND provider = %s AND identity_id <> %s
+                """,
+                (user_id, provider, row["identity_id"]),
+            )
+            # reflect primary change in returned row
+            row["is_primary"] = True
+
+        return row
+
+    # INSERT path — no row for this user+provider yet
+    is_primary = bool(should_make_primary)
     cur.execute(
         """
         INSERT INTO user_auth_identities
           (user_id, provider, identifier, is_verified, is_primary, created_at, updated_at)
         VALUES
           (%s, %s, %s, %s, %s, NOW(), NOW())
-        ON CONFLICT (provider, identifier)
-        DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          is_verified = (user_auth_identities.is_verified OR EXCLUDED.is_verified),
-          is_primary = CASE
-            WHEN user_auth_identities.user_id = EXCLUDED.user_id
-              THEN (user_auth_identities.is_primary OR EXCLUDED.is_primary)
-            ELSE user_auth_identities.is_primary
-          END,
-          updated_at = NOW()
-        RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at;
+        RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at
         """,
-        (user_id, provider, identifier, bool(is_verified), bool(is_primary)),
+        (user_id, provider, identifier, bool(is_verified), is_primary),
     )
     row = _fetchone_dict(cur)
     if not row:
-        raise RuntimeError("Failed to upsert identity")
+        raise RuntimeError("Failed to insert identity")
+
+    if is_primary:
+        # Demote any stray rows for safety (shouldn't exist, but idempotent)
+        cur.execute(
+            """
+            UPDATE user_auth_identities
+            SET is_primary = FALSE, updated_at = NOW()
+            WHERE user_id = %s AND provider = %s AND identity_id <> %s
+            """,
+            (user_id, provider, row["identity_id"]),
+        )
+
     return row
 
 
@@ -588,6 +720,33 @@ def ensure_user_with_merge(
         identities_result = {"status": "none", "updated": []}
 
         try:
+            # # Email (only if verified in Firebase token)
+            # if email and bool(email_verified):
+            #     row = _upsert_identity(
+            #         user_id=user_id,
+            #         provider="email",
+            #         identifier=email.strip().lower(),
+            #         is_verified=True,
+            #         make_primary_if_none=True,
+            #         cur=cur,
+            #     )
+            #     identities_result["updated"].append({"provider": "email", "identifier": row["identifier"]})
+            #     identities_result["status"] = "updated"
+
+            # # Phone (E.164 from Firebase token)
+            # phone_value = firebase_phone or phone
+            # if phone_value:
+            #     row = _upsert_identity(
+            #         user_id=user_id,
+            #         provider="phone",
+            #         identifier=str(phone_value).strip(),
+            #         is_verified=True,
+            #         make_primary_if_none=True,
+            #         cur=cur,
+            #     )
+            #     identities_result["updated"].append({"provider": "phone", "identifier": row["identifier"]})
+            #     identities_result["status"] = "updated"
+
             # Email (only if verified in Firebase token)
             if email and bool(email_verified):
                 row = _upsert_identity(
@@ -597,6 +756,7 @@ def ensure_user_with_merge(
                     is_verified=True,
                     make_primary_if_none=True,
                     cur=cur,
+                    force_make_primary=True,   # <— promote the new email immediately
                 )
                 identities_result["updated"].append({"provider": "email", "identifier": row["identifier"]})
                 identities_result["status"] = "updated"
@@ -611,6 +771,7 @@ def ensure_user_with_merge(
                     is_verified=True,
                     make_primary_if_none=True,
                     cur=cur,
+                    force_make_primary=True,   # <— promote the new phone immediately
                 )
                 identities_result["updated"].append({"provider": "phone", "identifier": row["identifier"]})
                 identities_result["status"] = "updated"

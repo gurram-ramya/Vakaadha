@@ -9,21 +9,29 @@
 <div class="card">
   <h1>Complete your profile</h1>
 
-  <input id="name" placeholder="Full name *">
+  <!-- show inline form errors -->
+  <div id="cp-error" style="display:none;color:#b3261e;margin-bottom:10px;"></div>
 
-  <input id="email" placeholder="Email (optional)">
-  <input id="mobile" placeholder="Mobile number (optional)">
+  <form id="complete-profile-form">
+    <input id="cp-name"   placeholder="Full name *" required>
+    <input id="cp-email"  placeholder="Email (optional)">
+    <input id="cp-phone"  placeholder="Mobile number (optional)">
 
-  <button onclick="saveProfile()">Continue</button>
-  <div class="link" onclick="skipProfile()">Skip for now</div>
+    <button id="cp-submit" type="submit">Continue</button>
+  </form>
+
+  <div class="link" id="cp-skip" style="margin-top:10px;cursor:pointer;">Skip for now</div>
 </div>
 
-<script src="config.js"></script>
+<!-- Load order: api/client.js & auth.js before complete_profile.js -->
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
 <script src="auth.js"></script>
-<script src="auth_core.js"></script>
 <script src="api/client.js"></script>
-<script src="profile_state.js"></script>
 <script src="complete_profile.js"></script>
 
 </body>
 </html>
+

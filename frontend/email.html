@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Email – Vakaadha</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0; padding: 0; display: grid; min-height: 100dvh; place-items: center;
+      background: #f7f7f8;
+    }
+    .card {
+      width: min(480px, 92vw);
+      background: #fff; border-radius: 16px; padding: 24px 20px; box-shadow: 0 6px 30px rgba(0,0,0,.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: .2px; }
+    p  { margin: 6px 0 14px; color: #555; line-height: 1.45; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .btn {
+      appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer;
+      background: #111; color: #fff; font-weight: 600;
+    }
+    .btn.secondary { background: #ececec; color: #111; }
+    .btn.link { background: transparent; color: #111; font-weight: 600; padding: 6px 0; }
+    .btn:disabled { opacity: .6; cursor: default; }
+    .muted { color: #777; font-size: .9rem; }
+    .hint { background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 12px; margin-top: 12px; }
+    .small { font-size: .85rem; }
+    .input {
+      width: 100%; padding: 12px 12px; border-radius: 10px; border: 1px solid #ddd; outline: none;
+      font-size: 1rem; box-sizing: border-box;
+    }
+    .topline { display:flex; align-items:center; justify-content: space-between; gap: 8px; }
+    .email-tag { font-weight: 600; }
+    .error { color: #b00020; font-size: .9rem; margin-top: 6px; display:none; }
+    .ok { color: #0a7b34; font-size: .9rem; margin-top: 6px; display:none; }
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid #e1e1e1; border-top-color: #111; border-radius: 50%;
+      animation: spin 1s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="card" role="main" aria-live="polite">
+
+    <!-- A: LOGIN FLOW (password/create) -->
+    <section id="screen-password">
+      <div class="topline">
+        <h1 id="pwHeading">Sign in with password</h1>
+        <a class="btn link" href="login.html">Change email</a>
+      </div>
+      <p class="small">Email: <span class="email-tag" id="pwEmail"></span></p>
+
+      <label class="small" for="pwInput">Password</label>
+      <input id="pwInput" class="input" type="password" autocomplete="current-password" placeholder="Your password" />
+
+      <div class="row" style="margin-top:12px;">
+        <button class="btn" id="pwSignInBtn">
+          <span class="spinner" id="pwSpin" style="display:none"></span>
+          Continue
+        </button>
+      </div>
+
+      <div class="row" style="margin-top:8px;">
+        <button class="btn link" id="forgotBtn">Forgot password?</button>
+      </div>
+
+      <div id="pwError" class="error"></div>
+      <div id="pwOk" class="ok"></div>
+    </section>
+
+    <!-- B: LOGIN FLOW — verify brand-new email -->
+    <section id="screen-verify" class="hidden">
+      <h1>Verify your email</h1>
+      <p id="verifyText">We’ve sent a verification link to your email.</p>
+
+      <div class="hint small">
+        Open the email on this device and tap the link to confirm your address. If you don’t see it, check spam.
+      </div>
+
+      <div class="row">
+        <button class="btn" id="openBtn">
+          <span class="spinner" id="spin" style="display:none"></span>
+          Open email app
+        </button>
+        <button class="btn secondary" id="resendBtn">Resend verification</button>
+      </div>
+
+      <p class="muted small" style="margin-top:16px;">
+        Not your email? <a href="login.html">try another email or phone</a>.
+      </p>
+
+      <div id="vOk" class="ok"></div>
+      <div id="vErr" class="error"></div>
+    </section>
+
+    <!-- C: UPDATE FLOW (profile_edit → verifyBeforeUpdateEmail) -->
+    <section id="screen-update" class="hidden">
+      <h1>Confirm your new email</h1>
+      <p id="updText">We’ve sent a confirmation link to <span class="email-tag" id="updEmail"></span>. Tap the link to update your account email.</p>
+
+      <div class="hint small">
+        We’re keeping your account signed in. Once you confirm, we’ll update your email and bring you back to your profile.
+      </div>
+
+      <div class="row" style="margin-top:12px;">
+        <button class="btn" id="updOpenBtn">
+          <span class="spinner" id="updSpin" style="display:none"></span>
+          Open email app
+        </button>
+        <button class="btn secondary" id="updResendBtn">Resend confirmation</button>
+        <a class="btn secondary" id="updCancelBtn" href="profile_edit.html">Cancel</a>
+      </div>
+
+      <div id="updOk" class="ok"></div>
+      <div id="updErr" class="error"></div>
+    </section>
+
+  </div>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+  <!-- Facade + API -->
+  <script src="api/client.js"></script>
+  <script src="auth.js"></script>
+
+  <script>
+    (function () {
+      // ---------- tiny helpers ----------
+      const sleep = (ms) => new Promise(r=>setTimeout(r,ms));
+      const showSec  = (el)=> el.classList.remove("hidden");
+      const hideSec  = (el)=> el.classList.add("hidden");
+      const setErr   = (el,msg)=>{ if(!el) return; el.textContent = msg||""; el.style.display = msg?"block":"none"; };
+      const setOk    = (el,msg)=>{ if(!el) return; el.textContent = msg||""; el.style.display = msg?"block":"none"; };
+
+      const FLOW_KEY = "__vakaadha_auth_flow__";
+      const LS_LAST_EMAIL = "__vakaadha_last_email__";
+      const LS_UPDATE_EMAIL = "__vakaadha_update_email__";
+
+      const readFlow = () => { try { return JSON.parse(sessionStorage.getItem(FLOW_KEY)||"{}"); } catch { return {}; } };
+      const writeFlow = (patch) => {
+        const cur = readFlow();
+        const nxt = { ...cur, ...patch };
+        try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(nxt)); } catch {}
+        return nxt;
+      };
+
+      function hereUrl() {
+        const u = new URL(window.location.href);
+        u.search = ""; u.hash = "";
+        return u.toString();
+      }
+
+      async function exposeToken(user) {
+        try {
+          const t = await user.getIdToken(true);
+          try { localStorage.setItem("auth_token", t); } catch {}
+          try { window.auth?.setToken?.(t); } catch {}
+          for (let i=0;i<20;i++){ const tt = await window.auth?.getToken?.(); if (tt) break; await sleep(100); }
+        } catch {}
+      }
+
+      // ---------- elements ----------
+      const secPw   = document.getElementById("screen-password");
+      const secVer  = document.getElementById("screen-verify");
+      const secUpd  = document.getElementById("screen-update");
+
+      const pwHeading = document.getElementById("pwHeading");
+      const pwEmailEl = document.getElementById("pwEmail");
+      const pwInput   = document.getElementById("pwInput");
+      const pwBtn     = document.getElementById("pwSignInBtn");
+      const pwSpin    = document.getElementById("pwSpin");
+      const pwErr     = document.getElementById("pwError");
+      const pwOk      = document.getElementById("pwOk");
+      const forgotBtn = document.getElementById("forgotBtn");
+
+      const verifyText = document.getElementById("verifyText");
+      const vOk = document.getElementById("vOk");
+      const vErr = document.getElementById("vErr");
+      const openBtn = document.getElementById("openBtn");
+      const resendBtn = document.getElementById("resendBtn");
+      const linkSpin = document.getElementById("spin");
+
+      const updEmailEl = document.getElementById("updEmail");
+      const updOk  = document.getElementById("updOk");
+      const updErr = document.getElementById("updErr");
+      const updOpenBtn = document.getElementById("updOpenBtn");
+      const updResendBtn = document.getElementById("updResendBtn");
+      const updSpin = document.getElementById("updSpin");
+
+      // ---------- routing helpers ----------
+      async function routeAfterSignIn() {
+        const user = firebase.auth().currentUser;
+        if (!user) { window.location.href = "login.html"; return; }
+        await exposeToken(user);
+
+        try {
+          const me = await window.apiRequest("/api/users/me");
+          const complete = me && (me.profile_complete === true || me.profile_complete === 1);
+          window.location.href = complete ? "index.html" : "complete_profile.html";
+        } catch (e) {
+          if (Number(e?.status) === 404) window.location.href = "complete_profile.html";
+          else if (Number(e?.status) === 401) window.location.href = "login.html";
+          else window.location.href = "complete_profile.html";
+        }
+      }
+
+      async function routeAfterEmailUpdate() {
+        const user = firebase.auth().currentUser;
+        if (user) await exposeToken(user);
+        try { await window.apiRequest("/api/auth/register", { method: "POST", body: {} }); } catch {}
+        const f = readFlow();
+        const returnTo = f && f.returnTo ? String(f.returnTo) : "profile_edit.html";
+        window.location.href = returnTo;
+      }
+
+      // ---------- action code consumer ----------
+      (function handleActionCodeIfPresent() {
+        const params = new URLSearchParams(location.search);
+        const mode = params.get("mode");
+        const oob  = params.get("oobCode");
+        if (mode === "verifyEmail" && oob) {
+          (async () => {
+            try {
+              await firebase.auth().applyActionCode(oob);
+              const u = firebase.auth().currentUser; if (u) await u.reload();
+              const f = readFlow();
+              if (f && f.origin === "profile_edit" && f.intent === "update_email") {
+                await routeAfterEmailUpdate();
+              } else {
+                await routeAfterSignIn();
+              }
+            } catch {
+              const f = readFlow();
+              if (f && f.origin === "profile_edit" && f.intent === "update_email") {
+                setErr(updErr, "The confirmation link is invalid or expired. Resend and try again.");
+                showSec(secUpd);
+              } else {
+                showSec(secPw);
+              }
+            }
+          })();
+        }
+      })();
+
+      // ---------- UPDATE FLOW ----------
+      async function initUpdateFlow(newEmail) {
+        hideSec(secPw); hideSec(secVer); showSec(secUpd);
+        updEmailEl.textContent = newEmail;
+
+        // persist breadcrumb for reload/new tab
+        try { localStorage.setItem(LS_UPDATE_EMAIL, newEmail); } catch {}
+
+        async function sendUpdateLink() {
+          try {
+            setErr(updErr, ""); setOk(updOk, "");
+            updSpin.style.display = "";
+            const u = firebase.auth().currentUser;
+            if (!u) { setErr(updErr, "Session expired. Please sign in again."); return; }
+            await u.verifyBeforeUpdateEmail(newEmail, {
+              url: hereUrl(),
+              handleCodeInApp: true
+            });
+            setOk(updOk, "Confirmation email sent. Check your inbox.");
+            writeFlow({ emailUpdate: { sentAt: Date.now(), continueUrl: hereUrl() } });
+          } catch (e) {
+            const c = String(e?.code || "");
+            if (c === "auth/requires-recent-login") setErr(updErr, "For security, please sign in again, then retry updating your email.");
+            else if (c === "auth/email-already-in-use") setErr(updErr, "That email is already in use by another account.");
+            else setErr(updErr, "Could not send confirmation email. Try again.");
+          } finally {
+            updSpin.style.display = "none";
+          }
+        }
+
+        await sendUpdateLink();
+
+        updOpenBtn.onclick = function () {
+          try { if (navigator.userAgent.toLowerCase().includes("android")) { window.location.href = "mailto:"; return; } } catch {}
+          const opened = window.open("https://mail.google.com", "_blank", "noopener,noreferrer");
+          if (!opened) window.location.href = "mailto:";
+        };
+        updResendBtn.onclick = sendUpdateLink;
+      }
+
+      // ---------- LOGIN FLOW ----------
+      async function initLoginFlow(email) {
+        showSec(secPw); hideSec(secVer);
+        pwEmailEl.textContent = email;
+        verifyText.textContent = "We’ve sent a verification link to " + email;
+
+        try {
+          const methods = await firebase.auth().fetchSignInMethodsForEmail(email);
+
+          if (methods.includes('password')) {
+            pwHeading.textContent = 'Sign in with password';
+            forgotBtn.style.display = "";
+            setErr(pwErr, ""); setOk(pwOk, "");
+          } else if (methods.length === 0) {
+            pwHeading.textContent = 'Create a password';
+            forgotBtn.style.display = "none";
+            setErr(pwErr, ""); setOk(pwOk, "");
+          } else {
+            pwHeading.textContent = 'Use your original sign-in method';
+            forgotBtn.style.display = "none";
+            setErr(pwErr, "This email is linked with a different sign-in method (e.g., Google). Use that on the login page.");
+            pwBtn.disabled = true;
+          }
+        } catch {
+          pwHeading.textContent = 'Sign in';
+          forgotBtn.style.display = "";
+        }
+
+        pwBtn.onclick = async function () {
+          setErr(pwErr,""); setOk(pwOk,"");
+          const pwd = String(pwInput.value||"");
+          if (!pwd) { setErr(pwErr,"Enter your password."); return; }
+
+          pwBtn.disabled = true; pwSpin.style.display = "";
+
+          try {
+            const methods = await firebase.auth().fetchSignInMethodsForEmail(email);
+
+            if (methods.includes("password")) {
+              await firebase.auth().signInWithEmailAndPassword(email, pwd);
+              try { const u = firebase.auth().currentUser; await u?.reload(); } catch {}
+              await routeAfterSignIn();
+              return;
+            }
+
+            if (methods.length === 0) {
+              try { await firebase.auth().createUserWithEmailAndPassword(email, pwd); }
+              catch (ce) {
+                const c = String(ce?.code||"");
+                if (c === "auth/weak-password") { setErr(pwErr,"Use a stronger password."); return; }
+                if (c === "auth/email-already-in-use") {
+                  try { await firebase.auth().signInWithEmailAndPassword(email, pwd); await routeAfterSignIn(); return; }
+                  catch { setErr(pwErr,"This email already has an account. Try your password or Google."); return; }
+                }
+                setErr(pwErr,"Could not create account."); return;
+              }
+
+              const u = firebase.auth().currentUser;
+              hideSec(secPw); showSec(secVer);
+              try { await u.sendEmailVerification({ url: hereUrl(), handleCodeInApp: true }); setOk(vOk, "Verification email sent. Waiting for confirmation…"); }
+              catch { setErr(vErr,"Failed to send verification email."); }
+              const poll = setInterval(async () => {
+                try { const uu = firebase.auth().currentUser; if (!uu) return; await uu.reload(); if (uu.emailVerified) { clearInterval(poll); await routeAfterSignIn(); } } catch {}
+              }, 3000);
+              return;
+            }
+
+            setErr(pwErr, "This email is linked with a different sign-in method. Use that method on the login page.");
+          } catch (e) {
+            const code = String(e?.code||"");
+            if (code === "auth/wrong-password") setErr(pwErr,"Incorrect password. Try again.");
+            else if (code === "auth/too-many-requests") setErr(pwErr,"Too many attempts. Try later.");
+            else if (code === "auth/operation-not-allowed") setErr(pwErr,"Email/password is disabled in Firebase.");
+            else setErr(pwErr,"Sign-in failed. Try again.");
+          } finally {
+            pwBtn.disabled = false; pwSpin.style.display = "none";
+          }
+        };
+
+        forgotBtn.onclick = async function () {
+          setErr(pwErr,""); setOk(pwOk,"");
+          try { await firebase.auth().sendPasswordResetEmail(email); setOk(pwOk,"Password reset email sent."); }
+          catch { setErr(pwErr,"Could not send reset email."); }
+        };
+
+        openBtn.onclick = function () {
+          try { if (navigator.userAgent.toLowerCase().includes("android")) { window.location.href = "mailto:"; return; } } catch {}
+          const opened = window.open("https://mail.google.com", "_blank", "noopener,noreferrer");
+          if (!opened) window.location.href = "mailto:";
+        };
+        resendBtn.onclick = async function () {
+          setErr(vErr,""); setOk(vOk,"");
+          try { const u = firebase.auth().currentUser; if (!u) { setErr(vErr,"Session lost. Please sign in again."); return; } await u.sendEmailVerification({ url: hereUrl(), handleCodeInApp:true }); setOk(vOk,"Verification email resent."); }
+          catch { setErr(vErr,"Failed to resend verification."); }
+        };
+
+        (async () => {
+          try { const u = firebase.auth().currentUser; if (u) { await u.reload(); if (u.emailVerified) await routeAfterSignIn(); } } catch {}
+        })();
+      }
+
+      // ---------- ENTRY ----------
+      (async function boot() {
+        // 1) read flow (may be empty)
+        let f = readFlow();
+
+        // 2) recover context if flow missing/broken
+        let qp;
+        try { qp = new URLSearchParams(location.search); } catch { qp = new URLSearchParams(); }
+        const fromUpdate = (qp.get("from") === "update");
+        const qpEmail = (qp.get("e") || qp.get("email") || "").trim();
+        const lsUpdateEmail = (localStorage.getItem(LS_UPDATE_EMAIL) || "").trim();
+        const lsLastEmail = (localStorage.getItem(LS_LAST_EMAIL) || "").trim();
+
+        const flowLooksMissing = !f || Object.keys(f).length === 0 || (!f.email && !f.origin && !f.intent);
+        const isUpdateFlow = (f && f.origin === "profile_edit" && f.intent === "update_email") || fromUpdate;
+
+        // If arriving from update.html but sessionStorage got nuked, rebuild minimal flow
+        if (flowLooksMissing && (fromUpdate || lsUpdateEmail)) {
+          const rebuiltEmail = qpEmail || lsUpdateEmail || lsLastEmail;
+          if (rebuiltEmail) {
+            f = writeFlow({
+              mode: "LINK",
+              origin: "profile_edit",
+              intent: "update_email",
+              type: "EMAIL",
+              email: rebuiltEmail,
+              createdAt: Date.now(),
+              emailLink: { sentAt: null, continueUrl: hereUrl() },
+              returnTo: "profile_edit.html",
+            });
+          }
+        }
+
+        // Also, if we have an email but not cached, cache it (helps on refresh)
+        if (f && f.email) { try { localStorage.setItem(LS_UPDATE_EMAIL, f.email); } catch {} }
+
+        // 3) decide route
+        const email = (f && f.email) ? String(f.email) : "";
+
+        if (isUpdateFlow && email) {
+          // Must be signed in already to update email on the same UID
+          let u = firebase.auth().currentUser;
+          for (let i=0;i<20 && !u;i++){ await sleep(100); u = firebase.auth().currentUser; }
+          if (!u) { window.location.href = "login.html"; return; }
+          await initUpdateFlow(email);
+          try { if (firebase?.auth?.().isSignInWithEmailLink(location.href)) updSpin.style.display = ""; } catch {}
+          return;
+        }
+
+        // Normal login flow (fallback)
+        if (!email) { window.location.href = "login.html"; return; }
+        pwEmailEl.textContent = email;
+        await initLoginFlow(email);
+        try { if (firebase?.auth?.().isSignInWithEmailLink(location.href)) linkSpin.style.display = ""; } catch {}
+      })();
+    })();
+  </script>
+
+  <noscript>
+    <p style="padding:12px">JavaScript is required to complete this step.</p>
+  </noscript>
+</body>
+</html>
