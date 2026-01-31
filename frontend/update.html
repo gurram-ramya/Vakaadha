@@ -229,8 +229,16 @@
       uid: user.uid
     }, true);
 
-    // Hand off to Email update flow
-    window.location.href = "email.html";
+    // // Hand off to Email update flow
+    // window.location.href = "email.html";
+
+    // Hand off to Email update flow + durable hints for cross-tab/new-tab recovery 
+    try { localStorage.setItem("__vakaadha_update_email__", email); } catch {} 
+    const url = new URL("email.html", window.location.href); 
+    url.searchParams.set("from", "update"); 
+    url.searchParams.set("e", email); 
+    window.location.href = url.toString();
+
   }
 
   // ---------- init ----------
