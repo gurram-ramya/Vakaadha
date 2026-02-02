@@ -114,6 +114,10 @@
           Open email app
         </button>
         <button class="btn secondary" id="updResendBtn">Resend confirmation</button>
+
+        <!-- NEW: shown only when recent login is required -->
+        <button class="btn secondary hidden" id="updReauthBtn">Re-authenticate</button>
+
         <a class="btn secondary" id="updCancelBtn" href="profile_edit.html">Cancel</a>
       </div>
 
@@ -214,6 +218,7 @@
       const updOpenBtn = document.getElementById("updOpenBtn");
       const updResendBtn = document.getElementById("updResendBtn");
       const updSpin = document.getElementById("updSpin");
+      const updReauthBtn = document.getElementById("updReauthBtn"); // NEW
 
       // =========================
       // routing helpers
@@ -242,6 +247,22 @@
         const returnTo = f && f.returnTo ? String(f.returnTo) : "profile_edit.html";
         try { localStorage.removeItem(LS_UPDATE_EMAIL); } catch {}
         window.location.href = returnTo;
+      }
+
+      // NEW: Start a re-auth round trip for update flow
+      function startReauthForEmailUpdate(targetEmail) {
+        writeFlow({
+          mode: "LINK",
+          origin: "profile_edit",
+          intent: "update_email",
+          type: "EMAIL",
+          email: String(targetEmail || "").trim(),
+          createdAt: Date.now(),
+          emailLink: { sentAt: null, continueUrl: hereUrl() },
+          returnTo: "profile_edit.html",
+        });
+        try { localStorage.setItem(LS_UPDATE_EMAIL, String(targetEmail || "")); } catch {}
+        window.location.href = "login.html?reauth=1";
       }
 
       // =========================
@@ -294,7 +315,7 @@
             const u = firebase.auth().currentUser;
             if (!u) { setErr(updErr, "Session expired. Please sign in again."); return; }
 
-            // DO NOT allow if email already exists for any provider
+            // Refuse if email already exists for any provider
             let methodsForTarget = [];
             try {
               methodsForTarget = await firebase.auth().fetchSignInMethodsForEmail(newEmail);
@@ -315,15 +336,19 @@
             setOk(updOk, "Confirmation email sent. Check your inbox.");
             writeFlow({ emailUpdate: { sentAt: Date.now(), continueUrl: hereUrl() } });
             dlog("SEND_VERIFY_BEFORE_UPDATE_OK", { email: newEmail });
+
+            // hide reauth button if previously shown
+            if (updReauthBtn) updReauthBtn.classList.add("hidden");
           } catch (e) {
             const c = String(e?.code || "");
             dlog("SEND_VERIFY_BEFORE_UPDATE_ERR", { code: c, message: e?.message });
             if (c === "auth/requires-recent-login") {
-              setErr(updErr, "For security, please sign in again, then retry updating your email.");
+              setErr(updErr, "For security, please sign in again, then tap “Resend confirmation”.");
+              if (updReauthBtn) updReauthBtn.classList.remove("hidden"); // show reauth
             } else if (c === "auth/email-already-in-use") {
               setErr(updErr, "That email is already in use by another account.");
             } else if (c === "auth/operation-not-allowed") {
-              setErr(updErr, "Email/password sign-in is disabled for new emails.");
+              setErr(updErr, "Your project requires confirming the new email before it can be used.");
             } else {
               setErr(updErr, "Could not send confirmation email. Try again.");
             }
@@ -332,6 +357,7 @@
           }
         }
 
+        // initial attempt
         await sendUpdateLink();
 
         updOpenBtn.onclick = function () {
@@ -340,18 +366,23 @@
           if (!opened) window.location.href = "mailto:";
         };
         updResendBtn.onclick = sendUpdateLink;
+
+        // NEW: re-auth button handler
+        if (updReauthBtn) {
+          updReauthBtn.onclick = function () {
+            startReauthForEmailUpdate(newEmail);
+          };
+        }
       }
 
       // =========================
       // LOGIN / CREATION FLOW
       // =========================
       async function initLoginFlow(email) {
-        // Always start on password/create screen; verification only after creation succeeds
         showSec(secPw); hideSec(secVer); hideSec(secUpd);
         pwEmailEl.textContent = email;
         verifyText.textContent = "We’ve sent a verification link to " + email;
 
-        // 1) Decide by existing sign-in methods
         let methods = [];
         try {
           methods = await firebase.auth().fetchSignInMethodsForEmail(email);
@@ -360,7 +391,6 @@
           dwarn("FETCH_METHODS_FOR_LOGIN_ERR", { code: e?.code, message: e?.message });
         }
 
-        // Configure UI strictly based on methods
         if (methods.includes("password")) {
           pwHeading.textContent = "Sign in with password";
           forgotBtn.style.display = "";
@@ -375,10 +405,9 @@
           pwHeading.textContent = "Use your original sign-in method";
           forgotBtn.style.display = "none";
           setErr(pwErr, "This email is linked with a different sign-in method (e.g., Google). Use that on the login page.");
-          pwBtn.disabled = true; // hard block
+          pwBtn.disabled = true;
         }
 
-        // 2) Submit handler
         pwBtn.onclick = async function () {
           setErr(pwErr,""); setOk(pwOk,"");
           const pwd = String(pwInput.value||"").trim();
@@ -387,11 +416,9 @@
           pwBtn.disabled = true; pwSpin.style.display = "";
 
           try {
-            // Re-fetch right before action to avoid stale assumption
             methods = await firebase.auth().fetchSignInMethodsForEmail(email);
             dlog("FETCH_METHODS_BEFORE_SUBMIT", { email, methods });
 
-            // Existing password user → sign in
             if (methods.includes("password")) {
               dlog("SIGN_IN_PASSWORD_ATTEMPT", { email });
               await firebase.auth().signInWithEmailAndPassword(email, pwd);
@@ -401,7 +428,6 @@
               return;
             }
 
-            // Brand new email → create user, THEN send verification, THEN poll until verified
             if (methods.length === 0) {
               dlog("CREATE_USER_ATTEMPT", { email });
               try {
@@ -412,26 +438,20 @@
                 derr("CREATE_USER_ERR", { code: c, message: ce?.message });
                 if (c === "auth/weak-password") { setErr(pwErr,"Use a stronger password."); return; }
                 if (c === "auth/email-already-in-use") {
-                  // Race: another tab created it; try password sign-in
                   try {
                     await firebase.auth().signInWithEmailAndPassword(email, pwd);
                     dlog("CREATE_COLLISION_SIGNIN_OK", { email });
-                    await routeAfterSignIn();
-                    return;
+                    await routeAfterSignIn(); return;
                   } catch {
-                    setErr(pwErr,"This email already has an account. Try your password or Google.");
-                    return;
+                    setErr(pwErr,"This email already has an account. Try your password or Google."); return;
                   }
                 }
                 if (c === "auth/operation-not-allowed") {
-                  setErr(pwErr,"Email & password sign-in is disabled in Firebase.");
-                  return;
+                  setErr(pwErr,"Email & password sign-in is disabled in Firebase."); return;
                 }
-                setErr(pwErr,"Could not create account.");
-                return;
+                setErr(pwErr,"Could not create account."); return;
               }
 
-              // We just created the account → send verification (and show verify screen)
               const u = firebase.auth().currentUser;
               hideSec(secPw); showSec(secVer);
               try {
@@ -442,22 +462,16 @@
                 derr("VERIFY_EMAIL_SEND_ERR", { code: se?.code, message: se?.message });
                 setErr(vErr,"Failed to send verification email.");
               }
-
               const poll = setInterval(async () => {
                 try {
                   const uu = firebase.auth().currentUser; if (!uu) return;
                   await uu.reload();
-                  if (uu.emailVerified) {
-                    clearInterval(poll);
-                    dlog("VERIFY_POLL_OK", { email });
-                    await routeAfterSignIn();
-                  }
+                  if (uu.emailVerified) { clearInterval(poll); dlog("VERIFY_POLL_OK", { email }); await routeAfterSignIn(); }
                 } catch {}
               }, 3000);
               return;
             }
 
-            // Existing email with non-password provider → blocked (no verification sent)
             setErr(pwErr, "This email is linked with a different sign-in method. Use that method on the login page.");
           } catch (e) {
             const code = String(e?.code||"");
@@ -471,13 +485,11 @@
           }
         };
 
-        // Submit on Enter (if form exists)
         document.getElementById("pwForm")?.addEventListener("submit", (e) => {
           e.preventDefault();
           pwBtn.click();
         });
 
-        // 3) Forgot password
         forgotBtn.onclick = async function () {
           setErr(pwErr,""); setOk(pwOk,"");
           try {
@@ -490,7 +502,6 @@
           }
         };
 
-        // 4) Verify screen buttons (only visible when we show verify screen)
         openBtn.onclick = function () {
           try { if (navigator.userAgent.toLowerCase().includes("android")) { window.location.href = "mailto:"; return; } } catch {}
           const opened = window.open("https://mail.google.com", "_blank", "noopener,noreferrer");
@@ -510,15 +521,8 @@
           }
         };
 
-        // 5) If user is somehow already verified (refresh), route on load
         (async () => {
-          try {
-            const u = firebase.auth().currentUser;
-            if (u) {
-              await u.reload();
-              if (u.emailVerified) await routeAfterSignIn();
-            }
-          } catch {}
+          try { const u = firebase.auth().currentUser; if (u) { await u.reload(); if (u.emailVerified) await routeAfterSignIn(); } } catch {}
         })();
       }
 
@@ -551,10 +555,8 @@
           return;
         }
 
-        // Read/repair flow
         let f = readFlow();
 
-        // Pull candidates from URL + localStorage for robustness
         let qp;
         try { qp = new URLSearchParams(location.search); } catch { qp = new URLSearchParams(); }
         const fromUpdate     = (qp.get("from") === "update");
@@ -565,14 +567,8 @@
         const flowLooksMissing = !f || Object.keys(f).length === 0 || (!f.email && !f.origin && !f.intent);
         const isUpdateFlow = (f && f.origin === "profile_edit" && f.intent === "update_email") || fromUpdate;
 
-        // Preferred email source order:
-        //  - explicit query param
-        //  - session flow email
-        //  - update fallback (if from update)
-        //  - last login email fallback (scenario 1 rescue)
         const emailCandidate = qpEmail || f?.email || (isUpdateFlow ? lsUpdateEmail : lsLastEmail) || "";
 
-        // If arriving from update.html and flow is missing, reconstruct
         if (flowLooksMissing && fromUpdate && (qpEmail || lsUpdateEmail)) {
           f = writeFlow({
             mode: "LINK",
@@ -593,7 +589,6 @@
         dlog("BOOT", { wantsUpdate: isUpdateFlow, emailCandidate, fromUpdate, qp: Object.fromEntries(qp.entries()) });
 
         if (isUpdateFlow && emailCandidate) {
-          // Must be signed in on this UID to update
           let u = firebase.auth().currentUser;
           for (let i = 0; i < 40 && !u; i++) { await sleep(100); u = firebase.auth().currentUser; }
           if (!u) { window.location.href = "login.html"; return; }
@@ -603,7 +598,6 @@
           return;
         }
 
-        // Normal creation/login flow
         if (!emailCandidate) { window.location.href = "login.html"; return; }
         pwEmailEl.textContent = emailCandidate;
         await initLoginFlow(emailCandidate);
