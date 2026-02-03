@@ -1,229 +1,30 @@
-// // frontend/auth.js — corrected guest continuity + backend merge alignment
-// // frontend/auth.js — corrected guest cleanup after login
-// (function () {
-//   const TOKEN_KEY = "auth_token";
-//   const USER_KEY  = "user_info";
-//   const GUEST_KEY = "guest_id";
 
-//   if (window.__auth_js_bound__) return;
-//   window.__auth_js_bound__ = true;
 
-//   if (!window.firebase?.apps?.length) {
-//     const firebaseConfig = {
-//       apiKey: "AIzaSyAuhjUmQlVyJKMuk2i141mKcXiKcnHMWsA",
-//       authDomain: "vakaadha.firebaseapp.com",
-//       projectId: "vakaadha",
-//       storageBucket: "vakaadha.appspot.com",
-//       messagingSenderId: "395786980107",
-//       appId: "1:395786980107:web:6678e452707296df56b00e",
-//     };
-//     firebase.initializeApp(firebaseConfig);
-//   }
-
-//   try {
-//     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-//   } catch {}
-
-//   function getCookie(name) {
-//     const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-//     return m ? decodeURIComponent(m[2]) : null;
-//   }
-
-//   function setToken(t) {
-//     try {
-//       if (t) localStorage.setItem(TOKEN_KEY, t);
-//       else localStorage.removeItem(TOKEN_KEY);
-//     } catch {}
-//   }
-
-//   async function getToken() {
-//     try {
-//       const user = window.firebase?.auth?.currentUser;
-//       if (user) {
-//         const token = await user.getIdToken(true);
-//         if (token) {
-//           localStorage.setItem(TOKEN_KEY, token);
-//           return token;
-//         }
-//       }
-//       return localStorage.getItem(TOKEN_KEY) || null;
-//     } catch {
-//       return null;
-//     }
-//   }
-
-//   function setUserCached(u) {
-//     try {
-//       if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
-//       else localStorage.removeItem(USER_KEY);
-//     } catch {}
-//   }
-
-//   function clearSession() {
-//     setToken(null);
-//     setUserCached(null);
-//   }
-
-//   async function fetchMe(token) {
-//     return fetch("/api/users/me", {
-//       headers: { Authorization: `Bearer ${token}` },
-//       credentials: "include",
-//     });
-//   }
-
-//   async function backendLogout(token) {
-//     try {
-//       await fetch("/api/auth/logout", {
-//         method: "POST",
-//         headers: token ? { Authorization: `Bearer ${token}` } : {},
-//         credentials: "include",
-//       });
-//     } catch {}
-//   }
-
-//   function applyNavbar(userOrNull) {
-//     if (window.updateNavbarUser) window.updateNavbarUser(userOrNull);
-//     if (window.updateNavbarCounts) window.updateNavbarCounts();
-//   }
-
-//   async function getFreshToken() {
-//     const u = window.firebase?.auth?.currentUser;
-//     if (!u) return null;
-//     try {
-//       const t = await u.getIdToken(true);
-//       setToken(t);
-//       return t;
-//     } catch {
-//       clearSession();
-//       return null;
-//     }
-//   }
-
-//   async function initSession() {
-//     try {
-//       const ck = getCookie(GUEST_KEY);
-//       if (ck) localStorage.setItem(GUEST_KEY, ck);
-//     } catch {}
-
-//     if (!(window.firebase && firebase.auth)) {
-//       applyNavbar(null);
-//       return;
-//     }
-
-//     await new Promise((resolve) => {
-//       const unsub = firebase.auth().onAuthStateChanged(async (user) => {
-//         unsub();
-
-//         if (!user) {
-//           clearSession();
-//           applyNavbar(null);
-//           return resolve();
-//         }
-
-//         const token = await getFreshToken();
-//         if (!token) {
-//           clearSession();
-//           applyNavbar(null);
-//           return resolve();
-//         }
-
-//         setToken(token);
-
-//         try {
-//           const guest_id = localStorage.getItem(GUEST_KEY);
-
-//           const regRes = await fetch("/api/auth/register", {
-//             method: "POST",
-//             credentials: "include",
-//             headers: {
-//               "Content-Type": "application/json",
-//               Authorization: `Bearer ${token}`,
-//             },
-//             body: JSON.stringify({ guest_id }),
-//           });
-
-//           if (!regRes.ok) throw new Error("register failed");
-//           const data = await regRes.json();
-
-//           if (data?.user) setUserCached(data.user);
-//           applyNavbar(data.user || null);
-
-//           try { localStorage.removeItem(GUEST_KEY); } catch {}
-
-//           // clear guest cookie after merge
-//           document.cookie =
-//             "guest_id=; Path=/; Max-Age=0; SameSite=None; Secure";
-
-//         } catch {
-//           clearSession();
-//           applyNavbar(null);
-//         }
-
-//         resolve();
-//       });
-//     });
-//   }
-
-//   async function getCurrentUser() {
-//     try {
-//       const cached = JSON.parse(localStorage.getItem(USER_KEY) || "null");
-//       if (cached) return cached;
-//     } catch {}
-
-//     const t = await getToken();
-//     if (!t) return null;
-
-//     try {
-//       const res = await fetchMe(t);
-//       if (!res.ok) return null;
-
-//       const me = await res.json();
-//       setUserCached(me);
-//       return me;
-//     } catch {
-//       return null;
-//     }
-//   }
-
-//   async function logout() {
-//     const tok = await getToken();
-//     await backendLogout(tok);
-//     clearSession();
-
-//     if (window.firebase?.auth?.currentUser) {
-//       try { await firebase.auth().signOut(); } catch {}
-//     }
-
-//     applyNavbar(null);
-//     window.location.href = "index.html";
-//   }
-
-//   window.auth = {
-//     initSession,
-//     getCurrentUser,
-//     getToken,
-//     logout,
-//   };
-
-//   document.addEventListener("DOMContentLoaded", initSession);
-// })();
-
-// ---------------------------------------------------------------------------------
-
-// frontend/auth.js
-// Session & lifecycle manager (Firebase-first, backend-agnostic)
-//
-// Contract preserved:
-// - window.auth.initSession()
-// - window.auth.getToken()
-// - window.auth.logout()
-// - Global Firebase initialization
-// - Writes localStorage.auth_token
-//
-// Additions (non-breaking):
-// - window.auth.setToken(token)  // explicit bridge for login.js -> auth.js -> client.js
-// - window.auth.getFirebaseUser()
-// - window.auth.onSessionStateChange(handler)
+/**
+ * Session & lifecycle manager (Firebase-first, backend-agnostic)
+ *
+ * Contracts preserved (DO NOT BREAK):
+ * - window.auth.initSession()
+ * - window.auth.getToken()
+ * - window.auth.logout()
+ * - window.auth.getCurrentUser()   // may return null (same as before)
+ * - Global Firebase initialization
+ * - Writes localStorage.auth_token
+ *
+ * Additions (non-breaking; safe to ignore by consumers that don't use them):
+ * - window.auth.setToken(token)          // bridge for login -> auth -> client
+ * - window.auth.getFirebaseUser()
+ * - window.auth.onSessionStateChange(cb) // emits {state, uid, tokenReady, error}
+ * - window.auth.onAuthChanged(cb)        // alias for onSessionStateChange
+ * - window.auth.waitForReady(ms?)        // resolves when TOKEN_READY observed
+ *
+ * States emitted:
+ *   SIGNED_OUT | FIREBASE_SIGNED_IN | TOKEN_READY | ERROR
+ *
+ * Navbar mapping (unchanged):
+ *   SIGNED_OUT/ERROR -> updateNavbarUser(null)
+ *   FIREBASE_SIGNED_IN/TOKEN_READY -> updateNavbarUser({ state: "firebase_only" })
+ */
 (function () {
   const TOKEN_KEY = "auth_token";
   const GUEST_KEY = "guest_id";
@@ -271,6 +72,7 @@
       firebase.initializeApp(firebaseConfig);
     }
 
+    // Persist session across tabs/refreshes
     try {
       firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
     } catch {}
@@ -279,9 +81,7 @@
   // -------------------------------------------------------
   // Utilities
   // -------------------------------------------------------
-  function nowMs() {
-    return Date.now();
-  }
+  const nowMs = () => Date.now();
 
   function getCookie(name) {
     const m = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
@@ -322,12 +122,11 @@
     _refreshTimer = null;
   }
 
+  // Maintain existing navbar mapping semantics
   function applyNavbarState(state) {
     // navbar.js should treat:
     // null => logged out
-    // { state:"firebase_only" } => logged in at Firebase, backend unresolved
-    // { state:"loading" } => transitional
-    // { state:"ready", user:<backend_user> } => optional (if some other file sets it)
+    // { state:"firebase_only" } => logged in at Firebase, backend unresolved/display-only
     try {
       if (window.updateNavbarUser) window.updateNavbarUser(state);
       if (window.updateNavbarCounts) window.updateNavbarCounts(true);
@@ -337,19 +136,17 @@
   function emitSessionState(next) {
     _sessionState = next;
 
-    // Navbar mapping (kept compatible with existing navbar.js expectations)
-    if (next.state === "SIGNED_OUT") applyNavbarState(null);
-    else if (next.state === "FIREBASE_SIGNED_IN" || next.state === "TOKEN_READY") {
-      applyNavbarState({ state: "firebase_only" });
-    } else if (next.state === "ERROR") {
+    // Preserve your existing navbar mapping behavior
+    if (next.state === "SIGNED_OUT" || next.state === "ERROR") {
       applyNavbarState(null);
+    } else {
+      applyNavbarState({ state: "firebase_only" });
     }
 
+    // Notify subscribers
     try {
       _listeners.forEach((fn) => {
-        try {
-          fn({ ..._sessionState });
-        } catch {}
+        try { fn({ ..._sessionState }); } catch {}
       });
     } catch {}
   }
@@ -391,6 +188,7 @@
       if (token && String(token).trim()) setToken(token);
       return token && String(token).trim() ? String(token).trim() : null;
     } catch (err) {
+      // Ensure we don't keep stale tokens around
       clearLocalSession();
 
       if (isRevocationLikeError(err)) {
@@ -398,6 +196,7 @@
         return null;
       }
 
+      // Any other refresh failures: logout to a clean state
       await hardLogout({ reason: "token_refresh_failed" });
       return null;
     }
@@ -413,6 +212,7 @@
         const expMs = new Date(res.expirationTime).getTime();
         const now = nowMs();
 
+        // Refresh 2 minutes early; clamp for safety
         let delay = expMs - now - 2 * 60 * 1000;
         if (!Number.isFinite(delay)) delay = 5 * 60 * 1000;
         if (delay < 30 * 1000) delay = 30 * 1000;
@@ -427,6 +227,7 @@
         }, delay);
       })
       .catch(() => {
+        // If we failed to read expiration, still refresh periodically
         _refreshTimer = setTimeout(async () => {
           try {
             await getFreshToken({ force: true });
@@ -514,6 +315,7 @@
 
     const auth = firebase.auth();
 
+    // Initial state before first callback
     emitSessionState({ state: "SIGNED_OUT", uid: null, tokenReady: false, error: null });
 
     _unsubIdToken = auth.onIdTokenChanged(async (user) => {
@@ -527,8 +329,10 @@
 
       if (_lastUid !== user.uid) _lastUid = user.uid;
 
+      // Firebase session exists; token may still be minting
       emitSessionState({ state: "FIREBASE_SIGNED_IN", uid: user.uid, tokenReady: false, error: null });
 
+      // Force-refresh to ensure we capture a fresh JWT and write to storage
       const token = await getFreshToken({ force: true });
       if (!token) return;
 
@@ -544,7 +348,7 @@
     // opts: { forceRefresh?: boolean }
     const forceRefresh = !!opts.forceRefresh;
 
-    // 1) Fast path: explicit bridge token (login.js injects this)
+    // 1) Fast path: explicit bridge token / cached
     if (!forceRefresh && _cachedToken && String(_cachedToken).trim()) {
       return String(_cachedToken).trim();
     }
@@ -576,13 +380,27 @@
     return null;
   }
 
-  async function getCurrentUser() {
-    return null;
+  // Optional utility for pages that must wait until TOKEN_READY
+  async function waitForReady(timeoutMs = 8000) {
+    const t0 = nowMs();
+    while (nowMs() - t0 < timeoutMs) {
+      if (_sessionState.state === "TOKEN_READY") return true;
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    return false;
   }
 
-  function getFirebaseUser() {
+  async function getCurrentUser() {
+    // We remain backend-agnostic here; return Firebase user snapshot if available.
     try {
-      return firebase.auth().currentUser || null;
+      const u = firebase?.auth?.().currentUser || null;
+      if (!u) return null;
+      return {
+        uid: u.uid,
+        email: u.email || null,
+        phone: u.phoneNumber || null,
+        providerIds: Array.isArray(u.providerData) ? u.providerData.map(p => p?.providerId).filter(Boolean) : [],
+      };
     } catch {
       return null;
     }
@@ -595,11 +413,12 @@
       handler({ ..._sessionState });
     } catch {}
     return function unsubscribe() {
-      try {
-        _listeners.delete(handler);
-      } catch {}
+      try { _listeners.delete(handler); } catch {}
     };
   }
+
+  // Back-compat alias many UIs expect
+  const onAuthChanged = onSessionStateChange;
 
   async function logout() {
     const token = await getToken({ forceRefresh: false });
@@ -612,6 +431,7 @@
     setToken(token);
   }
 
+  // Public surface (contracts preserved)
   window.auth = {
     initSession,
     getToken,
@@ -620,9 +440,12 @@
 
     // Additions (non-breaking)
     setToken: publicSetToken,
-    getFirebaseUser,
+    getFirebaseUser: () => (firebase?.auth?.().currentUser || null),
     onSessionStateChange,
+    onAuthChanged,        // alias
+    waitForReady,
   };
 
   document.addEventListener("DOMContentLoaded", initSession);
 })();
+

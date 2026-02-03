@@ -345,10 +345,24 @@ _GUEST_ID_RE = re.compile(r"^[a-fA-F0-9-]{20,64}$")
 # ===========================================================
 # FIREBASE INITIALIZATION
 # ===========================================================
+# utils/auth.py - REPLACE the entire initialize_firebase() function
 def initialize_firebase():
     if firebase_admin._apps:
         return
 
+    # NEW: Use Application Default Credentials (your Owner account)
+    try:
+        import google.auth
+        credentials, project_id = google.auth.default()
+        firebase_admin.initialize_app(credentials, {
+            'projectId': 'vakaadha-c412d'
+        })
+        logging.info("✅ Firebase initialized with Application Default Credentials")
+        return
+    except ImportError:
+        logging.warning("google-auth not installed, falling back to service account")
+    
+    # FALLBACK: Original service account code
     path = os.getenv("FIREBASE_CREDENTIALS")
     if not path:
         from pathlib import Path
@@ -359,6 +373,7 @@ def initialize_firebase():
 
     cred = credentials.Certificate(str(path))
     firebase_admin.initialize_app(cred)
+
 
 
 # ===========================================================
@@ -525,6 +540,102 @@ def _set_guest_cookie(resp, guest_id=None, replace=False):
 # ===========================================================
 # DECORATOR: REQUIRE AUTH
 # ===========================================================
+# def require_auth(optional=False):
+#     """
+#     Contract:
+#       - If Authorization Bearer token is valid -> authenticated actor (Firebase-first)
+#       - If token missing or invalid and optional=True -> guest actor
+#       - If token missing or invalid and optional=False -> 401
+
+#     IMPORTANT:
+#       - This decorator MUST NOT create backend users.
+#       - It MAY attach existing backend user_id if present (read-only lookup).
+#         This remains backward compatible for services that use g.user['user_id'].
+#     """
+#     def decorator(func):
+#         @wraps(func)
+#         def wrapper(*args, **kwargs):
+#             # === CRITICAL DEBUG LOGS ===
+#             auth_header = request.headers.get("Authorization")
+#             logging.warning("🔍 AUTH DEBUG: Raw Authorization = %r", auth_header)
+            
+#             token = _extract_bearer_token()
+#             logging.warning("🔍 AUTH DEBUG: Extracted token = %s (len=%s)", 
+#                             "PRESENT" if token else "ABSENT", len(token) if token else 0)
+            
+#             if token:
+#                 try:
+#                     decoded = verify_firebase_token(token)
+#                     logging.warning("✅ AUTH DEBUG: Firebase verify SUCCESS uid=%s", decoded.get("uid"))
+#                 except Exception as e:
+#                     logging.warning("❌ AUTH DEBUG: Firebase verify FAILED: %s", str(e))
+#                     logging.warning("🔍 AUTH DEBUG: Firebase apps loaded? %s", bool(firebase_admin._apps))
+#             # === END DEBUG ===            
+#             # token = _extract_bearer_token()
+
+#             g.user = None
+#             g.actor = {
+#                 "is_authenticated": False,
+#                 "firebase_uid": None,
+#                 "user_id": None,
+#                 "guest_id": None,
+#             }
+
+#             # Always resolve incoming guest id (header/query/cookie) for continuity.
+#             # This does not generate a new guest unless we end up in guest mode and need one.
+#             incoming_guest = _incoming_guest_id()
+
+#             if token:
+#                 try:
+#                     decoded = verify_firebase_token(token, check_revoked=True)
+
+#                     firebase_uid = decoded.get("uid")
+#                     g.user = {
+#                         "firebase_uid": firebase_uid,
+#                         "email": decoded.get("email"),
+#                         "name": decoded.get("name") or decoded.get("email"),
+#                         "email_verified": bool(decoded.get("email_verified", False)),
+#                         "user_id": None,
+#                     }
+
+#                     # Backward-compatible, read-only lookup:
+#                     # attach user_id if a users row already exists.
+#                     try:
+#                         from domain.users import repository as users_repo
+#                         u = users_repo.get_user_by_uid(firebase_uid)
+#                         if u and "user_id" in u:
+#                             g.user["user_id"] = u["user_id"]
+#                     except Exception:
+#                         u = None
+
+#                     g.actor["is_authenticated"] = True
+#                     g.actor["firebase_uid"] = firebase_uid
+#                     g.actor["user_id"] = g.user["user_id"]
+#                     g.actor["guest_id"] = incoming_guest  # keep for merge decisions later
+
+#                     return func(*args, **kwargs)
+
+#                 except AuthError as e:
+#                     if not optional:
+#                         return jsonify({"error": e.code, "message": e.message}), e.status
+#                 except Exception as e:
+#                     if not optional:
+#                         return jsonify({"error": "auth_failed", "message": str(e)}), 401
+
+#             # No valid token path
+#             if not optional:
+#                 return jsonify({"error": "unauthorized", "message": "Authentication required"}), 401
+
+#             gid = incoming_guest or _resolve_guest()
+#             g.actor["is_authenticated"] = False
+#             g.actor["guest_id"] = gid
+
+#             return func(*args, **kwargs)
+
+#         return wrapper
+#     return decorator
+
+
 def require_auth(optional=False):
     """
     Contract:
@@ -540,7 +651,22 @@ def require_auth(optional=False):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # === CRITICAL DEBUG LOGS ===
+            auth_header = request.headers.get("Authorization")
+            logging.warning("🔍 AUTH DEBUG: Raw Authorization = %r", auth_header)
+            
             token = _extract_bearer_token()
+            logging.warning("🔍 AUTH DEBUG: Extracted token = %s (len=%s)", 
+                            "PRESENT" if token else "ABSENT", len(token) if token else 0)
+            
+            if token:
+                try:
+                    decoded = verify_firebase_token(token)
+                    logging.warning("✅ AUTH DEBUG: Firebase verify SUCCESS uid=%s", decoded.get("uid"))
+                except Exception as e:
+                    logging.warning("❌ AUTH DEBUG: Firebase verify FAILED: %s", str(e))
+                    logging.warning("🔍 AUTH DEBUG: Firebase apps loaded? %s", bool(firebase_admin._apps))
+            # === END DEBUG ===
 
             g.user = None
             g.actor = {
@@ -550,8 +676,6 @@ def require_auth(optional=False):
                 "guest_id": None,
             }
 
-            # Always resolve incoming guest id (header/query/cookie) for continuity.
-            # This does not generate a new guest unless we end up in guest mode and need one.
             incoming_guest = _incoming_guest_id()
 
             if token:
@@ -559,16 +683,21 @@ def require_auth(optional=False):
                     decoded = verify_firebase_token(token, check_revoked=True)
 
                     firebase_uid = decoded.get("uid")
+                    # NEW: capture phone claim once, reuse below
+                    phone = decoded.get("phone_number")
+
                     g.user = {
                         "firebase_uid": firebase_uid,
                         "email": decoded.get("email"),
                         "name": decoded.get("name") or decoded.get("email"),
                         "email_verified": bool(decoded.get("email_verified", False)),
+                        # NEW: expose phone to downstream reconcile
+                        "phone_number": phone,
+                        "phone": phone,
                         "user_id": None,
                     }
 
-                    # Backward-compatible, read-only lookup:
-                    # attach user_id if a users row already exists.
+                    # Backward-compatible, read-only lookup for existing users
                     try:
                         from domain.users import repository as users_repo
                         u = users_repo.get_user_by_uid(firebase_uid)

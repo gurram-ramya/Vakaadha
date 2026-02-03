@@ -348,6 +348,7 @@
 
 # ------------- pgsql ---------------------------
 # domain/users/service.py
+# domain/users/service.py
 #
 # Updated to match your CURRENT DATABASE SCHEMA:
 # - users: (user_id, firebase_uid, is_admin, last_login, created_at, updated_at)
@@ -360,16 +361,11 @@
 # - This layer does NOT verify identifiers. It only mirrors verified state.
 # - Guest merge happens only when explicitly requested (guest_id provided).
 # - Safe to retry /api/auth/register: user upsert + identity upsert are idempotent.
-#
-# Notes about integration:
-# - routes/users.py currently calls cart/wishlist merge again after ensure_user_with_merge.
-#   After you update routes, remove the extra merges and rely on ensure_user_with_merge output.
-# - update_profile accepts legacy payload field "name" and maps it to user_profiles.full_name.
 
 import logging
 from typing import Any, Dict, Optional, Tuple, List
 
-from db import transaction, get_db_connection
+from db import transaction, get_db_connection  # get_db_connection kept for compatibility
 from domain.cart import service as cart_service
 from domain.wishlist import service as wishlist_service
 
@@ -379,17 +375,29 @@ class IdentityConflictError(Exception):
 
 
 # ------------------------------------------------------------
-# Low-level helpers compatible with your transaction() cursor
+# Low-level helpers (return dicts even if a tuple cursor slips in)
 # ------------------------------------------------------------
 
 def _fetchone_dict(cur):
     row = cur.fetchone()
-    return row if row else None
-
+    if not row:
+        return None
+    try:
+        return dict(row)  # RealDictRow/sqlite3.Row
+    except Exception:
+        cols = [d[0] for d in (cur.description or [])]
+        return {k: v for k, v in zip(cols, row)}
 
 def _fetchall_dict(cur):
-    rows = cur.fetchall()
-    return rows if rows else []
+    rows = cur.fetchall() or []
+    out = []
+    for r in rows:
+        try:
+            out.append(dict(r))
+        except Exception:
+            cols = [d[0] for d in (cur.description or [])]
+            out.append({k: v for k, v in zip(cols, r)})
+    return out
 
 
 def _ensure_user_row(firebase_uid: str, cur, update_last_login: bool = True) -> Dict[str, Any]:
@@ -475,6 +483,53 @@ def _has_primary_for_provider(user_id: int, provider: str, cur) -> bool:
     return bool(_fetchone_dict(cur))
 
 
+# def _upsert_identity(
+#     user_id: int,
+#     provider: str,
+#     identifier: str,
+#     is_verified: bool,
+#     make_primary_if_none: bool,
+#     cur,
+# ) -> Dict[str, Any]:
+#     if not identifier:
+#         raise ValueError("identifier required for identity upsert")
+
+#     conflict = _identity_exists_elsewhere(provider, identifier, user_id, cur)
+#     if conflict:
+#         raise IdentityConflictError(
+#             f"Identity already linked to another user (provider={provider}, identifier={identifier})"
+#         )
+
+#     is_primary = False
+#     if make_primary_if_none and not _has_primary_for_provider(user_id, provider, cur):
+#         is_primary = True
+
+#     # Never downgrade is_verified; once true it stays true.
+#     cur.execute(
+#         """
+#         INSERT INTO user_auth_identities
+#           (user_id, provider, identifier, is_verified, is_primary, created_at, updated_at)
+#         VALUES
+#           (%s, %s, %s, %s, %s, NOW(), NOW())
+#         ON CONFLICT (provider, identifier)
+#         DO UPDATE SET
+#           user_id = EXCLUDED.user_id,
+#           is_verified = (user_auth_identities.is_verified OR EXCLUDED.is_verified),
+#           is_primary = CASE
+#             WHEN user_auth_identities.user_id = EXCLUDED.user_id
+#               THEN (user_auth_identities.is_primary OR EXCLUDED.is_primary)
+#             ELSE user_auth_identities.is_primary
+#           END,
+#           updated_at = NOW()
+#         RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at;
+#         """,
+#         (user_id, provider, identifier, bool(is_verified), bool(is_primary)),
+#     )
+#     row = _fetchone_dict(cur)
+#     if not row:
+#         raise RuntimeError("Failed to upsert identity")
+#     return row
+
 def _upsert_identity(
     user_id: int,
     provider: str,
@@ -482,44 +537,129 @@ def _upsert_identity(
     is_verified: bool,
     make_primary_if_none: bool,
     cur,
+    *,
+    force_make_primary: bool = False,   # <— new optional arg
 ) -> Dict[str, Any]:
+    """
+    Update-first logic:
+    - If this user already has an identity row for this provider, UPDATE that row's identifier.
+    - Else INSERT a new row.
+    - Guard that (provider, identifier) isn't owned by another user.
+    - Optionally mark the updated/inserted row as primary and demote others for this provider.
+    """
     if not identifier:
         raise ValueError("identifier required for identity upsert")
 
-    conflict = _identity_exists_elsewhere(provider, identifier, user_id, cur)
-    if conflict:
+    # Block if another user already owns this identifier for this provider
+    cur.execute(
+        """
+        SELECT identity_id, user_id
+        FROM user_auth_identities
+        WHERE provider = %s AND identifier = %s
+        """,
+        (provider, identifier),
+    )
+    conflict = _fetchone_dict(cur)
+    if conflict and int(conflict["user_id"]) != int(user_id):
         raise IdentityConflictError(
             f"Identity already linked to another user (provider={provider}, identifier={identifier})"
         )
 
-    is_primary = False
-    if make_primary_if_none and not _has_primary_for_provider(user_id, provider, cur):
-        is_primary = True
+    # Look for any existing row for this user+provider
+    cur.execute(
+        """
+        SELECT identity_id, is_primary
+        FROM user_auth_identities
+        WHERE user_id = %s AND provider = %s
+        ORDER BY is_primary DESC, updated_at DESC, identity_id DESC
+        LIMIT 1
+        """,
+        (user_id, provider),
+    )
+    existing = _fetchone_dict(cur)
 
-    # Never downgrade is_verified; once true it stays true.
+    # Decide if we should make this one primary
+    should_make_primary = bool(force_make_primary)
+    if not should_make_primary and make_primary_if_none:
+        # Only if the user has no primary for this provider yet
+        cur.execute(
+            """
+            SELECT 1
+            FROM user_auth_identities
+            WHERE user_id = %s AND provider = %s AND is_primary = TRUE
+            LIMIT 1
+            """,
+            (user_id, provider),
+        )
+        should_make_primary = not bool(_fetchone_dict(cur))
+
+    if existing:
+        # UPDATE path — change identifier, keep/downgrade nothing, only OR the verified bit
+        cur.execute(
+            """
+            UPDATE user_auth_identities
+            SET identifier = %s,
+                is_verified = (is_verified OR %s),
+                updated_at = NOW()
+            WHERE identity_id = %s
+            RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at
+            """,
+            (identifier, bool(is_verified), existing["identity_id"]),
+        )
+        row = _fetchone_dict(cur)
+        if not row:
+            raise RuntimeError("Failed to update identity")
+
+        if should_make_primary:
+            # Promote this row, demote others
+            cur.execute(
+                """
+                UPDATE user_auth_identities
+                SET is_primary = TRUE, updated_at = NOW()
+                WHERE user_id = %s AND provider = %s AND identity_id = %s
+                """,
+                (user_id, provider, row["identity_id"]),
+            )
+            cur.execute(
+                """
+                UPDATE user_auth_identities
+                SET is_primary = FALSE, updated_at = NOW()
+                WHERE user_id = %s AND provider = %s AND identity_id <> %s
+                """,
+                (user_id, provider, row["identity_id"]),
+            )
+            # reflect primary change in returned row
+            row["is_primary"] = True
+
+        return row
+
+    # INSERT path — no row for this user+provider yet
+    is_primary = bool(should_make_primary)
     cur.execute(
         """
         INSERT INTO user_auth_identities
           (user_id, provider, identifier, is_verified, is_primary, created_at, updated_at)
         VALUES
           (%s, %s, %s, %s, %s, NOW(), NOW())
-        ON CONFLICT (provider, identifier)
-        DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          is_verified = (user_auth_identities.is_verified OR EXCLUDED.is_verified),
-          is_primary = CASE
-            WHEN user_auth_identities.user_id = EXCLUDED.user_id
-              THEN (user_auth_identities.is_primary OR EXCLUDED.is_primary)
-            ELSE user_auth_identities.is_primary
-          END,
-          updated_at = NOW()
-        RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at;
+        RETURNING identity_id, user_id, provider, identifier, is_verified, is_primary, created_at, updated_at
         """,
-        (user_id, provider, identifier, bool(is_verified), bool(is_primary)),
+        (user_id, provider, identifier, bool(is_verified), is_primary),
     )
     row = _fetchone_dict(cur)
     if not row:
-        raise RuntimeError("Failed to upsert identity")
+        raise RuntimeError("Failed to insert identity")
+
+    if is_primary:
+        # Demote any stray rows for safety (shouldn't exist, but idempotent)
+        cur.execute(
+            """
+            UPDATE user_auth_identities
+            SET is_primary = FALSE, updated_at = NOW()
+            WHERE user_id = %s AND provider = %s AND identity_id <> %s
+            """,
+            (user_id, provider, row["identity_id"]),
+        )
+
     return row
 
 
@@ -549,30 +689,22 @@ def _compute_profile_complete(profile: Optional[Dict[str, Any]], identities: Lis
 
 def ensure_user_with_merge(
     conn,
+    *,
     firebase_uid: str,
-    email: Optional[str],
-    name: Optional[str],
-    avatar_url: Optional[str],
-    guest_id: Optional[str],
+    email: Optional[str] = None,
+    name: Optional[str] = None,
+    avatar_url: Optional[str] = None,
+    guest_id: Optional[str] = None,
     update_last_login: bool = True,
-    firebase_phone: Optional[str] = None,
-    firebase_provider_google_uid: Optional[str] = None,
     email_verified: bool = False,
+    firebase_phone: Optional[str] = None,
+    phone: Optional[str] = None,  # alias accepted (routes/users.py uses phone=)
+    firebase_provider_google_uid: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """
     Reconciliation entry used by /api/auth/register.
     Assumes Firebase token is valid and already verified on Firebase side.
-
-    Inputs:
-      - firebase_uid: required
-      - email/email_verified: from token (may be absent)
-      - firebase_phone: if you later add it to g.user (may be absent now)
-      - firebase_provider_google_uid: optional (if you later supply it)
-      - name/avatar_url are ignored for users table (profile lives in user_profiles)
-      - guest_id triggers merges (cart/wishlist)
-
-    Returns:
-      (user_row, result)
+    Returns: (user_row, result)
     """
     if not firebase_uid:
         return None, {"error": "missing_firebase_uid"}
@@ -587,9 +719,35 @@ def ensure_user_with_merge(
 
         identities_result = {"status": "none", "updated": []}
 
-        # Mirror identities ONLY if you have evidence they are verified on Firebase.
-        # Email: only treat as verified if token says email_verified True.
         try:
+            # # Email (only if verified in Firebase token)
+            # if email and bool(email_verified):
+            #     row = _upsert_identity(
+            #         user_id=user_id,
+            #         provider="email",
+            #         identifier=email.strip().lower(),
+            #         is_verified=True,
+            #         make_primary_if_none=True,
+            #         cur=cur,
+            #     )
+            #     identities_result["updated"].append({"provider": "email", "identifier": row["identifier"]})
+            #     identities_result["status"] = "updated"
+
+            # # Phone (E.164 from Firebase token)
+            # phone_value = firebase_phone or phone
+            # if phone_value:
+            #     row = _upsert_identity(
+            #         user_id=user_id,
+            #         provider="phone",
+            #         identifier=str(phone_value).strip(),
+            #         is_verified=True,
+            #         make_primary_if_none=True,
+            #         cur=cur,
+            #     )
+            #     identities_result["updated"].append({"provider": "phone", "identifier": row["identifier"]})
+            #     identities_result["status"] = "updated"
+
+            # Email (only if verified in Firebase token)
             if email and bool(email_verified):
                 row = _upsert_identity(
                     user_id=user_id,
@@ -598,24 +756,27 @@ def ensure_user_with_merge(
                     is_verified=True,
                     make_primary_if_none=True,
                     cur=cur,
+                    force_make_primary=True,   # <— promote the new email immediately
                 )
                 identities_result["updated"].append({"provider": "email", "identifier": row["identifier"]})
                 identities_result["status"] = "updated"
 
-            # Phone: you must supply E.164 from Firebase token (not from frontend input).
-            if firebase_phone:
+            # Phone (E.164 from Firebase token)
+            phone_value = firebase_phone or phone
+            if phone_value:
                 row = _upsert_identity(
                     user_id=user_id,
                     provider="phone",
-                    identifier=str(firebase_phone).strip(),
+                    identifier=str(phone_value).strip(),
                     is_verified=True,
                     make_primary_if_none=True,
                     cur=cur,
+                    force_make_primary=True,   # <— promote the new phone immediately
                 )
                 identities_result["updated"].append({"provider": "phone", "identifier": row["identifier"]})
                 identities_result["status"] = "updated"
 
-            # Google: if you later supply provider UID, mirror it.
+            # Google provider UID (if supplied)
             if firebase_provider_google_uid:
                 row = _upsert_identity(
                     user_id=user_id,
@@ -628,14 +789,11 @@ def ensure_user_with_merge(
                 identities_result["updated"].append({"provider": "google", "identifier": row["identifier"]})
                 identities_result["status"] = "updated"
 
-        except IdentityConflictError as e:
-            # Do not create a second user. Surface error to route.
+        except IdentityConflictError:
+            logging.exception("ensure_user_with_merge identity conflict")
             raise
 
-        merge_result = {
-            "cart": {"status": "none"},
-            "wishlist": {"status": "none"},
-        }
+        merge_result = {"cart": {"status": "none"}, "wishlist": {"status": "none"}}
 
         if guest_id:
             try:
@@ -648,11 +806,7 @@ def ensure_user_with_merge(
             except Exception:
                 merge_result["wishlist"] = {"status": "error"}
 
-        result = {
-            "identities": identities_result,
-            "merge": merge_result,
-        }
-
+        result = {"identities": identities_result, "merge": merge_result}
         return user, result
 
     try:
@@ -662,7 +816,6 @@ def ensure_user_with_merge(
         else:
             return _run(conn)
     except IdentityConflictError as e:
-        logging.exception("ensure_user_with_merge identity conflict")
         return None, {"error": "identity_conflict", "message": str(e)}
     except Exception as e:
         logging.exception("ensure_user_with_merge failed")
@@ -680,7 +833,6 @@ def update_profile(conn, firebase_uid: str, updates: Dict[str, Any]) -> Optional
     allowed = {"name", "full_name", "dob", "gender", "avatar_url"}
     data = {k: v for k, v in (updates or {}).items() if k in allowed}
 
-    # Map old field used by frontend routes/users.py
     if "name" in data and "full_name" not in data:
         data["full_name"] = data["name"]
     data.pop("name", None)
@@ -688,7 +840,6 @@ def update_profile(conn, firebase_uid: str, updates: Dict[str, Any]) -> Optional
     internal = conn is None
 
     def _run(cur):
-        # Resolve user by firebase_uid
         cur.execute(
             "SELECT user_id, firebase_uid, is_admin, last_login, created_at, updated_at FROM users WHERE firebase_uid = %s;",
             (firebase_uid,),
@@ -700,7 +851,6 @@ def update_profile(conn, firebase_uid: str, updates: Dict[str, Any]) -> Optional
         user_id = int(user["user_id"])
         _ensure_profile_row(user_id, cur)
 
-        # Apply profile updates
         if data:
             set_parts = []
             params = []
@@ -708,7 +858,6 @@ def update_profile(conn, firebase_uid: str, updates: Dict[str, Any]) -> Optional
                 if k in data:
                     set_parts.append(f"{k} = %s")
                     params.append(data[k])
-
             if set_parts:
                 params.append(user_id)
                 cur.execute(
@@ -752,6 +901,7 @@ def get_user_with_profile(conn, firebase_uid: str) -> Optional[Dict[str, Any]]:
     """
     Canonical backend view for /api/users/me.
     Includes identities, profile_complete, and convenience email/mobile fields.
+    Always uses a dict-capable cursor when conn is None.
     """
     if not firebase_uid:
         return None
@@ -792,7 +942,7 @@ def get_user_with_profile(conn, firebase_uid: str) -> Optional[Dict[str, Any]]:
         }
 
     if internal:
-        with get_db_connection() as db:
-            with db.cursor() as cur:
-                return _run(cur)
+        # CRITICAL: ensure a RealDictCursor via transaction()
+        with transaction() as tx:
+            return _run(tx)
     return _run(conn)

@@ -1,285 +1,62 @@
-// // ============================================================
-// // navbar.js — Auth-first; unified token/guest logic
-// // Updated to support new login.html / profile.html routing
-// // ============================================================
-
-// (function () {
-//   if (window.__navbar_js_bound__) return;
-//   window.__navbar_js_bound__ = true;
-
-//   const CART_ENDPOINT = "/api/cart";
-//   const WISHLIST_COUNT_ENDPOINT = "/api/wishlist/count";
-
-//   window.appState = window.appState || {
-//     cartCount: 0,
-//     wishlistCount: 0,
-//     lastFetch: 0,
-//   };
-
-//   // ------------------------------------------------------------------
-//   // ADDED: simple helper to check if user is authenticated
-//   // ------------------------------------------------------------------
-//   function isLoggedIn() {
-//     const token = localStorage.getItem("auth_token");
-//     return !!token;
-//   }
-
-//   // ------------------------------------------------------------
-//   // Core request
-//   // ------------------------------------------------------------
-//   async function safeApiRequest(endpoint, options = {}) {
-//     const token = localStorage.getItem("auth_token");
-//     const guestId = !token ? localStorage.getItem("guest_id") : null;
-//     const headers = options.headers || {};
-
-//     if (token) headers["Authorization"] = `Bearer ${token}`;
-//     const url = guestId ? `${endpoint}?guest_id=${guestId}` : endpoint;
-
-//     try {
-//       return await window.apiRequest(url, { ...options, headers });
-//     } catch (err) {
-//       console.error("[navbar.js] API fail:", err);
-//       if (err.status === 410) {
-//         console.warn("[navbar.js] Guest session expired; resetting");
-//         if (window.resetGuestId) window.resetGuestId();
-//       }
-//       throw err;
-//     }
-//   }
-
-//   // ------------------------------------------------------------
-//   // Counts
-//   // ------------------------------------------------------------
-//   async function fetchCartCount(force = false) {
-//     const now = Date.now();
-//     if (!force && now - window.appState.lastFetch < 60000)
-//       return window.appState.cartCount;
-
-//     try {
-//       const data = await safeApiRequest(CART_ENDPOINT, { method: "GET" });
-//       const items = Array.isArray(data.items) ? data.items : [];
-//       const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
-//       window.appState.cartCount = count;
-//       window.appState.lastFetch = now;
-//       return count;
-//     } catch {
-//       window.appState.cartCount = 0;
-//       return 0;
-//     }
-//   }
-
-//   async function fetchWishlistCount(force = false) {
-//     const now = Date.now();
-//     if (!force && now - window.appState.lastFetch < 60000)
-//       return window.appState.wishlistCount;
-
-//     try {
-//       const res = await safeApiRequest(WISHLIST_COUNT_ENDPOINT, { method: "GET" });
-//       const count = typeof res.count === "number" ? res.count : 0;
-//       window.appState.wishlistCount = count;
-//       window.appState.lastFetch = now;
-//       return count;
-//     } catch {
-//       window.appState.wishlistCount = 0;
-//       return 0;
-//     }
-//   }
-
-//   async function updateNavbarCounts(force = false) {
-//     const cartEl = document.getElementById("cartCount");
-//     const wishEl = document.getElementById("wishlistCount");
-//     if (!cartEl && !wishEl) return;
-
-//     try {
-//       const [cartCount, wishlistCount] = await Promise.all([
-//         fetchCartCount(force),
-//         fetchWishlistCount(force),
-//       ]);
-//       if (cartEl) cartEl.textContent = cartCount || 0;
-//       if (wishEl) wishEl.textContent = wishlistCount || 0;
-//     } catch {
-//       if (cartEl) cartEl.textContent = "0";
-//       if (wishEl) wishEl.textContent = "0";
-//     }
-//   }
-
-//   // ------------------------------------------------------------
-//   // Global auth shim
-//   // ------------------------------------------------------------
-//   window.auth = {
-//     async initSession() {
-//       const auth = getAuth?.();
-//       if (!auth) return null;
-//       return auth;
-//     },
-//     async getCurrentUser() {
-//       const auth = getAuth?.();
-//       return auth ? { name: auth.name, email: auth.email } : null;
-//     },
-//     async getToken() {
-//       const auth = getAuth?.();
-//       return auth ? auth.idToken : null;
-//     },
-//     async logout() {
-//       try {
-//         const fbAuth = firebase.auth();
-//         await fbAuth.signOut(); // ensures onAuthStateChanged(null)
-//       } catch (e) {
-//         console.warn("Firebase signOut error:", e);
-//       }
-//       clearAuth?.();
-//       localStorage.removeItem("auth_token");
-//       localStorage.removeItem("guest_id");
-//     },
-//   };
-
-//   // ------------------------------------------------------------
-//   // User Display
-//   // ------------------------------------------------------------
-//   function updateNavbarUser(user) {
-//     const loginLink = document.getElementById("loginLink");
-//     const profileLink = document.getElementById("profileLink");
-//     const logoutLink = document.getElementById("navbar-logout");
-//     const userDisplay = document.getElementById("user-display");
-//     const isAuth = !!(user && (user.name || user.email));
-
-//     if (userDisplay)
-//       userDisplay.textContent = isAuth ? (user.name || user.email || "") : "";
-//     if (loginLink) loginLink.style.display = isAuth ? "none" : "inline-block";
-//     if (profileLink) profileLink.style.display = isAuth ? "inline-block" : "none";
-//     if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
-//   }
-
-//   // ------------------------------------------------------------
-//   // Logout handler
-//   // ------------------------------------------------------------
-//   function wireLogout() {
-//     const logoutLink = document.getElementById("navbar-logout");
-//     if (!logoutLink) return;
-
-//     logoutLink.addEventListener("click", async (e) => {
-//       e.preventDefault();
-//       window.__logout_in_progress__ = true;
-
-//       try {
-//         await window.auth.logout();
-//         window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
-//       } finally {
-//         updateNavbarUser(null);
-
-//         // ------------------------------------------------------------------
-//         // REMOVED: old profile DOM manipulation for profile.html inline login
-//         // ADDED: universal redirect to homepage after logout
-//         // ------------------------------------------------------------------
-//         location.href = "/";
-//       }
-//     });
-//   }
-
-//   // ------------------------------------------------------------
-//   // ADDED: Handle profile icon click → login.html OR profile.html
-//   // ------------------------------------------------------------
-//   function wireProfileIconRouting() {
-//     const profileAnchor = document.querySelector('a[href="./profile.html"]');
-//     if (!profileAnchor) return;
-
-//     profileAnchor.addEventListener("click", (e) => {
-//       e.preventDefault();
-
-//       if (isLoggedIn()) {
-//         // user is authenticated → go to profile
-//         window.location.href = "profile.html";
-//       } else {
-//         // user not authenticated → go to login
-//         window.location.href = "login.html";
-//       }
-//     });
-//   }
-
-//   // ------------------------------------------------------------
-//   // Initialization
-//   // ------------------------------------------------------------
-//   async function initializeNavbar() {
-//     if (window.auth?.initSession) await window.auth.initSession();
-//     const user = await (window.auth?.getCurrentUser?.() || null);
-
-//     updateNavbarUser(user);
-//     await updateNavbarCounts(true);
-
-//     wireLogout();
-//     wireProfileIconRouting();   // <--- ADDED
-
-//     setInterval(() => updateNavbarCounts(false), 60000);
-
-//     window.updateNavbarCounts = updateNavbarCounts;
-//     window.updateNavbarUser = updateNavbarUser;
-//   }
-
-//   document.addEventListener("DOMContentLoaded", initializeNavbar);
-// })();
 
 
-// ------------------------------------------------------------------------------
+// -------------------------------------------------------------------
 
-// frontend/navbar.js
+// frontend/navbar.js 
 
-// ============================================================
-// navbar.js — UI consumer (auth.js–aligned, backend-agnostic)
-// ============================================================
-
+/**
+ * Auth-aware navbar (robust, aligned with auth.js + client.js)
+ * - Decides guest vs authed using token + /api/auth/session (+/api/users/me fallback)
+ * - Shows/Hides Login/Logout correctly and sets profile icon target
+ * - Keeps cart / wishlist counts in sync with throttling
+ * - Reacts to auth state changes, cross-tab storage changes, and page visibility
+ *
+ * DOM it expects (from your index.html):
+ *   #loginLink, #navbar-logout, #user-display, #cartCount, #wishlistCount
+ *   Profile icon anchor: the first <a> inside .dropdown (no id)
+ */
 (function () {
   if (window.__navbar_js_bound__) return;
   window.__navbar_js_bound__ = true;
 
   const CART_ENDPOINT = "/api/cart";
-  const WISHLIST_COUNT_ENDPOINT = "/api/wishlist/count";
+  const WISHCOUNT_ENDPOINT = "/api/wishlist/count";
+  const AUTH_SESSION_ENDPOINT = "/api/auth/session";
+  const ME_ENDPOINT = "/api/users/me";
 
-  window.appState = window.appState || {
-    cartCount: 0,
-    wishlistCount: 0,
-    lastFetch: 0,
+  // Cache + throttling
+  window.appState = window.appState || { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
+
+  // ---------- DOM ----------
+  const els = {
+    userDisplay: document.getElementById("user-display"),
+    loginLink:   document.getElementById("loginLink"),
+    logoutLink:  document.getElementById("navbar-logout"),
+    profileAnchor:
+      document.querySelector('.dropdown > a[aria-label="Profile"]') ||
+      document.querySelector('.dropdown > a[href="./profile.html"]') ||
+      document.querySelector('.dropdown > a[href="profile.html"]') ||
+      document.querySelector('.dropdown > a'),
+    cartBadge:  document.getElementById("cartCount"),
+    wishBadge:  document.getElementById("wishlistCount"),
   };
 
-  /* ------------------------------------------------------------
-   * Auth state helpers (NO localStorage inference)
-   * ---------------------------------------------------------- */
-  async function isLoggedIn() {
-    if (!window.auth?.getToken) return false;
-    const token = await window.auth.getToken();
-    return !!token;
+  function setText(el, txt) { if (el) el.textContent = txt; }
+  function show(el, yes)   { if (el) el.style.display = yes ? "" : "none"; }
+
+  // ---------- Counts ----------
+  function withinThrottle() {
+    return (Date.now() - window.appState.lastFetch) < 60000;
   }
 
-  /* ------------------------------------------------------------
-   * Safe API wrapper (delegates to client.js)
-   * ---------------------------------------------------------- */
-  async function safeApiRequest(endpoint, options = {}) {
-    try {
-      return await window.apiRequest(endpoint, options);
-    } catch (err) {
-      if (err?.status === 410) {
-        // Guest expired → counts reset only
-        window.appState.cartCount = 0;
-        window.appState.wishlistCount = 0;
-      }
-      throw err;
-    }
-  }
-
-  /* ------------------------------------------------------------
-   * Counts
-   * ---------------------------------------------------------- */
   async function fetchCartCount(force = false) {
-    const now = Date.now();
-    if (!force && now - window.appState.lastFetch < 60000) {
-      return window.appState.cartCount;
-    }
-
+    if (!force && withinThrottle()) return window.appState.cartCount;
     try {
-      const data = await safeApiRequest(CART_ENDPOINT);
+      const data = await window.apiRequest(CART_ENDPOINT);
       const items = Array.isArray(data.items) ? data.items : [];
       const count = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
       window.appState.cartCount = count;
-      window.appState.lastFetch = now;
+      window.appState.lastFetch = Date.now();
       return count;
     } catch {
       window.appState.cartCount = 0;
@@ -288,16 +65,12 @@
   }
 
   async function fetchWishlistCount(force = false) {
-    const now = Date.now();
-    if (!force && now - window.appState.lastFetch < 60000) {
-      return window.appState.wishlistCount;
-    }
-
+    if (!force && withinThrottle()) return window.appState.wishlistCount;
     try {
-      const res = await safeApiRequest(WISHLIST_COUNT_ENDPOINT);
-      const count = typeof res.count === "number" ? res.count : 0;
+      const res = await window.apiRequest(WISHCOUNT_ENDPOINT);
+      const count = typeof res?.count === "number" ? res.count : 0;
       window.appState.wishlistCount = count;
-      window.appState.lastFetch = now;
+      window.appState.lastFetch = Date.now();
       return count;
     } catch {
       window.appState.wishlistCount = 0;
@@ -306,104 +79,190 @@
   }
 
   async function updateNavbarCounts(force = false) {
-    const cartEl = document.getElementById("cartCount");
-    const wishEl = document.getElementById("wishlistCount");
-    if (!cartEl && !wishEl) return;
+    const [c, w] = await Promise.all([fetchCartCount(force), fetchWishlistCount(force)]);
+    if (els.cartBadge) els.cartBadge.textContent = c || 0;
+    if (els.wishBadge) els.wishBadge.textContent = w || 0;
+  }
 
+  // ---------- Render ----------
+  // PATCH: safety — never regress to guest if a token exists (prevents flicker/race)
+  async function renderGuest() {
     try {
-      const [cartCount, wishlistCount] = await Promise.all([
-        fetchCartCount(force),
-        fetchWishlistCount(force),
-      ]);
-      if (cartEl) cartEl.textContent = cartCount || 0;
-      if (wishEl) wishEl.textContent = wishlistCount || 0;
-    } catch {
-      if (cartEl) cartEl.textContent = "0";
-      if (wishEl) wishEl.textContent = "0";
+      const tok = await window.auth?.getToken?.();
+      if (tok) return; // token present => do not render guest
+    } catch {}
+    if (els.profileAnchor) els.profileAnchor.setAttribute("href", "login.html");
+    show(els.loginLink, true);
+    show(els.logoutLink, false);
+    setText(els.userDisplay, "");
+  }
+
+  function renderUser(me) {
+    if (els.profileAnchor) els.profileAnchor.setAttribute("href", "profile.html");
+    show(els.loginLink, false);
+    show(els.logoutLink, true);
+
+    const display =
+      (me?.full_name || me?.name) ||
+      (me?.email || me?.mobile) ||
+      "My Account";
+    setText(els.userDisplay, display);
+  }
+
+  // ---------- Auth decision helpers ----------
+  async function backendSessionSnapshot() {
+    try {
+      // apiRequest adds Authorization automatically; no guest_id when auth header present
+      const s = await window.apiRequest(AUTH_SESSION_ENDPOINT);
+      // normalize common shapes
+      return {
+        ok: true,
+        isAuthenticated: !!(s?.is_authenticated || s?.authenticated || s?.user_id),
+        raw: s
+      };
+    } catch (e) {
+      return { ok: false, status: e?.status || 0, error: e };
     }
   }
 
-  /* ------------------------------------------------------------
-   * User display (defensive: backend user may be null)
-   * ---------------------------------------------------------- */
-  function updateNavbarUser(user) {
-    const loginLink = document.getElementById("loginLink");
-    const profileLink = document.getElementById("profileLink");
-    const logoutLink = document.getElementById("navbar-logout");
-    const userDisplay = document.getElementById("user-display");
-
-    const isAuth = !!user;
-
-    if (userDisplay) {
-      userDisplay.textContent = user?.name || "";
+  async function fetchMeTolerant() {
+    try {
+      const me = await window.apiRequest(ME_ENDPOINT);
+      return { ok: true, me };
+    } catch (e) {
+      if (e?.status === 404) {
+        // First-time user: backend user row not created yet but token is valid. Treat as authed.
+        return { ok: true, me: { full_name: null, email: null, mobile: null } };
+      }
+      return { ok: false, status: e?.status || 0, error: e };
     }
-
-    if (loginLink) loginLink.style.display = isAuth ? "none" : "inline-block";
-    if (profileLink) profileLink.style.display = isAuth ? "inline-block" : "none";
-    if (logoutLink) logoutLink.style.display = isAuth ? "inline-block" : "none";
   }
 
-  /* ------------------------------------------------------------
-   * Logout handler (delegates to auth.js)
-   * ---------------------------------------------------------- */
-  function wireLogout() {
-    const logoutLink = document.getElementById("navbar-logout");
-    if (!logoutLink) return;
+  async function decideAuthState() {
+    // 1) Ensure auth.js finished bootstrapping and token exists
+    try { await window.auth?.initSession?.(); } catch {}
+    const ready = (await window.auth?.waitForReady?.(6000)) || false; // keep contract
+    const token = await window.auth?.getToken?.({ forceRefresh: false });
+    if (!token) return { state: "guest" };
 
-    logoutLink.addEventListener("click", async (e) => {
-      e.preventDefault();
+    // 2) Ask backend for the current server-side session
+    const sess = await backendSessionSnapshot();
+    if (sess.ok && sess.isAuthenticated) {
+      // Backend recognizes the token/session; decorate display
+      const meRes = await fetchMeTolerant();
+      if (meRes.ok) return { state: "user", me: meRes.me };
+      return { state: "user", me: null };
+    }
 
+    // 3) Fallback: even if /session was inconclusive (500, gateway, etc),
+    //    try /api/users/me. If 200/404, still treat as authenticated for UI.
+    const meRes = await fetchMeTolerant();
+    if (meRes.ok) return { state: "user", me: meRes.me };
+
+    // Otherwise treat as guest (likely 401 or severe backend error)
+    return { state: "guest" };
+  }
+
+  // ---------- Public refresh (used by other pages too) ----------
+  async function refreshNavbarAuth() {
+    const decision = await decideAuthState();
+
+    if (decision.state === "user") {
+      renderUser(decision.me);
+      await updateNavbarCounts(true);
       try {
-        if (window.auth?.logout) {
-          await window.auth.logout();
-        }
-      } finally {
-        window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
-        updateNavbarUser(null);
-        location.href = "/";
-      }
-    });
-  }
-
-  /* ------------------------------------------------------------
-   * Profile icon routing (login vs profile)
-   * ---------------------------------------------------------- */
-  function wireProfileIconRouting() {
-    const profileAnchor = document.querySelector('a[href="./profile.html"]');
-    if (!profileAnchor) return;
-
-    profileAnchor.addEventListener("click", async (e) => {
-      e.preventDefault();
-      if (await isLoggedIn()) {
-        location.href = "profile.html";
-      } else {
-        location.href = "login.html";
-      }
-    });
-  }
-
-  /* ------------------------------------------------------------
-   * Initialization
-   * ---------------------------------------------------------- */
-  async function initializeNavbar() {
-    if (window.auth?.initSession) {
-      await window.auth.initSession();
+        document.dispatchEvent(new CustomEvent("auth:ready", { detail: { me: decision.me || null } }));
+      } catch {}
+      return true;
     }
 
-    const user =
-      (window.auth?.getCurrentUser && (await window.auth.getCurrentUser())) || null;
-
-    updateNavbarUser(user);
+    await renderGuest();
     await updateNavbarCounts(true);
+    return false;
+  }
 
-    wireLogout();
-    wireProfileIconRouting();
+  // ---------- Logout ----------
+  async function handleLogout(ev) {
+    ev?.preventDefault?.();
+    try {
+      try { await window.apiRequest("/api/auth/logout", { method: "POST" }); } catch {}
+      await window.auth?.logout?.();
+    } finally {
+      window.appState = { cartCount: 0, wishlistCount: 0, lastFetch: 0 };
+      await renderGuest();
+      window.location.href = "index.html";
+    }
+  }
 
+  // ---------- Wiring & reactive hooks ----------
+  function wire() {
+    if (els.logoutLink) els.logoutLink.addEventListener("click", handleLogout);
+
+    // PATCH: Guard against transient SIGNED_OUT during refresh
+    if (typeof window.auth?.onSessionStateChange === "function") {
+      window.auth.onSessionStateChange(async (s) => {
+        try {
+          if (s?.state === "TOKEN_READY") {
+            await refreshNavbarAuth();
+            return;
+          }
+          if (s?.state === "SIGNED_OUT" || s?.state === "ERROR") {
+            const tok = await window.auth.getToken({ forceRefresh: false }).catch(() => null);
+            if (tok) {
+              await refreshNavbarAuth();
+            } else {
+              await renderGuest();
+              await updateNavbarCounts(true);
+            }
+            return;
+          }
+          // For FIREBASE_SIGNED_IN or any interim, do nothing (avoid flicker)
+        } catch (e) {
+          console.warn("[navbar] onSessionStateChange error", e);
+        }
+      });
+    } else if (typeof window.auth?.onAuthChanged === "function") {
+      // Back-compat just in case
+      window.auth.onAuthChanged(async () => {
+        await refreshNavbarAuth();
+      });
+    }
+
+    // First render
+    refreshNavbarAuth();
+
+    // Periodic counts refresh
     setInterval(() => updateNavbarCounts(false), 60000);
 
+    // Cross-tab: reflect auth_token changes
+    window.addEventListener("storage", (e) => {
+      if (e?.key === "auth_token") {
+        // short debounce
+        setTimeout(() => refreshNavbarAuth(), 120);
+      }
+    });
+
+    // Page visibility changes (wake up counts)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        updateNavbarCounts(true);
+      }
+    });
+
+    // Expose helpers for other scripts
+    window.refreshNavbarAuth = refreshNavbarAuth;
     window.updateNavbarCounts = updateNavbarCounts;
-    window.updateNavbarUser = updateNavbarUser;
+
+    // PATCH: Always decide destination at click time (ignores stale href)
+    if (els.profileAnchor) {
+      els.profileAnchor.addEventListener("click", async (e) => {
+        e.preventDefault(); // always decide dynamically
+        let ok = false;
+        try { ok = await refreshNavbarAuth(); } catch {}
+        window.location.href = ok ? "profile.html" : "login.html";
+      });
+    }
   }
 
-  document.addEventListener("DOMContentLoaded", initializeNavbar);
+  document.addEventListener("DOMContentLoaded", wire);
 })();

@@ -1,29 +1,241 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Complete Profile</title>
-  <link rel="stylesheet" href="style_1.css">
+  <meta charset="UTF-8" />
+  <title>Complete your profile – Vakaadha</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0; padding: 0; min-height: 100dvh; display: grid; place-items: center;
+      background: #f7f7f8;
+    }
+    .card {
+      width: min(520px, 92vw);
+      background: #fff; border-radius: 16px; padding: 24px 20px;
+      box-shadow: 0 6px 30px rgba(0,0,0,.08);
+    }
+    h1 { margin: 0 0 6px; font-size: 1.4rem; letter-spacing: .2px; }
+    p  { margin: 6px 0 14px; color: #555; line-height: 1.45; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .muted { color: #6b7280; }
+    .field { margin: 14px 0; }
+    .label { font-size: .9rem; color: #374151; margin-bottom: 6px; }
+    .input {
+      width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #ddd;
+      font-size: 1rem; outline: none; box-sizing: border-box;
+    }
+    .readonly {
+      width: 100%; padding: 12px; border-radius: 10px; border: 1px dashed #e5e7eb;
+      background: #fafafa; color: #111; box-sizing: border-box;
+    }
+    .btn {
+      appearance: none; border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer;
+      background: #111; color: #fff; font-weight: 600; min-width: 120px;
+    }
+    .btn.secondary { background: #ececec; color: #111; }
+    .btn:disabled { opacity: .6; cursor: default; }
+    .error { color: #b00020; font-size: .92rem; margin: 8px 0 0; display: none; }
+    .ok { color: #0a7b34; font-size: .92rem; margin: 8px 0 0; display: none; }
+    .badge {
+      display: inline-block; font-size: .75rem; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
+      border: 1px solid #e5e7eb; color: #374151; background: #f9fafb;
+    }
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid #e1e1e1; border-top-color: #111; border-radius: 50%;
+      animation: spin 1s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .links { display:flex; gap:12px; }
+    a.link { color: #111; text-decoration: none; font-weight: 600; }
+    a.link:hover { text-decoration: underline; }
+  </style>
 </head>
 <body>
 
-<div class="card">
-  <h1>Complete your profile</h1>
+<div class="card" role="main" aria-live="polite">
+  <div class="topline">
+    <h1>Complete your profile</h1>
+    <div class="links">
+      <a class="link" id="switchAccount">Not you? Sign out</a>
+    </div>
+  </div>
+  <p class="muted" id="who"></p>
 
-  <input id="name" placeholder="Full name *">
+  <div id="cp-error" class="error"></div>
+  <div id="cp-ok" class="ok"></div>
 
-  <input id="email" placeholder="Email (optional)">
-  <input id="mobile" placeholder="Mobile number (optional)">
+  <form id="complete-profile-form">
+    <div class="field">
+      <div class="label">Your name <span class="badge">required</span></div>
+      <input id="cp-name" class="input" placeholder="e.g., Priya Sharma" required />
+    </div>
 
-  <button onclick="saveProfile()">Continue</button>
-  <div class="link" onclick="skipProfile()">Skip for now</div>
+    <div class="field" id="identityRow">
+      <div class="label">Signed in as</div>
+      <div id="identityBox" class="readonly"></div>
+    </div>
+
+    <div class="row" style="margin-top: 6px;">
+      <button id="cp-submit" type="submit" class="btn">
+        <span class="spinner" id="cp-spin" style="display:none"></span>
+        Continue
+      </button>
+      <button id="cp-skip" type="button" class="btn secondary">Skip for now</button>
+    </div>
+  </form>
 </div>
 
-<script src="config.js"></script>
+<!-- Firebase compat (match the rest of your app) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+<!-- Your auth facade + transport -->
 <script src="auth.js"></script>
-<script src="auth_core.js"></script>
 <script src="api/client.js"></script>
-<script src="profile_state.js"></script>
-<script src="complete_profile.js"></script>
+
+<script>
+(function(){
+  // ------- helpers -------
+  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+  const errEl = document.getElementById('cp-error');
+  const okEl  = document.getElementById('cp-ok');
+  const nameEl= document.getElementById('cp-name');
+  const idBox = document.getElementById('identityBox');
+  const whoEl = document.getElementById('who');
+  const submitBtn = document.getElementById('cp-submit');
+  const spin = document.getElementById('cp-spin');
+
+  function setError(msg){ errEl.textContent = msg || ""; errEl.style.display = msg ? "block":"none"; }
+  function setOk(msg){ okEl.textContent = msg || ""; okEl.style.display = msg ? "block":"none"; }
+  function disableSubmit(d){ submitBtn.disabled = !!d; spin.style.display = d ? "" : "none"; }
+
+  async function ensureTokenVisible() {
+    try {
+      const u = firebase.auth().currentUser;
+      if (!u) return false;
+      const token = await u.getIdToken(true);
+      try { localStorage.setItem("auth_token", token); } catch {}
+      try { window.auth?.setToken?.(token); } catch {}
+      for (let i=0;i<20;i++){
+        const t = await window.auth?.getToken?.();
+        if (t) return true;
+        await sleep(100);
+      }
+    } catch {}
+    return false;
+  }
+
+  function formatIdentity(u, me) {
+    const email = (u && u.email) || (me && me.email) || "";
+    const phone = (u && u.phoneNumber) || (me && me.mobile) || "";
+    const parts = [];
+    if (email) parts.push(`Email: ${email}${u && u.email && u.emailVerified ? " (verified)" : ""}`);
+    if (phone) parts.push(`Phone: ${phone}`);
+    return parts.join("  •  ");
+  }
+
+  async function bootstrap() {
+    setError(""); setOk("");
+
+    // must be authenticated
+    let user = firebase.auth().currentUser;
+    if (!user) {
+      for (let i=0;i<20;i++){
+        await sleep(100);
+        user = firebase.auth().currentUser;
+        if (user) break;
+      }
+    }
+    if (!user) { window.location.href = "login.html"; return; }
+
+    whoEl.textContent = `You’re signed in to Firebase as ${user.uid}`;
+
+    // ensure token for apiRequest
+    await ensureTokenVisible();
+
+    // read backend user
+    let me = null;
+    try {
+      me = await window.apiRequest("/api/users/me");
+      if (me && (me.profile_complete === true || me.profile_complete === 1)) {
+        window.location.href = "index.html";
+        return;
+      }
+      if (me && me.full_name && !nameEl.value) nameEl.value = me.full_name;
+    } catch (e) {
+      const st = Number(e?.status || 0);
+      if (st === 401) { window.location.href = "login.html"; return; }
+      // 404 -> first time; proceed
+    }
+
+    try { await user.reload(); } catch {}
+    idBox.textContent = formatIdentity(user, me);
+  }
+
+  // submit: ensure backend user + set name (IMPORTANT: use { name }, not full_name; and pass an object body)
+  document.getElementById("complete-profile-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    setError(""); setOk("");
+
+    const name = (nameEl.value || "").trim();
+    if (!name) { setError("Please enter your name."); return; }
+
+    disableSubmit(true);
+
+    try {
+      await ensureTokenVisible();
+
+      // 1) Ensure backend user exists (idempotent)
+      await window.apiRequest("/api/auth/register", {
+        method: "POST",
+        body: { name }         // ← object, key must be `name`
+      });
+
+      // 2) Update profile fields (server maps `name` -> full_name)
+      await window.apiRequest("/api/users/me/profile", {
+        method: "PUT",
+        body: { name }         // ← object, not JSON.stringify
+      });
+
+      // 3) Done
+      window.location.href = "index.html";
+    } catch (e) {
+      const st = Number(e?.status || 0);
+      if (st === 409 || st === 200) {
+        window.location.href = "index.html";
+        return;
+      }
+      setError("Could not save your profile. Please try again.");
+    } finally {
+      disableSubmit(false);
+    }
+  });
+
+  // Skip: still ensure backend row exists so site works consistently
+  document.getElementById("cp-skip").addEventListener("click", async () => {
+    try {
+      await ensureTokenVisible();
+      await window.apiRequest("/api/auth/register", { method: "POST", body: {} });
+    } catch {}
+    window.location.href = "index.html";
+  });
+
+  // Switch account
+  document.getElementById("switchAccount").addEventListener("click", async () => {
+    try {
+      await firebase.auth().signOut();
+      try { localStorage.removeItem("auth_token"); } catch {}
+    } finally {
+      window.location.href = "login.html";
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", bootstrap);
+})();
+</script>
 
 </body>
 </html>

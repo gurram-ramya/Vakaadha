@@ -1,8 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
   <title>Verify Mobile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style_1.css">
+  <style>
+    .error { color:#b00020; margin-top:8px; display:none; }
+    .ok    { color:#0a7b34; margin-top:8px; display:none; }
+  </style>
 </head>
 <body>
 
@@ -10,21 +16,174 @@
   <h1>Verify mobile number</h1>
   <p id="otpText"></p>
 
-  <input id="otp" placeholder="Enter OTP" maxlength="6">
+  <input id="otp" placeholder="Enter OTP" maxlength="6" inputmode="numeric" />
 
-  <button onclick="verifyOtp()">Verify</button>
+  <button id="verifyBtn" onclick="verifyOtp()">Verify</button>
 
   <button class="secondary" id="resendBtn" onclick="resendOtp()" disabled>
     Resend OTP (<span id="timer">60</span>)
   </button>
+
+  <div id="otpErr" class="error"></div>
+  <div id="otpOk"  class="ok"></div>
 </div>
 
+<!-- Invisible reCAPTCHA mount point (login.js will use it) -->
+<div id="recaptcha-container" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;"></div>
+
+<!-- Firebase + your libs -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
 <script src="api/client.js"></script>
 <script src="auth.js"></script>
 <script src="auth_core.js"></script>
+
+<!-- Keep login.js: it still handles LOGIN OTP flow, timer, resend, etc. -->
 <script src="login.js"></script>
+
+<script>
+/**
+ * otp.html override for UPDATE (profile_edit) flows:
+ * - If session flow says origin: "profile_edit" and intent: "update_phone"
+ *   we override window.verifyOtp to UPDATE the phone on currentUser (same UID),
+ *   mirror to backend, and return to profile_edit.html.
+ * - Otherwise, we leave login.js behavior as-is (LOGIN or generic LINK).
+ */
+(function(){
+  const FLOW_KEY = "__vakaadha_auth_flow__";
+  const getFlow = () => { try { return JSON.parse(sessionStorage.getItem(FLOW_KEY) || "{}"); } catch { return {}; } };
+  const setErr = (msg)=>{ const el = document.getElementById("otpErr"); if (el){ el.textContent = msg||""; el.style.display = msg?"block":"none"; } };
+  const setOk  = (msg)=>{ const el = document.getElementById("otpOk");  if (el){ el.textContent = msg||""; el.style.display = msg?"block":"none"; } };
+  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+  function currentOtpInputValue() {
+    const otpEl = document.getElementById("otp");
+    return otpEl ? String(otpEl.value || "").trim() : "";
+  }
+
+  async function ensureSignedIn() {
+    // small wait loop in case we arrive immediately after a page that set auth state
+    for (let i=0;i<25;i++){
+      const u = firebase.auth().currentUser;
+      if (u) return u;
+      await sleep(100);
+    }
+    return null;
+  }
+
+  // Improve the helper text based on flow
+  (function primeText(){
+    const f = getFlow();
+    const p = document.getElementById("otpText");
+    if (!p) return;
+    if (f && f.phoneE164) {
+      const updating = (f.origin === "profile_edit" && f.intent === "update_phone");
+      p.textContent = (updating
+        ? "We’ve sent an OTP to " + f.phoneE164 + " to update your mobile number."
+        : "We’ve sent a one-time password to " + f.phoneE164 + "."
+      );
+    } else {
+      p.textContent = "We’ve sent a one-time password to your mobile.";
+    }
+  })();
+
+  // --------- OVERRIDE ONLY IN UPDATE MODE ----------
+  (function maybeOverrideForUpdate(){
+    const f = getFlow();
+    const isUpdatePhone = (f.origin === "profile_edit" && f.intent === "update_phone");
+
+    if (!isUpdatePhone) {
+      // Not an update flow → keep login.js defaults
+      return;
+    }
+
+    // Shadow/override global handlers used by the page buttons.
+    window.verifyOtp = async function verifyOtpUpdateMode() {
+      setErr(""); setOk("");
+      const btn = document.getElementById("verifyBtn");
+      if (btn) btn.disabled = true;
+
+      try {
+        // 1) Preconditions
+        const flow = getFlow();
+        if (!flow || !flow.phone || !flow.phone.verificationId || !flow.phoneE164) {
+          setErr("Invalid session. Please restart from your profile.");
+          return;
+        }
+
+        const code = currentOtpInputValue();
+        if (!/^\d{4,8}$/.test(code)) {
+          setErr("Enter a valid OTP.");
+          return;
+        }
+
+        // 2) Ensure we have the current user (must be already signed in)
+        const user = await ensureSignedIn();
+        if (!user) {
+          setErr("Your session expired. Please sign in again.");
+          return;
+        }
+
+        // 3) Build phone credential from the verificationId+code
+        const cred = firebase.auth.PhoneAuthProvider.credential(flow.phone.verificationId, code);
+
+        // 4) Update phone on the SAME UID
+        try {
+          await user.updatePhoneNumber(cred);
+        } catch (e) {
+          const c = String(e?.code || "");
+          if (c === "auth/requires-recent-login") {
+            setErr("For security, please sign in again, then retry updating your phone.");
+            return;
+          }
+          if (c === "auth/credential-already-in-use" || c === "auth/account-exists-with-different-credential") {
+            setErr("This phone number is already linked to another account.");
+            return;
+          }
+          // Fallback: if updatePhoneNumber fails because no phone was linked before,
+          // linkWithCredential can also add it. Try once:
+          try {
+            await user.linkWithCredential(cred);
+          } catch (e2) {
+            setErr("Could not update your phone number. Please try again.");
+            return;
+          }
+        }
+
+        // 5) Refresh token & expose to auth.js / client.js
+        try {
+          const t = await user.getIdToken(true);
+          try { localStorage.setItem("auth_token", t); } catch {}
+          try { window.auth?.setToken?.(t); } catch {}
+        } catch {}
+
+        // 6) Mirror to backend (idempotent; ensures /users/me reflects the new phone)
+        try {
+          await window.apiRequest("/api/auth/register", { method: "POST", body: {} });
+        } catch (e) {
+          // Don’t block the user if backend is temporarily down;
+          // navbar/profile will re-sync later.
+        }
+
+        setOk("Phone number updated.");
+        await sleep(400);
+
+        // 7) Return to profile_edit (or the page that initiated)
+        const returnTo = flow.returnTo || "profile_edit.html";
+        window.location.href = returnTo;
+
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    };
+
+    // Resend keeps using the implementation from login.js (which already
+    // sends OTP via verifyPhoneNumber in LINK mode and maintains timers)
+    // so we don’t need to reimplement it here.
+  })();
+})();
+</script>
 
 </body>
 </html>

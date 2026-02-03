@@ -14,6 +14,8 @@
 // - sessionStorage is primary flow state (tab scoped)
 // - localStorage allowed only for non-auth identifiers (email/phone) + token/cache managed by auth.js
 // ============================================================
+let __otp_inflight = false;
+let __otp_success = false;
 
 (function () {
   if (window.__login_js_bound__) return;
@@ -759,12 +761,24 @@
 
     // If flow says LINK but actual session is not present, downgrade to LOGIN
     const actualMode = resolveMode();
-    if (flow.mode === MODE.LINK && actualMode !== MODE.LINK) {
+    // if (flow.mode === MODE.LINK && actualMode !== MODE.LINK) {
+    //   setFlow({ mode: MODE.LOGIN });
+    // }
+    const isUpdatePhone = (flow.origin === "profile_edit" && flow.intent === "update_phone");
+    if (flow.mode === MODE.LINK && actualMode !== MODE.LINK && !isUpdatePhone) {
       setFlow({ mode: MODE.LOGIN });
     }
 
+
+    // const otpText = document.getElementById("otpText");
+    // if (otpText) otpText.innerText = "We’ve sent a one-time password to " + flow.phoneE164;
     const otpText = document.getElementById("otpText");
-    if (otpText) otpText.innerText = "We’ve sent a one-time password to " + flow.phoneE164;
+    if (otpText) {
+      const updateMode = (flow.origin === "profile_edit" && flow.intent === "update_phone");
+      otpText.innerText = updateMode
+        ? "We’ve sent an OTP to " + flow.phoneE164 + " to update your mobile number."
+        : "We’ve sent a one-time password to " + flow.phoneE164;
+    }
 
     // Send OTP on page entry if verificationId missing
     if (!flow.phone || !flow.phone.verificationId) {
@@ -837,15 +851,28 @@
     setResendEnabled(false);
   }
 
+  
+
   window.verifyOtp = async function verifyOtp() {
+    // Defensive guard: if this is a profile-edit phone update flow,
+    // let otp.html's override handle it (do nothing here).
+    const __f = getFlow();
+    if (__f && __f.origin === "profile_edit" && __f.intent === "update_phone") {
+      return; // otp.html has its own verifyOtp that updates same UID + mirrors to backend
+    }
+
     try {
       assertFirebaseAvailable();
     } catch (e) {
       hardFail("Auth system not ready", e);
       return;
     }
-
-    markFlowTouched();
+    // debounce + UI disable
+    const btn = document.getElementById("verifyBtn");
+    if (__otp_inflight) return;
+    __otp_inflight = true;
+    if (btn) btn.disabled = true;
+      markFlowTouched();
 
     const flow = getFlow();
     if (!flow || flow.type !== TYPE.PHONE || !flow.phoneE164) {
@@ -906,6 +933,16 @@
       await routeAfterFirebaseAuth();
     } catch (e) {
       hardFail("Login succeeded but post-auth routing failed", e);
+    } finally {
+      __otp_inflight = false;
+      __otp_success = false;
+      if (btn) btn.disabled = false;
+    }
+
+    function unlock() {
+      __otp_inflight = false;
+      __otp_success = false;
+      if (btn) btn.disabled = false;
     }
   };
 

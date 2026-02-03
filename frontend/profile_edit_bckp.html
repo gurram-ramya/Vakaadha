@@ -1,27 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Edit Profile – Vakaadha</title>
-
-  <!-- Styles -->
-  <link rel="stylesheet" href="profile_edit.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-
-  <!-- Basic meta -->
-  <meta name="theme-color" content="#111"/>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Profile – Vakaadha</title>
+    <link rel="stylesheet" href="profile_edit.css">
+    <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 </head>
+
 <body>
 
-  <!-- HEADER -->
+<!-- HEADER -->
   <header class="navbar">
     <a href="index.html" class="logo">VAKAADHA</a>
-
-    <input type="checkbox" id="menu-toggle"/>
-    <label for="menu-toggle" class="menu-icon" aria-label="Toggle menu">&#9776;</label>
-
+    <input type="checkbox" id="menu-toggle" />
+    <label for="menu-toggle" class="menu-icon">&#9776;</label>
     <nav class="nav-links">
       <a href="./index.html" aria-label="Home"><i class="fas fa-house"></i></a>
       <a href="./wishlist.html" aria-label="Wishlist">
@@ -45,93 +39,88 @@
     </nav>
   </header>
 
-  <!-- PAGE WRAPPER -->
-  <div class="profile-wrapper">
+    <!-- PAGE WRAPPER -->
+    <div class="profile-wrapper">
 
-    <!-- LEFT SIDEBAR -->
-    <aside class="sidebar">
-      <h3 class="sidebar-title">Account</h3>
-      <a href="/profile.html" class="sidebar-link">Profile</a>
-      <a href="/orders.html" class="sidebar-link">Orders</a>
-      <a href="/addresses.html" class="sidebar-link">Addresses</a>
-    </aside>
+        <!-- LEFT SIDEBAR -->
+        <aside class="sidebar">
+            <h3 class="sidebar-title">Account</h3>
 
-    <!-- MAIN CARD -->
-    <main class="edit-card">
-      <h2>Edit Details</h2>
+            <a href="/profile.html" class="sidebar-link">Profile</a>
+            <a href="/orders.html" class="sidebar-link">Orders</a>
+            <a href="/addresses.html" class="sidebar-link">Addresses</a>
+        </aside>
 
-      <form id="editProfileForm" novalidate>
+        <!-- MAIN CARD -->
+        <main class="edit-card">
+            <h2>Edit Details</h2>
 
-        <!-- MOBILE (read-only + UPDATE) -->
-        <label class="form-label">
-          Mobile Number
-          <div class="row">
-            <input type="text" id="mobile" class="input" readonly aria-readonly="true"/>
-            <!-- route to middle page in phone mode; explicitly include returnTo -->
-            <a class="btn-light" href="update.html?target=phone&returnTo=profile_edit.html" id="goUpdatePhone" aria-label="Update mobile number">UPDATE</a>
-          </div>
-        </label>
+            <form id="editProfileForm">
 
-        <!-- FULL NAME -->
-        <label class="form-label">
-          Full Name
-          <input type="text" id="fullName" class="input" autocomplete="name" placeholder="Your full name"/>
-        </label>
+                <!-- MOBILE -->
+                <label class="form-label">
+                    Mobile Number
+                    <div class="row">
+                        <input type="text" id="mobile" class="input" readonly>
+                        <button type="button" id="changeMobileBtn" class="btn-light">CHANGE</button>
+                    </div>
+                </label>
 
-        <!-- EMAIL (read-only + UPDATE) -->
-        <label class="form-label">
-          Email
-          <div class="row">
-            <input type="email" id="email" class="input" readonly aria-readonly="true"/>
-            <!-- route to middle page in email mode; explicitly include returnTo -->
-            <a class="btn-light" href="update.html?target=email&returnTo=profile_edit.html" id="goUpdateEmail" aria-label="Update email address">UPDATE</a>
-          </div>
-        </label>
+                <!-- FULL NAME -->
+                <label class="form-label">
+                    Full Name
+                    <input type="text" id="fullName" class="input">
+                </label>
 
-        <!-- GENDER -->
-        <label class="form-label">
-          Gender
-          <div class="gender-row" role="group" aria-label="Select gender">
-            <button type="button" class="gender-btn" data-value="Male">Male</button>
-            <button type="button" class="gender-btn" data-value="Female">Female</button>
-          </div>
-        </label>
+                <!-- EMAIL -->
+                <label class="form-label">
+                    Email
+                    <input type="email" id="email" class="input">
+                </label>
 
-        <!-- DOB -->
-        <label class="form-label">
-          Birthday (dd/mm/yyyy)
-          <input type="text" id="dob" class="input" inputmode="numeric" placeholder="dd/mm/yyyy" autocomplete="bday"/>
-        </label>
+                <!-- GENDER -->
+                <label class="form-label">
+                    Gender
+                    <div class="gender-row">
+                        <button type="button" class="gender-btn" data-value="Male">Male</button>
+                        <button type="button" class="gender-btn" data-value="Female">Female</button>
+                    </div>
+                </label>
 
-        <!-- ALT MOBILE (free text; backend ignores for now) -->
-        <label class="form-label">
-          Alternate Mobile Number
-          <input type="text" id="altMobile" class="input" inputmode="tel" placeholder="+91XXXXXXXXXX"/>
-        </label>
+                <!-- DOB -->
+                <label class="form-label">
+                    Birthday (dd/mm/yyyy)
+                    <input type="text" id="dob" class="input">
+                </label>
 
-        <!-- HINT NAME (free text; backend ignores for now) -->
-        <label class="form-label">
-          Hint Name
-          <input type="text" id="hintName" class="input" placeholder="How should we address you?"/>
-        </label>
+                <!-- ALT MOBILE -->
+                <label class="form-label">
+                    Alternate Mobile Number
+                    <input type="text" id="altMobile" class="input">
+                </label>
 
-        <button type="submit" class="save-btn">SAVE DETAILS</button>
-      </form>
+                <!-- HINT NAME -->
+                <label class="form-label">
+                    Hint Name
+                    <input type="text" id="hintName" class="input">
+                </label>
 
-      <!-- Inline error surface used by profile_edit.js -->
-      <div id="profile-edit-error" class="form-error" style="display:none;"></div>
-    </main>
-  </div>
+                <button type="submit" class="save-btn">SAVE DETAILS</button>
+            </form>
 
-  <!-- Share Modal -->
+        </main>
+    </div>
+
+
+      <!-- Share Modal -->
   <div id="shareModal" class="modal" aria-hidden="true">
     <div class="modal-content">
-      <button class="close" onclick="closeModal('shareModal')" aria-label="Close">&times;</button>
+      <button class="close" onclick="closeModal('shareModal')">&times;</button>
       <h2>Share this product</h2>
       <div class="share-options">
-        <a id="share-whatsapp" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i> WhatsApp</a>
-        <a id="share-facebook" target="_blank" rel="noopener"><i class="fab fa-facebook"></i> Facebook</a>
-        <a id="share-twitter" target="_blank" rel="noopener"><i class="fab fa-x-twitter"></i> Twitter/X</a>
+        <a id="share-whatsapp" target="_blank"><i class="fab fa-whatsapp"></i> WhatsApp</a>
+        <a id="share-facebook" target="_blank"><i class="fab fa-facebook"></i> Facebook</a>
+        <a id="share-twitter" target="_blank"><i class="fab fa-x-twitter"></i> Twitter/X</a>
         <button id="copy-link"><i class="fas fa-link"></i> Copy Link</button>
       </div>
     </div>
@@ -139,19 +128,29 @@
 
   <!-- Toast -->
   <div id="toast" style="
-    position: fixed; bottom: 20px; left: 50%;
-    transform: translateX(-50%); background: #333; color: white;
-    padding: 10px 20px; border-radius: 6px; opacity: 0;
-    transition: opacity 0.3s; z-index: 9999;"></div>
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 9999;
+    "></div>
 
   <!-- ABOUT & POLICIES FOOTER -->
   <div class="contact-policy">
+    <!-- INFO SECTION -->
     <section class="info-section" data-aos="fade-up">
       <div class="info-left">
         <div class="about-buttons">
           <button type="button" onclick="openModal('aboutModal')"><h2>About Us</h2></button>
         </div>
       </div>
+
       <div class="info-right">
         <h2>Follow Us On</h2>
         <div class="social-icons">
@@ -166,6 +165,7 @@
       </div>
     </section>
 
+    <!-- POLICIES SECTION -->
     <section class="policies-section" data-aos="fade-up">
       <div class="policy-links">
         <a href="#" onclick="loadPolicy('privacy-policy.html')">Privacy Policy</a>
@@ -179,9 +179,11 @@
   <!-- About Modal -->
   <div id="aboutModal" class="modal">
     <div class="modal-content">
-      <span class="close" onclick="closeModal('aboutModal')" aria-label="Close">&times;</span>
+      <span class="close" onclick="closeModal('aboutModal')">&times;</span>
       <h2>About Vakaadha</h2>
-      <p>VAKAADHA is a homegrown brand dedicated to timeless craftsmanship, curated design, and mindful living.</p>
+      <p>
+        VAKAADHA is a homegrown brand dedicated to timeless craftsmanship, curated design, and mindful living.
+      </p>
       <div class="about-highlights">
         <div class="highlight-card">
           <h3>Handcrafted Quality</h3>
@@ -194,24 +196,24 @@
       </div>
       <div class="contact-info">
         <div class="info-item">
-          <i class="fa-solid fa-envelope"></i>
-          <a href="mailto:contact.vakaadha@gmail.com">contact.vakaadha@gmail.com</a>
+          <i class="fa-solid fa-envelope"></i><a href="mailto:contact.vakaadha@gmail.com">contact.vakaadha@gmail.com</a>
         </div>
         <div class="info-item">
-          <i class="fa-solid fa-phone"></i>
-          <a href="tel:+917893153335">+91 78931 53335</a>
+          <i class="fa-solid fa-phone"></i><a href="tel:+917893153335">+91 78931 53335</a>
         </div>
       </div>
     </div>
   </div>
 
+
   <!-- UNIVERSAL POLICY MODAL -->
   <div id="policyModal" class="modal">
     <div class="modal-content" id="policyContent">
-      <span class="close" onclick="closeModal('policyModal')" aria-label="Close">&times;</span>
+      <span class="close" onclick="closeModal('policyModal')">&times;</span>
       <div id="policy-body">Loading...</div>
     </div>
   </div>
+
 
   <!-- Simple modal helpers -->
   <script>
@@ -231,21 +233,23 @@
     };
     function loadPolicy(file) {
       fetch(file)
-        .then(r => r.text())
+        .then(response => response.text())
         .then(html => {
           document.getElementById("policy-body").innerHTML = html;
           openModal("policyModal");
         })
-        .catch(() => {
+        .catch(err => {
           document.getElementById("policy-body").innerHTML = "<p>Error loading page.</p>";
           openModal("policyModal");
         });
     }
+
   </script>
 
   <!-- Firebase (compat) – must come before auth.js -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
 
   <!-- Auth & transport (order matters) -->
   <script src="./auth.js"></script>

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Update your details – Vakaadha</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 0; padding: 0; min-height: 100dvh; display: grid; place-items: center;
+      background: #f7f7f8;
+    }
+    .card {
+      width: min(520px, 92vw);
+      background: #fff; border-radius: 16px; padding: 24px 20px;
+      box-shadow: 0 6px 30px rgba(0,0,0,.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: .2px; }
+    p  { margin: 6px 0 14px; color: #555; line-height: 1.45; }
+    .field { margin: 14px 0; }
+    .label { font-size: .9rem; color: #374151; margin-bottom: 6px; }
+    .input {
+      width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #ddd;
+      font-size: 1rem; outline: none; box-sizing: border-box;
+    }
+    .btn {
+      appearance: none; border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer;
+      background: #111; color: #fff; font-weight: 600; min-width: 120px;
+    }
+    .btn.secondary { background: #ececec; color: #111; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .error { color: #b00020; font-size: .92rem; margin-top: 8px; display: none; }
+    .ok { color: #0a7b34; font-size: .92rem; margin-top: 8px; display: none; }
+    .hidden { display: none; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 14px; }
+    .seg .segbtn {
+      border: 1px solid #ddd; border-radius: 10px; padding: 10px; cursor: pointer;
+      text-align: center; background: #fafafa; font-weight: 600;
+    }
+    .seg .segbtn:focus { outline: 2px solid #111; background: #fff; }
+    .muted { color: #6b7280; }
+  </style>
+</head>
+<body>
+
+<div class="card" role="main" aria-live="polite">
+  <h1>Update your sign-in details</h1>
+  <p class="muted">Choose what you want to update. You’ll verify it in the next step, then we’ll bring you back to your profile.</p>
+
+  <!-- chooser if ?target missing -->
+  <div id="chooser" class="field hidden">
+    <div class="label">Choose what to update</div>
+    <div class="seg">
+      <button id="choosePhone"  class="segbtn" type="button">Phone number</button>
+      <button id="chooseEmail"  class="segbtn" type="button">Email address</button>
+    </div>
+  </div>
+
+  <!-- PHONE SCREEN -->
+  <section id="phoneScreen" class="hidden">
+    <div class="label">New mobile number</div>
+    <input id="phoneInput" class="input" placeholder="+91XXXXXXXXXX" inputmode="tel" />
+    <p class="muted" style="margin-top:6px;">
+      Enter your number with country code (e.g., <b>+91</b> for India). You’ll receive an OTP to verify.
+    </p>
+    <div class="row" style="margin-top:12px;">
+      <button id="phoneContinue" class="btn" type="button">Continue</button>
+      <a href="profile_edit.html" class="btn secondary">Cancel</a>
+    </div>
+    <div id="phoneErr" class="error"></div>
+  </section>
+
+  <!-- EMAIL SCREEN -->
+  <section id="emailScreen" class="hidden">
+    <div class="label">New email address</div>
+    <input id="emailInput" class="input" placeholder="you@example.com" inputmode="email" />
+    <p class="muted" style="margin-top:6px;">You’ll confirm this email in the next step.</p>
+    <div class="row" style="margin-top:12px;">
+      <button id="emailContinue" class="btn" type="button">Continue</button>
+      <a href="profile_edit.html" class="btn secondary">Cancel</a>
+    </div>
+    <div id="emailErr" class="error"></div>
+  </section>
+
+</div>
+
+<!-- Firebase compat (auth state check + preflight) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+<!-- Your auth facade (token handling), no backend calls here -->
+<script src="auth.js"></script>
+
+<script>
+(function(){
+  // ---------- tiny helpers ----------
+  const qs = (s)=>document.querySelector(s);
+  const show = (el, yes)=> el.classList[yes ? 'remove' : 'add']('hidden');
+  const setError = (el,msg)=>{ el.textContent = msg||""; el.style.display = msg ? "block":"none"; };
+  const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+  function getFlow() {
+    try { return JSON.parse(sessionStorage.getItem("__vakaadha_auth_flow__")||"{}"); } catch { return {}; }
+  }
+  function setFlow(patch, replace=false) {
+    let cur = replace ? {} : getFlow();
+    const next = { ...cur, ...patch };
+    try { sessionStorage.setItem("__vakaadha_auth_flow__", JSON.stringify(next)); } catch {}
+    return next;
+  }
+  function resetFlow() {
+    try { sessionStorage.removeItem("__vakaadha_auth_flow__"); } catch {}
+  }
+
+  function isValidEmail(v) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||"").trim());
+  }
+
+  function normalizeE164(v) {
+    const s = String(v||"").trim();
+    if (!s) return "";
+    let out = s.replace(/[^\d+]/g, "");
+    if (!out.startsWith("+")) out = "+" + out.replace(/\+/g,"");
+    out = "+" + out.replace(/^\++/,"").replace(/[^\d]/g,"");
+    return out;
+  }
+  function looksE164(v) { return /^\+\d{6,15}$/.test(String(v||"")); }
+
+  // ---------- auth guard ----------
+  async function ensureSignedIn() {
+    // Give Firebase a moment if you just came from another page
+    let u = null;
+    for (let i=0;i<20;i++){
+      try { u = firebase.auth().currentUser; } catch {}
+      if (u) break;
+      await sleep(100);
+    }
+    if (!u) { window.location.href = "login.html"; return null; }
+    return u;
+  }
+
+  // ---------- elements ----------
+  const chooser      = qs('#chooser');
+  const choosePhone  = qs('#choosePhone');
+  const chooseEmail  = qs('#chooseEmail');
+
+  const phoneScreen  = qs('#phoneScreen');
+  const phoneInput   = qs('#phoneInput');
+  const phoneBtn     = qs('#phoneContinue');
+  const phoneErr     = qs('#phoneErr');
+
+  const emailScreen  = qs('#emailScreen');
+  const emailInput   = qs('#emailInput');
+  const emailBtn     = qs('#emailContinue');
+  const emailErr     = qs('#emailErr');
+
+  function showPhone()  { show(chooser,false); show(emailScreen,false); show(phoneScreen,true); }
+  function showEmail()  { show(chooser,false); show(phoneScreen,false); show(emailScreen,true); }
+  function showChooser(){ show(phoneScreen,false); show(emailScreen,false); show(chooser,true); }
+
+  // ---------- navigation from query param ----------
+  function routeFromQuery() {
+    const target = new URLSearchParams(location.search).get('target');
+    if (target === 'phone') { showPhone(); return 'phone'; }
+    if (target === 'email') { showEmail(); return 'email'; }
+    showChooser(); return null;
+  }
+
+  // ---------- primary actions ----------
+  async function startPhoneLink(user) {
+    setError(phoneErr,"");
+    const raw = normalizeE164(phoneInput.value);
+    if (!looksE164(raw)) {
+      setError(phoneErr, "Enter a valid number with country code (e.g., +91XXXXXXXXXX).");
+      return;
+    }
+
+    // Write a clean LINK flow for OTP → updatePhoneNumber on current UID
+    resetFlow();
+    setFlow({
+      mode: "LINK",
+      origin: "profile_edit",
+      intent: "update_phone",
+      type: "PHONE",
+      target: "PHONE",
+      phoneE164: raw,
+      newValue: raw,
+      createdAt: Date.now(),
+      phone: { otpSentAt: null, verificationId: null, method: "verifyPhoneNumber" },
+      returnTo: "profile_edit.html",
+      uid: user.uid
+    }, true);
+
+    // Hand off to OTP flow
+    window.location.href = "otp.html";
+  }
+
+  async function startEmailLink(user) {
+    setError(emailErr,"");
+    const email = String(emailInput.value||"").trim();
+    if (!isValidEmail(email)) {
+      setError(emailErr, "Enter a valid email address.");
+      return;
+    }
+
+    // Preflight: try to hint about existing accounts. We still proceed; SDK enforces conflicts.
+    try {
+      const methods = await firebase.auth().fetchSignInMethodsForEmail(email);
+      const someoneHasIt = methods && methods.length > 0 && user.email !== email;
+      if (someoneHasIt) {
+        setError(emailErr, "Heads up: this email may already be in use. If the next step fails, try a different email.");
+      }
+    } catch {}
+
+    // Write a clean LINK flow for Email → verifyBeforeUpdateEmail on current UID
+    resetFlow();
+    setFlow({
+      mode: "LINK",
+      origin: "profile_edit",
+      intent: "update_email",
+      type: "EMAIL",
+      target: "EMAIL",
+      email: email,
+      newValue: email,
+      createdAt: Date.now(),
+      emailLink: { sentAt: null, continueUrl: null },
+      returnTo: "profile_edit.html",
+      uid: user.uid
+    }, true);
+
+    // // Hand off to Email update flow
+    // window.location.href = "email.html";
+
+    // Hand off to Email update flow + durable hints for cross-tab/new-tab recovery 
+    try { localStorage.setItem("__vakaadha_update_email__", email); } catch {} 
+    const url = new URL("email.html", window.location.href); 
+    url.searchParams.set("from", "update"); 
+    url.searchParams.set("e", email); 
+    window.location.href = url.toString();
+
+  }
+
+  // ---------- init ----------
+  document.addEventListener('DOMContentLoaded', async () => {
+    const user = await ensureSignedIn();
+    if (!user) return;
+
+    const choice = routeFromQuery();
+
+    // chooser actions
+    if (choosePhone) choosePhone.onclick = () => { showPhone();  history.replaceState(null,"", "?target=phone");  phoneInput?.focus(); };
+    if (chooseEmail) chooseEmail.onclick = () => { showEmail();  history.replaceState(null,"", "?target=email");  emailInput?.focus(); };
+
+    // phone actions
+    if (phoneBtn) phoneBtn.onclick = () => startPhoneLink(user);
+    if (phoneInput) {
+      phoneInput.addEventListener('blur', () => {
+        const n = normalizeE164(phoneInput.value);
+        if (n) phoneInput.value = n;
+      });
+    }
+
+    // email actions
+    if (emailBtn) emailBtn.onclick = () => startEmailLink(user);
+
+    // small UX: focus initial field
+    if (choice === 'phone') { phoneInput?.focus(); }
+    else if (choice === 'email') { emailInput?.focus(); }
+  });
+})();
+</script>
+
+</body>
+</html>
