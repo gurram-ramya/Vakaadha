@@ -1206,11 +1206,11 @@ body {
   border: solid 1px black;
   padding: 10px;
   border-radius: 6px;
-  background: #493628;
+  background: rgb(73, 54, 40);
 }
 
 /* ==== Floating T-shirt ==== */
-.floating-icons {
+/* .floating-icons {
     position: fixed;
     top: 0;
     left: 0;
@@ -1231,7 +1231,119 @@ body {
     0% {transform: translateY(0);}
     50% {transform: translateY(-15px);}
     100% {transform: translateY(0);}
+} */
+
+/* ===============================
+   BACKGROUND OUTLINE T-SHIRTS
+   (MATCHES PROVIDED IMAGE)
+================================ */
+
+/* .floating-icons {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+} */
+
+/* Outline-only shirt */
+/* .floating-icons i {
+  position: absolute;
+  font-size: 42px;
+  color: transparent; no fill */
+
+  /* Outline effect */
+  /* -webkit-text-stroke: 1.2px rgb(73, 54, 40);
+  text-stroke: 1.2px rgb(73, 54, 40);
+
+  opacity: 0.35;
+  animation: subtleFloat 8s ease-in-out infinite;
+} */
+
+/* Fixed random layout (pattern look) */
+/* .floating-icons i:nth-child(1)  { top: 12%; left: 6%;  animation-duration: 7s; }
+.floating-icons i:nth-child(2)  { top: 22%; left: 18%; animation-duration: 8s; }
+.floating-icons i:nth-child(3)  { top: 38%; left: 10%; animation-duration: 6.5s; }
+.floating-icons i:nth-child(4)  { top: 55%; left: 20%; animation-duration: 7.5s; }
+.floating-icons i:nth-child(5)  { top: 72%; left: 12%; animation-duration: 8.5s; }
+
+.floating-icons i:nth-child(6)  { top: 15%; left: 42%; animation-duration: 7.8s; }
+.floating-icons i:nth-child(7)  { top: 35%; left: 50%; animation-duration: 6.8s; }
+.floating-icons i:nth-child(8)  { top: 60%; left: 45%; animation-duration: 8.2s; }
+
+.floating-icons i:nth-child(9)  { top: 18%; left: 72%; animation-duration: 7.3s; }
+.floating-icons i:nth-child(10) { top: 40%; left: 82%; animation-duration: 8.6s; }
+.floating-icons i:nth-child(11) { top: 65%; left: 75%; animation-duration: 7.9s; }
+.floating-icons i:nth-child(12) { top: 80%; left: 88%; animation-duration: 9s; } */
+
+/* Almost static float */
+/* @keyframes subtleFloat {
+  0%   { transform: translateY(0); }
+  50%  { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+} */
+
+
+/* ===============================
+   BACKGROUND FLOATING T-SHIRTS
+================================ */
+/* .floating-icons {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
+
+.floating-icons i {
+  position: absolute;
+  font-size: 38px;
+  color: transparent;
+
+  -webkit-text-stroke: 1.2px rgb(73, 54, 40);
+  text-stroke: 1.2px rgb(73, 54, 40);
+
+  opacity: 0.35;
+  animation-name: subtleFloat;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes subtleFloat {
+  0%   { transform: translateY(0); }
+  50%  { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+} */
+
+/* ===============================
+   BACKGROUND FLOATING T-SHIRTS
+================================ */
+.floating-icons {
+  position: fixed;
+  inset: 0;
+  z-index: -1; 
+  pointer-events: none;
+  overflow: hidden;
+  background-color: #e5ddd3; 
+}
+
+.floating-icons i {
+  position: absolute;
+  color: transparent;
+  
+  -webkit-text-stroke: 1px rgba(73, 54, 40,0.8);
+  text-stroke: 1px rgba(73, 54, 40,0.8);
+
+  animation-name: subtleFloat;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes subtleFloat {
+  0%   { transform: translateY(0) rotate(0deg); }
+  50%  { transform: translateY(-15px) rotate(2deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
 
 
 .size-btn.active {
