@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="cart.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Megrim&display=swap" rel="stylesheet"/>
-  <script src="./navbar.js" defer></script>
+  <!-- <script src="./navbar.js" defer></script> -->
 </head>
 <body>
   <!-- NAVBAR -->
@@ -31,6 +31,14 @@
           <i class="fas fa-user"></i> <span id="user-display"></span>
         </a>
         <div class="dropdown-content">
+          <a href="login.html" id="loginLink">Login / Signup</a>
+          <a href="orders.html">My Orders</a>
+          <a href="wishlist.html">Wishlist</a>
+          <a href="addresses.html">Addresses</a>
+          <a href="#" id="navbar-logout">Logout</a>
+        </div>
+
+        <!-- <div class="dropdown-content">
           <a href="profile.html" id="auth-link" style="font-weight: bold;">Login / Signup</a>
           <hr class="dropdown-divider"/> 
           <a href="orders.html">Orders</a>
@@ -48,7 +56,7 @@
             <a href="addresses.html">Addresses</a>
             <a href="#" id="logout">Logout</a>
           </div>
-        </div>
+        </div> -->
       </div>
     </nav>
   </header>
@@ -172,6 +180,6 @@
   <script src="./auth.js"></script>
   <script src="./api/client.js"></script>
   <script src="./navbar.js"></script>
-  <script src="./cart.js" defer></script>
+  <script src="./cart.js" ></script>
 </body>
 </html>
